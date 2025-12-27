@@ -4,16 +4,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/timmy/emomo/internal/api/handler"
 	"github.com/timmy/emomo/internal/api/middleware"
+	"github.com/timmy/emomo/internal/config"
 	"github.com/timmy/emomo/internal/service"
 )
 
 // SetupRouter configures the Gin router with all routes
 func SetupRouter(
 	searchService *service.SearchService,
-	mode string,
+	cfg *config.Config,
 ) *gin.Engine {
 	// Set Gin mode
-	switch mode {
+	switch cfg.Server.Mode {
 	case "release":
 		gin.SetMode(gin.ReleaseMode)
 	case "test":
@@ -27,7 +28,10 @@ func SetupRouter(
 	// Add middleware
 	r.Use(gin.Recovery())
 	r.Use(middleware.Logger())
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(middleware.CORSConfig{
+		AllowedOrigins:  cfg.Server.CORS.AllowedOrigins,
+		AllowAllOrigins: cfg.Server.CORS.AllowAllOrigins,
+	}))
 
 	// Create handlers
 	healthHandler := handler.NewHealthHandler()

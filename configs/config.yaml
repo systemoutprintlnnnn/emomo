@@ -1,6 +1,14 @@
 server:
   port: 8080
   mode: debug  # debug, release, test
+  cors:
+    # Set to true to allow all origins (not recommended for production)
+    # When true, credentials will be disabled for security
+    allow_all_origins: true
+    # List of allowed origins (e.g., for Vercel deployment)
+    # Example: ["https://your-app.vercel.app", "https://your-custom-domain.com"]
+    # Leave empty if allow_all_origins is true
+    allowed_origins: []
 
 database:
   path: ./data/memes.db

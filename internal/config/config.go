@@ -23,6 +23,12 @@ type Config struct {
 type ServerConfig struct {
 	Port int    `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
+	CORS CORSConfig `mapstructure:"cors"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
+	AllowAllOrigins bool    `mapstructure:"allow_all_origins"`
 }
 
 type DatabaseConfig struct {
@@ -105,6 +111,8 @@ func Load(configPath string) (*Config, error) {
 	// Set defaults
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "debug")
+	v.SetDefault("server.cors.allow_all_origins", true)
+	v.SetDefault("server.cors.allowed_origins", []string{})
 	v.SetDefault("database.path", "./data/memes.db")
 	v.SetDefault("qdrant.host", "localhost")
 	v.SetDefault("qdrant.port", 6334)

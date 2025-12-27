@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+
+# Data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Build artifacts
+ingest
+api
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Documentation
+*.md
+!README.md
+
+# Frontend (separate repo)
+emomo-frontend/
+

@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: emomo-api
+    env: go
+    buildCommand: go build -o api ./cmd/api
+    startCommand: ./api
+    envVars:
+      - key: CONFIG_PATH
+        value: ./configs/config.prod.yaml
+      - key: MINIO_ACCESS_KEY
+        sync: false
+      - key: MINIO_SECRET_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JINA_API_KEY
+        sync: false
+      - key: QDRANT_HOST
+        sync: false
+      - key: QDRANT_PORT
+        value: "6334"
+      - key: MINIO_ENDPOINT
+        sync: false
+      - key: MINIO_USE_SSL
+        value: "false"
+

@@ -20,7 +20,9 @@ import (
 
 func main() {
 	// Load configuration
-	cfg, err := config.Load("")
+	// Support CONFIG_PATH environment variable for production deployments
+	configPath := os.Getenv("CONFIG_PATH")
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -107,7 +109,7 @@ func main() {
 	)
 
 	// Setup router
-	router := api.SetupRouter(searchService, cfg.Server.Mode)
+	router := api.SetupRouter(searchService, cfg)
 
 	// Create HTTP server
 	srv := &http.Server{
