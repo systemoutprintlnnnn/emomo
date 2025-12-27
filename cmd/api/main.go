@@ -144,7 +144,7 @@ func main() {
 	}
 
 	// Setup router
-	router := api.SetupRouter(searchService, ingestService, sources, cfg)
+	router := api.SetupRouter(searchService, ingestService, sources, cfg, logger)
 
 	// Create HTTP server
 	srv := &http.Server{

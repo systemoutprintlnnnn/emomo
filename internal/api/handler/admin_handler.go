@@ -9,12 +9,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
+	"go.uber.org/zap"
 )
 
 // AdminHandler handles admin operations
 type AdminHandler struct {
 	ingestService *service.IngestService
 	sources       map[string]source.Source
+	logger        *zap.Logger
 
 	// Ingest job state
 	mu            sync.RWMutex
@@ -25,10 +27,11 @@ type AdminHandler struct {
 }
 
 // NewAdminHandler creates a new admin handler
-func NewAdminHandler(ingestService *service.IngestService, sources map[string]source.Source) *AdminHandler {
+func NewAdminHandler(ingestService *service.IngestService, sources map[string]source.Source, logger *zap.Logger) *AdminHandler {
 	return &AdminHandler{
 		ingestService: ingestService,
 		sources:       sources,
+		logger:        logger,
 	}
 }
 
@@ -319,14 +322,29 @@ func (h *AdminHandler) AdminPage(c *gin.Context) {
 func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	var req IngestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Warn("Invalid ingest request",
+			zap.String("client_ip", c.ClientIP()),
+			zap.Error(err),
+		)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.logger.Info("Received ingest request",
+		zap.String("source", req.Source),
+		zap.Int("limit", req.Limit),
+		zap.Bool("force", req.Force),
+		zap.String("client_ip", c.ClientIP()),
+	)
 
 	// Check if ingest is already running
 	h.mu.RLock()
 	if h.isRunning {
 		h.mu.RUnlock()
+		h.logger.Warn("Ingest request rejected: already running",
+			zap.String("source", req.Source),
+			zap.String("client_ip", c.ClientIP()),
+		)
 		c.JSON(http.StatusConflict, gin.H{"error": "Ingest is already running"})
 		return
 	}
@@ -335,6 +353,10 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	// Get source
 	src, ok := h.sources[req.Source]
 	if !ok {
+		h.logger.Warn("Unknown source requested",
+			zap.String("source", req.Source),
+			zap.String("client_ip", c.ClientIP()),
+		)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unknown source: " + req.Source})
 		return
 	}
@@ -345,11 +367,19 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	h.currentStats = nil
 	h.mu.Unlock()
 
+	h.logger.Info("Starting ingest process",
+		zap.String("source", req.Source),
+		zap.Int("limit", req.Limit),
+		zap.Bool("force", req.Force),
+	)
+
 	// Run ingest
 	ctx := context.Background()
+	startTime := time.Now()
 	stats, err := h.ingestService.IngestFromSource(ctx, src, req.Limit, &service.IngestOptions{
 		Force: req.Force,
 	})
+	duration := time.Since(startTime)
 
 	// Update state
 	h.mu.Lock()
@@ -364,9 +394,27 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	h.mu.Unlock()
 
 	if err != nil {
+		h.logger.Error("Ingest process failed",
+			zap.String("source", req.Source),
+			zap.Int("limit", req.Limit),
+			zap.Bool("force", req.Force),
+			zap.Duration("duration", duration),
+			zap.Error(err),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.logger.Info("Ingest process completed successfully",
+		zap.String("source", req.Source),
+		zap.Int("limit", req.Limit),
+		zap.Bool("force", req.Force),
+		zap.Duration("duration", duration),
+		zap.Int64("total_items", stats.TotalItems),
+		zap.Int64("processed_items", stats.ProcessedItems),
+		zap.Int64("skipped_items", stats.SkippedItems),
+		zap.Int64("failed_items", stats.FailedItems),
+	)
 
 	c.JSON(http.StatusOK, IngestResponse{
 		Message: "Ingest completed successfully",
@@ -378,6 +426,11 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 func (h *AdminHandler) GetIngestStatus(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+	h.logger.Debug("Ingest status requested",
+		zap.String("client_ip", c.ClientIP()),
+		zap.Bool("is_running", h.isRunning),
+	)
 
 	resp := IngestStatusResponse{
 		IsRunning:     h.isRunning,
