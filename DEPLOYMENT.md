@@ -328,16 +328,185 @@ JINA_API_KEY=your-key
 3. 配置环境变量
 4. 使用 Dockerfile 或直接构建 Go 应用
 
+## Docker 部署说明
+
+### 使用 Docker Compose 部署
+
+项目提供了 `deployments/docker-compose.prod.yml` 用于生产环境部署，支持多种部署模式：
+
+- **仅云服务**：使用 Qdrant Cloud + Cloudflare R2（推荐生产环境）
+- **仅本地服务**：使用本地 Qdrant + MinIO
+- **混合模式**：本地 Qdrant + 云存储，或云 Qdrant + 本地 MinIO
+
+详细说明请参考 [`deployments/README.md`](deployments/README.md)。
+
+#### 部署模式选择
+
+**模式 1：仅云服务（推荐）**
+
+使用 Qdrant Cloud 和 Cloudflare R2，无需本地服务：
+
+```bash
+# 1. 配置云服务（见下方配置说明）
+# 2. 启动 API 服务（不启动本地 Qdrant/MinIO）
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+**模式 2：仅本地服务**
+
+使用本地 Qdrant 和 MinIO：
+
+```bash
+# 启动所有服务（包括本地 Qdrant 和 MinIO）
+docker-compose -f docker-compose.prod.yml --profile local up -d
+```
+
+**模式 3：混合模式**
+
+- 本地 Qdrant + 云存储：`docker-compose -f docker-compose.prod.yml --profile qdrant-local up -d`
+- 云 Qdrant + 本地 MinIO：`docker-compose -f docker-compose.prod.yml --profile minio-local up -d`
+
+#### 重要：ChineseBQB 目录挂载
+
+在使用 Docker 部署时，**必须确保 ChineseBQB 数据目录被正确挂载**，否则 ingestion 会失败（处理 0 个项目）。
+
+#### 云服务配置（模式 1）
+
+如果使用云服务，需要配置以下环境变量：
+
+**Qdrant Cloud**：
+```bash
+export QDRANT_HOST=your-cluster.qdrant.io
+export QDRANT_PORT=443
+export QDRANT_API_KEY=your-qdrant-cloud-key
+export QDRANT_USE_TLS=true
+```
+
+**Cloudflare R2**：
+```bash
+export STORAGE_TYPE=r2
+export STORAGE_ENDPOINT=your-account-id.r2.cloudflarestorage.com
+export STORAGE_ACCESS_KEY=your-r2-access-key
+export STORAGE_SECRET_KEY=your-r2-secret-key
+export STORAGE_BUCKET=memes
+export STORAGE_REGION=auto
+export STORAGE_USE_SSL=true
+export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
+```
+
+或者使用配置文件 `configs/config.cloud.yaml.example`，复制并修改为 `configs/config.prod.yaml`。
+
+#### 步骤
+
+1. **准备数据目录**
+   ```bash
+   # 在服务器上克隆 ChineseBQB 数据
+   cd /path/to/emomo
+   git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+   
+   # 确保目录结构正确
+   ls -la ./data/ChineseBQB  # 应该看到图片文件
+   ```
+
+2. **检查 docker-compose.prod.yml 挂载配置**
+   
+   确保 `docker-compose.prod.yml` 中有以下挂载配置：
+   ```yaml
+   volumes:
+     - ../data:/root/data        # 挂载整个 data 目录
+     - ../configs:/root/configs  # 挂载配置文件
+   ```
+   
+   这会将主机的 `./data/ChineseBQB` 挂载到容器的 `/root/data/ChineseBQB`。
+
+3. **启动服务**
+   ```bash
+   cd deployments
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
+
+4. **验证目录挂载**
+   ```bash
+   # 进入容器检查
+   docker exec -it emomo-api sh
+   
+   # 在容器内检查
+   ls -la /root/data/ChineseBQB
+   # 应该能看到图片文件
+   
+   # 检查文件数量
+   find /root/data/ChineseBQB -type f | wc -l
+   ```
+
+5. **查看启动日志**
+   ```bash
+   docker logs emomo-api
+   ```
+   
+   启动时会自动运行 `check-data-dir.sh` 脚本，检查目录是否存在。如果看到错误信息，说明目录未正确挂载。
+
+#### 常见问题
+
+**问题：Ingestion 处理了 0 个项目**
+
+**原因**：ChineseBQB 目录未正确挂载到容器中。
+
+**解决方案**：
+1. 检查主机上的目录是否存在：`ls -la /path/to/emomo/data/ChineseBQB`
+2. 检查 docker-compose.yml 中的挂载路径是否正确（使用相对路径 `../data` 或绝对路径）
+3. 确保目录包含图片文件（.jpg, .png, .gif, .webp）
+4. 重启容器：`docker-compose -f docker-compose.prod.yml restart api`
+5. 查看容器日志：`docker logs emomo-api`
+
+**问题：使用绝对路径挂载**
+
+如果项目不在 `deployments` 目录的上一级，可以使用绝对路径：
+
+```yaml
+volumes:
+  - /absolute/path/to/emomo/data:/root/data
+  - /absolute/path/to/emomo/configs:/root/configs
+```
+
+**问题：目录权限问题**
+
+如果容器无法访问挂载的目录，检查权限：
+
+```bash
+# 确保目录可读
+chmod -R 755 /path/to/emomo/data/ChineseBQB
+
+# 如果使用非 root 用户运行容器，可能需要调整权限
+```
+
 ## 数据摄入
 
 部署完成后，需要摄入数据：
+
+### 方式一：通过 API 端点摄入（推荐）
+
+```bash
+# 使用 curl 调用 API
+curl -X POST http://localhost:8080/api/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "chinesebqb",
+    "limit": 100,
+    "force": false
+  }'
+
+# 或访问管理界面
+# http://localhost:8080/admin
+```
+
+### 方式二：使用命令行工具摄入
 
 ```bash
 # 在服务器上或本地
 cd emomo
 
-# 克隆数据源
-git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+# 确保数据目录存在
+# git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
 
 # 构建摄入工具
 go build -o ingest ./cmd/ingest
@@ -347,6 +516,16 @@ go build -o ingest ./cmd/ingest
 
 # 如果成功，摄入全部
 ./ingest --source=chinesebqb --limit=10000
+```
+
+### 方式三：在 Docker 容器内摄入
+
+```bash
+# 进入容器
+docker exec -it emomo-api sh
+
+# 在容器内使用 API 端点（推荐）
+# 或使用 ingest 工具（如果已构建）
 ```
 
 ## 成本对比
@@ -386,8 +565,33 @@ go build -o ingest ./cmd/ingest
 
 ### API 请求失败
 - 检查 Vercel 环境变量 `VITE_API_BASE` 是否正确
-- 检查后端日志：`sudo journalctl -u emomo-api -f`
+- 检查后端日志：`sudo journalctl -u emomo-api -f`（systemd）或 `docker logs emomo-api`（Docker）
 - 检查 CORS 配置
+
+### Ingestion 处理 0 个项目（Docker 部署）
+- **检查 ChineseBQB 目录是否挂载**：
+  ```bash
+  # 检查容器内目录
+  docker exec emomo-api ls -la /root/data/ChineseBQB
+  
+  # 检查文件数量
+  docker exec emomo-api find /root/data/ChineseBQB -type f | wc -l
+  ```
+- **检查 docker-compose.yml 挂载配置**：
+  - 确保 `../data:/root/data` 挂载正确
+  - 如果使用绝对路径，确保路径正确
+- **检查主机上的目录**：
+  ```bash
+  ls -la /path/to/emomo/data/ChineseBQB
+  ```
+- **查看启动日志**：
+  ```bash
+  docker logs emomo-api | grep -i "chinesebqb\|data\|directory"
+  ```
+- **重启容器**：
+  ```bash
+  docker-compose -f docker-compose.prod.yml restart api
+  ```
 
 ## 安全建议
 

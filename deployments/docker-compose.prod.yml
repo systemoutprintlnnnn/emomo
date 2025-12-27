@@ -1,9 +1,28 @@
 version: '3.8'
 
+# Docker Compose 配置文件说明
+# 
+# 使用方式：
+# 1. 仅使用本地服务（Qdrant + MinIO）：
+#    docker-compose -f docker-compose.prod.yml --profile local up -d
+#
+# 2. 仅使用云服务（Qdrant Cloud + Cloudflare R2/S3）：
+#    docker-compose -f docker-compose.prod.yml up -d
+#
+# 3. 混合模式（本地 Qdrant + 云存储）：
+#    docker-compose -f docker-compose.prod.yml --profile qdrant-local up -d
+#
+# 4. 混合模式（云 Qdrant + 本地 MinIO）：
+#    docker-compose -f docker-compose.prod.yml --profile minio-local up -d
+
 services:
+  # 本地 Qdrant 服务（可选，通过 profile 控制）
   qdrant:
     image: qdrant/qdrant:latest
     container_name: emomo-qdrant
+    profiles:
+      - qdrant-local  # 使用 --profile qdrant-local 启动
+      - local         # 使用 --profile local 启动
     ports:
       - "6333:6333"  # REST API
       - "6334:6334"  # gRPC
@@ -15,9 +34,13 @@ services:
     networks:
       - emomo-network
 
+  # 本地 MinIO 服务（可选，通过 profile 控制）
   minio:
     image: minio/minio:latest
     container_name: emomo-minio
+    profiles:
+      - minio-local  # 使用 --profile minio-local 启动
+      - local        # 使用 --profile local 启动
     ports:
       - "9000:9000"  # API
       - "9001:9001"  # Console
@@ -36,27 +59,57 @@ services:
     networks:
       - emomo-network
 
+  # API 服务（始终启动）
   api:
     build:
       context: ..
       dockerfile: Dockerfile
     container_name: emomo-api
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
     volumes:
+      # Mount data directory (must contain ChineseBQB subdirectory)
+      # On host: <project-root>/data/ChineseBQB should exist with image files
+      # In container: /root/data/ChineseBQB will be accessible
       - ../data:/root/data
       - ../configs:/root/configs
     environment:
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      # API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - JINA_API_KEY=${JINA_API_KEY}
+      
+      # Qdrant 配置（如果使用 Qdrant Cloud，设置这些环境变量）
+      - QDRANT_HOST=${QDRANT_HOST:-localhost}
+      - QDRANT_PORT=${QDRANT_PORT:-6334}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-emomo}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}  # Qdrant Cloud API Key（如果使用云服务）
+      - QDRANT_USE_TLS=${QDRANT_USE_TLS:-false}  # 使用 Qdrant Cloud 时设置为 true
+      
+      # MinIO 配置（如果使用本地 MinIO）
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      
+      # 存储配置（如果使用云存储如 Cloudflare R2）
+      # 如果设置了 STORAGE_TYPE，将优先使用云存储
+      - STORAGE_TYPE=${STORAGE_TYPE:-}  # r2, s3, minio
+      - STORAGE_ENDPOINT=${STORAGE_ENDPOINT:-}  # 例如: <account_id>.r2.cloudflarestorage.com
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-}
+      - STORAGE_USE_SSL=${STORAGE_USE_SSL:-true}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-memes}
+      - STORAGE_REGION=${STORAGE_REGION:-auto}  # R2 使用 "auto"，AWS S3 使用具体 region
+      - STORAGE_PUBLIC_URL=${STORAGE_PUBLIC_URL:-}  # R2.dev 公开访问 URL
+      
+      # VLM 配置
       - VLM_MODEL=${VLM_MODEL:-gpt-4o-mini}
       - QUERY_EXPANSION_MODEL=${QUERY_EXPANSION_MODEL:-gpt-4o-mini}
       - SEARCH_SCORE_THRESHOLD=${SEARCH_SCORE_THRESHOLD:-0.0}
-    depends_on:
-      - qdrant
-      - minio
+      
+      # 可选配置
+      - DATA_DIR=${DATA_DIR:-/root/data}
+      - CONFIG_PATH=${CONFIG_PATH:-/root/configs/config.prod.yaml}
+    # 注意：如果使用本地服务，确保先启动 qdrant 和 minio
+    # 如果使用云服务，不需要 depends_on
     restart: unless-stopped
     networks:
       - emomo-network
