@@ -8,7 +8,7 @@
 - **前端**：React + Vite（已部署在 Vercel）
 - **后端 API**：Go + Gin（需要部署）
 - **向量数据库**：Qdrant（需要部署）
-- **对象存储**：MinIO（需要部署或使用云存储）
+- **对象存储**：S3 兼容存储（MinIO、Cloudflare R2、AWS S3 等）
 - **元数据数据库**：SQLite（文件存储）
 - **外部 API**：OpenAI（VLM）、Jina（Embedding）
 
@@ -99,37 +99,47 @@ sudo yum install -y golang git
 exit
 ```
 
-#### 3. 部署基础设施（Qdrant + MinIO）
+#### 3. 部署基础设施（Qdrant + 对象存储）
 ```bash
 # 克隆项目
 git clone <your-repo-url> emomo
 cd emomo
 
-# 启动 Qdrant 和 MinIO
+# 启动 Qdrant（对象存储可使用云服务如 Cloudflare R2）
 cd deployments
 docker-compose up -d
 
 # 验证服务
 docker ps
 curl http://localhost:6333/health  # Qdrant
-curl http://localhost:9000/minio/health/live  # MinIO
 ```
 
 #### 4. 配置防火墙
 在 Oracle Cloud 控制台配置安全规则，开放端口：
 - `8080`：后端 API
 - `6333`：Qdrant REST API（可选，如果不需要外部访问）
-- `9000`：MinIO API（可选）
-- `9001`：MinIO Console（可选）
 
 #### 5. 配置环境变量
 ```bash
 # 创建 .env 文件
 cd /home/opc/emomo
 cat > .env << EOF
-# MinIO 配置
-MINIO_ACCESS_KEY=your-access-key
-MINIO_SECRET_KEY=your-secret-key
+# 对象存储配置（推荐使用 Cloudflare R2）
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=<account-id>.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=your-access-key
+STORAGE_SECRET_KEY=your-secret-key
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=memes
+STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
+
+# 或使用本地 MinIO（需要部署）
+# STORAGE_TYPE=minio
+# STORAGE_ENDPOINT=localhost:9000
+# STORAGE_ACCESS_KEY=your-access-key
+# STORAGE_SECRET_KEY=your-secret-key
+# STORAGE_USE_SSL=false
+# STORAGE_BUCKET=memes
 
 # OpenAI API
 OPENAI_API_KEY=your-openai-key
@@ -142,14 +152,6 @@ VLM_MODEL=gpt-4o-mini
 QUERY_EXPANSION_MODEL=gpt-4o-mini
 SEARCH_SCORE_THRESHOLD=0.0
 EOF
-```
-
-#### 6. 初始化 MinIO
-```bash
-# 访问 MinIO Console（需要配置安全组开放 9001 端口）
-# http://<your-server-ip>:9001
-# 使用 .env 中的 MINIO_ACCESS_KEY 和 MINIO_SECRET_KEY 登录
-# 创建名为 "memes" 的 bucket，并设置为公开读取
 ```
 
 #### 7. 构建并运行后端 API
@@ -242,19 +244,15 @@ VITE_API_BASE=http://<your-server-ip>:8080/api/v1
 4. 使用 Qdrant 官方 Docker 镜像：`qdrant/qdrant:latest`
 5. 配置端口：`6333`（REST API）
 
-#### 2. 部署 MinIO
-1. 在同一个项目中添加新服务
-2. 使用 MinIO Docker 镜像：`minio/minio:latest`
-3. 配置环境变量：
-   - `MINIO_ROOT_USER=minioadmin`
-   - `MINIO_ROOT_PASSWORD=your-password`
-   - `MINIO_SERVER_URL=https://your-minio.railway.app`
-4. 命令：`server /data --console-address ":9001"`
+#### 2. 配置对象存储（推荐使用 Cloudflare R2）
+1. 注册 Cloudflare 账户并创建 R2 bucket
+2. 获取访问密钥和端点信息
+3. 配置环境变量（见下方）
 
 #### 3. 部署后端 API
 1. 添加新服务，连接到 GitHub 仓库
 2. 配置环境变量（参考方案一的步骤 5）
-3. 修改 `configs/config.yaml` 中的 Qdrant 和 MinIO 地址为 Railway 提供的内部地址
+3. 修改 `configs/config.yaml` 中的 Qdrant 地址为 Railway 提供的内部地址
 4. Railway 会自动检测 Go 项目并构建
 
 #### 4. 配置前端
@@ -284,60 +282,8 @@ VITE_API_BASE=https://your-api.railway.app/api/v1
 3. 获取 Access Key ID 和 Secret Access Key
 4. 配置 CORS 和公开访问策略
 
-#### 3. 修改代码以支持 R2
-需要修改 `internal/storage/minio.go` 以支持 S3 兼容的 API（R2 兼容 S3）。
-
-创建新文件 `internal/storage/r2.go`：
-```go
-package storage
-
-import (
-    "context"
-    "fmt"
-    "io"
-    
-    "github.com/minio/minio-go/v7"
-    "github.com/minio/minio-go/v7/pkg/credentials"
-)
-
-// R2Storage implements ObjectStorage using Cloudflare R2 (S3-compatible)
-type R2Storage struct {
-    client   *minio.Client
-    bucket   string
-    endpoint string
-}
-
-// R2Config holds configuration for R2 client
-type R2Config struct {
-    Endpoint  string
-    AccessKey string
-    SecretKey string
-    Bucket    string
-}
-
-// NewR2Storage creates a new R2 storage client
-func NewR2Storage(cfg *R2Config) (*R2Storage, error) {
-    client, err := minio.New(cfg.Endpoint, &minio.Options{
-        Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-        Secure: true, // R2 uses HTTPS
-        Region: "auto", // R2 uses "auto" region
-    })
-    if err != nil {
-        return nil, fmt.Errorf("failed to create R2 client: %w", err)
-    }
-
-    storage := &R2Storage{
-        client:   client,
-        bucket:   cfg.Bucket,
-        endpoint: cfg.Endpoint,
-    }
-
-    return storage, nil
-}
-
-// 实现 ObjectStorage 接口的所有方法（与 MinIOStorage 类似）
-// ... (参考 minio.go 的实现)
-```
+#### 3. 配置对象存储
+代码已支持 S3 兼容存储（包括 R2），无需修改代码。只需配置环境变量即可。
 
 #### 4. 部署后端 API
 使用 Railway 或 Render：
@@ -352,12 +298,14 @@ QDRANT_PORT=443
 QDRANT_COLLECTION=memes
 QDRANT_API_KEY=your-api-key
 
-# Cloudflare R2
-MINIO_ENDPOINT=your-account-id.r2.cloudflarestorage.com
-MINIO_ACCESS_KEY=your-r2-access-key
-MINIO_SECRET_KEY=your-r2-secret-key
-MINIO_USE_SSL=true
-MINIO_BUCKET=memes
+# Cloudflare R2（推荐使用新的统一配置格式）
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=your-account-id.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=your-r2-access-key
+STORAGE_SECRET_KEY=your-r2-secret-key
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=memes
+STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 
 # OpenAI & Jina
 OPENAI_API_KEY=your-key
@@ -431,9 +379,10 @@ go build -o ingest ./cmd/ingest
 - 检查防火墙规则
 
 ### 图片无法加载
-- 检查 MinIO/R2 bucket 是否设置为公开读取
+- 检查对象存储 bucket 是否设置为公开读取
 - 检查 CORS 配置
 - 检查图片 URL 是否正确
+- 如果使用 R2，确保配置了 `STORAGE_PUBLIC_URL`
 
 ### API 请求失败
 - 检查 Vercel 环境变量 `VITE_API_BASE` 是否正确

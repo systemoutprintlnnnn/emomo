@@ -35,10 +35,23 @@ cd emomo
 
 # 4. 创建 .env 文件
 cat > .env << EOF
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=your-secure-password
-MINIO_ACCESS_KEY=your-access-key
-MINIO_SECRET_KEY=your-secret-key
+# 对象存储配置（推荐使用 Cloudflare R2）
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=<account-id>.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=your-access-key
+STORAGE_SECRET_KEY=your-secret-key
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=memes
+STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
+
+# 或使用本地 MinIO（需要先启动 docker-compose）
+# STORAGE_TYPE=minio
+# STORAGE_ENDPOINT=localhost:9000
+# STORAGE_ACCESS_KEY=minioadmin
+# STORAGE_SECRET_KEY=minioadmin
+# STORAGE_USE_SSL=false
+# STORAGE_BUCKET=memes
+
 OPENAI_API_KEY=your-openai-key
 JINA_API_KEY=your-jina-key
 EOF
@@ -69,17 +82,20 @@ curl http://localhost:8080/api/v1/health
 **环境变量**：
 ```
 CONFIG_PATH=./configs/config.prod.yaml
-MINIO_ACCESS_KEY=your-access-key
-MINIO_SECRET_KEY=your-secret-key
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=<account-id>.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=your-access-key
+STORAGE_SECRET_KEY=your-secret-key
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=memes
+STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 OPENAI_API_KEY=your-openai-key
 JINA_API_KEY=your-jina-key
 QDRANT_HOST=your-qdrant-host
 QDRANT_PORT=6334
-MINIO_ENDPOINT=your-minio-endpoint
-MINIO_USE_SSL=false
 ```
 
-**注意**：需要单独部署 Qdrant 和 MinIO，或者使用云服务：
+**注意**：需要单独部署 Qdrant 和配置对象存储，或者使用云服务：
 - Qdrant Cloud（免费 1GB）
 - Cloudflare R2（免费 10GB，S3 兼容）
 
@@ -98,10 +114,13 @@ CONFIG_PATH=./configs/config.prod.yaml
 QDRANT_HOST=your-cluster.qdrant.io
 QDRANT_PORT=443
 QDRANT_API_KEY=your-qdrant-api-key
-MINIO_ENDPOINT=your-account-id.r2.cloudflarestorage.com
-MINIO_ACCESS_KEY=your-r2-access-key
-MINIO_SECRET_KEY=your-r2-secret-key
-MINIO_USE_SSL=true
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=your-account-id.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=your-r2-access-key
+STORAGE_SECRET_KEY=your-r2-secret-key
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=memes
+STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 OPENAI_API_KEY=your-openai-key
 JINA_API_KEY=your-jina-key
 ```
@@ -164,7 +183,7 @@ VITE_API_BASE=http://your-server-ip:8080/api/v1
 **A**: 检查 Qdrant 是否运行，端口是否正确，防火墙是否开放
 
 ### Q: 图片无法加载
-**A**: 检查 MinIO/R2 bucket 是否设置为公开读取，CORS 配置是否正确
+**A**: 检查对象存储 bucket 是否设置为公开读取，CORS 配置是否正确。如果使用 R2，确保配置了 `STORAGE_PUBLIC_URL`
 
 ### Q: API 返回 CORS 错误
 **A**: 检查后端 CORS 配置，确保允许前端域名

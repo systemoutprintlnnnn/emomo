@@ -2,7 +2,7 @@
 
 ## 问题说明
 
-Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和 MinIO 服务**。因此需要配置外部服务。
+Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和对象存储服务**。因此需要配置外部服务。
 
 ## 解决方案
 
@@ -14,7 +14,7 @@ Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和 MinIO
    - Port: `6333` (HTTPS) 或 `6334` (HTTP)
    - API Key: `your-api-key`
 
-### 2. 使用 MinIO Cloud 或兼容 S3 的存储
+### 2. 使用兼容 S3 的对象存储
 
 选项 A：使用 [Backblaze B2](https://www.backblaze.com/b2/cloud-storage.html)（免费 10GB）
 - 兼容 S3 API
@@ -56,17 +56,7 @@ STORAGE_PUBLIC_URL=https://pub-<random-id>.r2.dev  # 可选
 
 **如何获取访问密钥**：参见 [CLOUDFLARE_R2_SETUP.md](./CLOUDFLARE_R2_SETUP.md)
 
-#### Backblaze B2（兼容旧配置）
-
-```bash
-MINIO_ENDPOINT=s3.us-west-000.backblazeb2.com
-MINIO_ACCESS_KEY=your-access-key
-MINIO_SECRET_KEY=your-secret-key
-MINIO_USE_SSL=true
-MINIO_BUCKET=your-bucket-name
-```
-
-#### 或使用新的统一配置格式
+#### Backblaze B2（使用统一配置格式）
 
 ```bash
 STORAGE_TYPE=s3
@@ -77,6 +67,8 @@ STORAGE_USE_SSL=true
 STORAGE_BUCKET=your-bucket-name
 ```
 
+**注意**：旧版 `MINIO_*` 环境变量仍支持（向后兼容），但推荐使用新的 `STORAGE_*` 格式。
+
 ### API Keys
 
 ```bash
@@ -86,13 +78,13 @@ VLM_MODEL=qwen/qwen-2.5-vl-7b-instruct:free
 JINA_API_KEY=your-jina-key
 ```
 
-## 临时解决方案：禁用 Qdrant 和 MinIO
+## 临时解决方案：禁用 Qdrant 和对象存储
 
 如果暂时无法配置外部服务，可以修改代码使应用在服务不可用时仍能启动（但搜索功能将不可用）。
 
 ### 修改 `cmd/api/main.go`
 
-将 Qdrant 和 MinIO 初始化改为可选：
+将 Qdrant 和对象存储初始化改为可选：
 
 ```go
 // Initialize Qdrant (optional)
@@ -102,11 +94,11 @@ if err != nil {
     qdrantRepo = nil
 }
 
-// Initialize MinIO (optional)
-minioStorage, err := storage.NewMinIOStorage(...)
+// Initialize storage (optional)
+objectStorage, err := storage.NewStorage(&storage.S3Config{...})
 if err != nil {
-    logger.Warn("MinIO unavailable, upload features disabled", zap.Error(err))
-    minioStorage = nil
+    logger.Warn("Storage unavailable, upload features disabled", zap.Error(err))
+    objectStorage = nil
 }
 ```
 
