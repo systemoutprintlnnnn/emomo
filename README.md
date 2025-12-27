@@ -1,3 +1,14 @@
+---
+title: Emomo
+emoji: 🔥
+colorFrom: green
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+
 # Emomo - AI 表情包语义搜索
 
 基于 Golang + Qdrant + VLM + Text Embedding 的表情包语义搜索系统。
