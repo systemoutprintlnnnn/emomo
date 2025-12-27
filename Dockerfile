@@ -19,7 +19,15 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o api ./cmd/api
 # Final stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates tzdata
+# Install required packages
+# findutils provides GNU find which has better Unicode support than busybox find
+RUN apk --no-cache add ca-certificates tzdata findutils
+
+# Set UTF-8 locale for proper handling of Chinese/Unicode filenames
+# Alpine uses musl which has limited locale support, but C.UTF-8 works for file operations
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV LANGUAGE=C.UTF-8
 
 WORKDIR /root/
 
