@@ -160,6 +160,7 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Bind environment variables explicitly for sensitive data
+	v.BindEnv("server.port", "PORT") // Hugging Face Spaces uses PORT env var (default: 7860)
 	v.BindEnv("qdrant.host", "QDRANT_HOST")
 	v.BindEnv("qdrant.port", "QDRANT_PORT")
 	v.BindEnv("qdrant.collection", "QDRANT_COLLECTION")
