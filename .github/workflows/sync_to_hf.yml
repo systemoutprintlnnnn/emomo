@@ -12,8 +12,23 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-      - name: Push to hub
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Sync to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push https://TINGJUNN:$HF_TOKEN@huggingface.co/spaces/TINGJUNN/emomo main
+        run: |
+          HF_REPO="https://TINGJUNN:$HF_TOKEN@huggingface.co/spaces/TINGJUNN/emomo"
+          # 添加远程仓库
+          git remote add hf $HF_REPO || git remote set-url hf $HF_REPO
+          # 获取远程更改
+          git fetch hf main || echo "No remote branch found, will create new"
+          # 尝试合并远程更改（如果存在）
+          if git ls-remote --heads $HF_REPO main | grep -q main; then
+            git merge hf/main --allow-unrelated-histories -X theirs -m "Merge from Hugging Face" || true
+          fi
+          # 推送到 Hugging Face
+          git push $HF_REPO main --force-with-lease || git push $HF_REPO main --force
 

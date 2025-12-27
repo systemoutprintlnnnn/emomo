@@ -12,6 +12,58 @@
 - **元数据数据库**：SQLite（文件存储）
 - **外部 API**：OpenAI（VLM）、Jina（Embedding）
 
+## CORS 配置（前端部署在 Vercel）
+
+当前端部署在 Vercel 时，需要配置后端 CORS 以允许来自 Vercel 域名的跨域请求。
+
+### 配置方式
+
+在 `configs/config.yaml` 中配置 CORS：
+
+```yaml
+server:
+  port: 8080
+  mode: release
+  cors:
+    # 生产环境建议设置为 false，使用 allowed_origins 列表
+    allow_all_origins: false
+    # 添加你的 Vercel 域名（支持多个域名）
+    allowed_origins:
+      - "https://your-app.vercel.app"
+      - "https://your-custom-domain.com"
+      # 如果需要支持本地开发，可以添加：
+      - "http://localhost:5173"
+```
+
+### 配置说明
+
+1. **开发环境**：可以设置 `allow_all_origins: true` 以允许所有来源（不推荐用于生产）
+2. **生产环境**：设置 `allow_all_origins: false`，并在 `allowed_origins` 中明确列出允许的域名
+3. **Vercel 域名格式**：
+   - 默认域名：`https://your-app-name.vercel.app`
+   - 自定义域名：`https://your-domain.com`
+   - 预览部署：`https://your-app-name-git-branch.vercel.app`
+
+### 环境变量方式配置
+
+也可以通过环境变量配置（优先级更高）：
+
+```bash
+# 设置为 false 以使用 allowed_origins 列表
+SERVER_CORS_ALLOW_ALL_ORIGINS=false
+
+# 使用逗号分隔的域名列表
+SERVER_CORS_ALLOWED_ORIGINS=https://your-app.vercel.app,https://your-domain.com
+```
+
+### 验证配置
+
+部署后，可以通过浏览器开发者工具检查：
+1. 打开前端页面
+2. 打开 Network 标签
+3. 发起一个 API 请求
+4. 检查响应头中的 `Access-Control-Allow-Origin` 是否包含你的前端域名
+
 ## 方案一：Oracle Cloud 免费 VPS（推荐）
 
 ### 优势
