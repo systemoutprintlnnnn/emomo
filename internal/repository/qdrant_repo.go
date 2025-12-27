@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -25,21 +26,12 @@ type QdrantConnectionConfig struct {
 	UseTLS     bool   // Explicitly enable TLS without API Key
 }
 
-// apiKeyAuth implements credentials.PerRPCCredentials for Qdrant API Key authentication
-type apiKeyAuth struct {
-	apiKey string
-}
-
-// GetRequestMetadata returns the API key as gRPC metadata
-func (a *apiKeyAuth) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
-	return map[string]string{
-		"api-key": a.apiKey,
-	}, nil
-}
-
-// RequireTransportSecurity indicates whether the credentials requires transport security
-func (a *apiKeyAuth) RequireTransportSecurity() bool {
-	return true // API Key must be transmitted over TLS
+// apiKeyInterceptor creates a unary interceptor that adds API key to metadata
+func apiKeyInterceptor(apiKey string) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		ctx = metadata.AppendToOutgoingContext(ctx, "api-key", apiKey)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
 }
 
 // QdrantRepository handles vector operations with Qdrant
@@ -63,17 +55,16 @@ func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error)
 	useTLS := cfg.UseTLS || cfg.APIKey != ""
 
 	if useTLS {
-		// Use TLS with system root certificates
+		// Use TLS with system root certificates (TLS 1.3 minimum for Qdrant Cloud)
 		tlsConfig := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			ServerName: cfg.Host, // Required for Qdrant Cloud TLS verification
+			MinVersion: tls.VersionTLS13,
 		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 
-		// Add API Key authentication if provided
+		// Add API Key authentication if provided (using unary interceptor)
 		if cfg.APIKey != "" {
-			opts = append(opts, grpc.WithPerRPCCredentials(&apiKeyAuth{apiKey: cfg.APIKey}))
+			opts = append(opts, grpc.WithUnaryInterceptor(apiKeyInterceptor(cfg.APIKey)))
 		}
 	} else {
 		// Local mode: no TLS, no authentication
