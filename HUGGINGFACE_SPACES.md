@@ -125,7 +125,8 @@ if err != nil {
 
 ## 注意事项
 
-1. **Qdrant API Key**: 当前代码版本不支持 Qdrant Cloud 的 API Key 认证，需要修改 `internal/repository/qdrant_repo.go` 添加认证支持
-2. **HTTPS**: Qdrant Cloud 使用 HTTPS，需要修改连接方式
-3. **数据持久化**: Hugging Face Spaces 的存储是临时的，重启后会丢失 SQLite 数据，建议使用外部数据库（如 Supabase PostgreSQL）
+1. **端口配置**: Hugging Face Spaces **要求应用监听端口 7860**。Dockerfile 已配置默认端口为 7860，无需额外设置
+2. **Qdrant API Key**: 当前代码版本已支持 Qdrant Cloud 的 API Key 认证
+3. **HTTPS**: Qdrant Cloud 使用 HTTPS，设置 `QDRANT_API_KEY` 后会自动启用 TLS
+4. **数据持久化**: Hugging Face Spaces 的存储是临时的，重启后会丢失 SQLite 数据，建议使用外部数据库（如 Supabase PostgreSQL）
 

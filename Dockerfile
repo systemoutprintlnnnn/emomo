@@ -30,8 +30,11 @@ COPY --from=builder /app/configs ./configs
 # Create data directory
 RUN mkdir -p ./data
 
-# Expose port
-EXPOSE 8080
+# Expose port (Hugging Face Spaces uses 7860 by default)
+EXPOSE 7860
+
+# Set default port for Hugging Face Spaces
+ENV PORT=7860
 
 # Run the binary
 CMD ["./api"]
