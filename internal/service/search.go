@@ -9,12 +9,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// SearchConfig holds configuration for search service
+type SearchConfig struct {
+	ScoreThreshold float32
+}
+
 // SearchService handles meme search operations
 type SearchService struct {
-	memeRepo   *repository.MemeRepository
-	qdrantRepo *repository.QdrantRepository
-	embedding  *EmbeddingService
-	logger     *zap.Logger
+	memeRepo       *repository.MemeRepository
+	qdrantRepo     *repository.QdrantRepository
+	embedding      *EmbeddingService
+	queryExpansion *QueryExpansionService
+	logger         *zap.Logger
+	scoreThreshold float32
 }
 
 // NewSearchService creates a new search service
@@ -22,13 +29,21 @@ func NewSearchService(
 	memeRepo *repository.MemeRepository,
 	qdrantRepo *repository.QdrantRepository,
 	embedding *EmbeddingService,
+	queryExpansion *QueryExpansionService,
 	logger *zap.Logger,
+	cfg *SearchConfig,
 ) *SearchService {
+	var threshold float32
+	if cfg != nil {
+		threshold = cfg.ScoreThreshold
+	}
 	return &SearchService{
-		memeRepo:   memeRepo,
-		qdrantRepo: qdrantRepo,
-		embedding:  embedding,
-		logger:     logger,
+		memeRepo:       memeRepo,
+		qdrantRepo:     qdrantRepo,
+		embedding:      embedding,
+		queryExpansion: queryExpansion,
+		logger:         logger,
+		scoreThreshold: threshold,
 	}
 }
 
@@ -56,8 +71,10 @@ type SearchResult struct {
 
 // SearchResponse represents the search response
 type SearchResponse struct {
-	Results []SearchResult `json:"results"`
-	Total   int            `json:"total"`
+	Results       []SearchResult `json:"results"`
+	Total         int            `json:"total"`
+	Query         string         `json:"query"`
+	ExpandedQuery string         `json:"expanded_query,omitempty"`
 }
 
 // TextSearch performs a semantic text search
@@ -70,13 +87,41 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		req.TopK = 100
 	}
 
+	originalQuery := req.Query
+	expandedQuery := ""
+
+	// Expand query using LLM if enabled
+	if s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
+		expanded, err := s.queryExpansion.Expand(ctx, req.Query)
+		if err != nil {
+			s.logger.Warn("Query expansion failed, using original query",
+				zap.String("query", req.Query),
+				zap.Error(err),
+			)
+		} else if expanded != req.Query {
+			expandedQuery = expanded
+			s.logger.Info("Query expanded",
+				zap.String("original", req.Query),
+				zap.String("expanded", expanded),
+			)
+		}
+	}
+
+	// Use expanded query for embedding if available
+	queryForEmbedding := originalQuery
+	if expandedQuery != "" {
+		queryForEmbedding = expandedQuery
+	}
+
 	s.logger.Info("Performing text search",
-		zap.String("query", req.Query),
+		zap.String("query", originalQuery),
+		zap.String("query_for_embedding", queryForEmbedding),
 		zap.Int("top_k", req.TopK),
+		zap.Float32("score_threshold", s.scoreThreshold),
 	)
 
 	// Generate query embedding
-	queryEmbedding, err := s.embedding.EmbedQuery(ctx, req.Query)
+	queryEmbedding, err := s.embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
@@ -94,10 +139,15 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
 	}
 
-	// Convert to response format
+	// Convert to response format, filtering by score threshold
 	results := make([]SearchResult, 0, len(qdrantResults))
 	for _, qr := range qdrantResults {
 		if qr.Payload == nil {
+			continue
+		}
+
+		// Filter out results below score threshold
+		if s.scoreThreshold > 0 && qr.Score < s.scoreThreshold {
 			continue
 		}
 
@@ -140,8 +190,10 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}
 
 	return &SearchResponse{
-		Results: results,
-		Total:   len(results),
+		Results:       results,
+		Total:         len(results),
+		Query:         originalQuery,
+		ExpandedQuery: expandedQuery,
 	}, nil
 }
 

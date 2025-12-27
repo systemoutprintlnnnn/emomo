@@ -17,6 +17,7 @@ type Config struct {
 	Embedding EmbeddingConfig `mapstructure:"embedding"`
 	Ingest    IngestConfig    `mapstructure:"ingest"`
 	Sources   SourcesConfig   `mapstructure:"sources"`
+	Search    SearchConfig    `mapstructure:"search"`
 }
 
 type ServerConfig struct {
@@ -60,6 +61,16 @@ type IngestConfig struct {
 	Workers    int `mapstructure:"workers"`
 	BatchSize  int `mapstructure:"batch_size"`
 	RetryCount int `mapstructure:"retry_count"`
+}
+
+type SearchConfig struct {
+	ScoreThreshold float32              `mapstructure:"score_threshold"`
+	QueryExpansion QueryExpansionConfig `mapstructure:"query_expansion"`
+}
+
+type QueryExpansionConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Model   string `mapstructure:"model"`
 }
 
 type SourcesConfig struct {
@@ -112,6 +123,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ingest.retry_count", 3)
 	v.SetDefault("sources.chinesebqb.enabled", true)
 	v.SetDefault("sources.chinesebqb.repo_path", "./data/ChineseBQB")
+	v.SetDefault("search.score_threshold", 0.0)
+	v.SetDefault("search.query_expansion.enabled", true)
+	v.SetDefault("search.query_expansion.model", "gpt-4o-mini")
 
 	// Read config file
 	if err := v.ReadInConfig(); err != nil {
@@ -127,6 +141,7 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("vlm.base_url", "OPENAI_BASE_URL")
 	v.BindEnv("vlm.model", "VLM_MODEL")
 	v.BindEnv("embedding.api_key", "JINA_API_KEY")
+	v.BindEnv("search.score_threshold", "SEARCH_SCORE_THRESHOLD")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

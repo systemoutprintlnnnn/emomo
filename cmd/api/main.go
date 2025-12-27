@@ -81,11 +81,29 @@ func main() {
 		Dimensions: cfg.Embedding.Dimensions,
 	})
 
+	// Initialize query expansion service
+	queryExpansionService := service.NewQueryExpansionService(&service.QueryExpansionConfig{
+		Enabled: cfg.Search.QueryExpansion.Enabled,
+		Model:   cfg.Search.QueryExpansion.Model,
+		APIKey:  cfg.VLM.APIKey,  // Reuse VLM API key
+		BaseURL: cfg.VLM.BaseURL, // Reuse VLM base URL
+	})
+
+	if queryExpansionService.IsEnabled() {
+		logger.Info("Query expansion enabled",
+			zap.String("model", cfg.Search.QueryExpansion.Model),
+		)
+	}
+
 	searchService := service.NewSearchService(
 		memeRepo,
 		qdrantRepo,
 		embeddingService,
+		queryExpansionService,
 		logger,
+		&service.SearchConfig{
+			ScoreThreshold: cfg.Search.ScoreThreshold,
+		},
 	)
 
 	// Setup router
