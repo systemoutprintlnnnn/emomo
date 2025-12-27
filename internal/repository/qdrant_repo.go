@@ -2,18 +2,45 @@ package repository
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 
 	"github.com/google/uuid"
 	pb "github.com/qdrant/go-client/qdrant"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
 	VectorDimension = 1024
-	CollectionName  = "memes"
 )
+
+// QdrantConnectionConfig holds configuration for Qdrant connection
+type QdrantConnectionConfig struct {
+	Host       string
+	Port       int
+	Collection string
+	APIKey     string // Qdrant Cloud API Key (enables TLS automatically)
+	UseTLS     bool   // Explicitly enable TLS without API Key
+}
+
+// apiKeyAuth implements credentials.PerRPCCredentials for Qdrant API Key authentication
+type apiKeyAuth struct {
+	apiKey string
+}
+
+// GetRequestMetadata returns the API key as gRPC metadata
+func (a *apiKeyAuth) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{
+		"api-key": a.apiKey,
+	}, nil
+}
+
+// RequireTransportSecurity indicates whether the credentials requires transport security
+func (a *apiKeyAuth) RequireTransportSecurity() bool {
+	return true // API Key must be transmitted over TLS
+}
 
 // QdrantRepository handles vector operations with Qdrant
 type QdrantRepository struct {
@@ -24,9 +51,36 @@ type QdrantRepository struct {
 }
 
 // NewQdrantRepository creates a new QdrantRepository
-func NewQdrantRepository(host string, port int, collection string) (*QdrantRepository, error) {
-	addr := fmt.Sprintf("%s:%d", host, port)
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+// Supports both local Qdrant (insecure) and Qdrant Cloud (TLS + API Key)
+func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error) {
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+
+	// Build gRPC dial options
+	var opts []grpc.DialOption
+
+	// Determine if TLS should be used
+	// TLS is enabled if: APIKey is set OR UseTLS is explicitly true
+	useTLS := cfg.UseTLS || cfg.APIKey != ""
+
+	if useTLS {
+		// Use TLS with system root certificates
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: cfg.Host, // Required for Qdrant Cloud TLS verification
+		}
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+
+		// Add API Key authentication if provided
+		if cfg.APIKey != "" {
+			opts = append(opts, grpc.WithPerRPCCredentials(&apiKeyAuth{apiKey: cfg.APIKey}))
+		}
+	} else {
+		// Local mode: no TLS, no authentication
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	conn, err := grpc.NewClient(addr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to qdrant: %w", err)
 	}
@@ -35,7 +89,7 @@ func NewQdrantRepository(host string, port int, collection string) (*QdrantRepos
 		conn:           conn,
 		pointsClient:   pb.NewPointsClient(conn),
 		collectClient:  pb.NewCollectionsClient(conn),
-		collectionName: collection,
+		collectionName: cfg.Collection,
 	}, nil
 }
 
@@ -66,8 +120,8 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 			},
 		},
 		HnswConfig: &pb.HnswConfigDiff{
-			M:              optionalUint64(16),
-			EfConstruct:   optionalUint64(128),
+			M:                 optionalUint64(16),
+			EfConstruct:       optionalUint64(128),
 			FullScanThreshold: optionalUint64(10000),
 		},
 	})

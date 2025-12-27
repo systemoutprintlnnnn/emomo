@@ -16,7 +16,9 @@ database:
 qdrant:
   host: localhost
   port: 6334
-  collection: memes
+  collection: emomo
+  # api_key: 通过环境变量 QDRANT_API_KEY 设置 (Qdrant Cloud 认证)
+  # use_tls: 设置了 api_key 时自动启用 TLS，也可通过 QDRANT_USE_TLS 显式设置
 
 minio:
   endpoint: localhost:9000

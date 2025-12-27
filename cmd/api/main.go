@@ -42,11 +42,13 @@ func main() {
 
 	// Initialize repositories
 	memeRepo := repository.NewMemeRepository(db)
-	qdrantRepo, err := repository.NewQdrantRepository(
-		cfg.Qdrant.Host,
-		cfg.Qdrant.Port,
-		cfg.Qdrant.Collection,
-	)
+	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
+		Host:       cfg.Qdrant.Host,
+		Port:       cfg.Qdrant.Port,
+		Collection: cfg.Qdrant.Collection,
+		APIKey:     cfg.Qdrant.APIKey,
+		UseTLS:     cfg.Qdrant.UseTLS,
+	})
 	if err != nil {
 		logger.Fatal("Failed to initialize Qdrant repository", zap.Error(err))
 	}
