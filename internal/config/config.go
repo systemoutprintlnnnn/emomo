@@ -21,14 +21,14 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int    `mapstructure:"port"`
-	Mode string `mapstructure:"mode"`
+	Port int        `mapstructure:"port"`
+	Mode string     `mapstructure:"mode"`
 	CORS CORSConfig `mapstructure:"cors"`
 }
 
 type CORSConfig struct {
-	AllowedOrigins []string `mapstructure:"allowed_origins"`
-	AllowAllOrigins bool    `mapstructure:"allow_all_origins"`
+	AllowedOrigins  []string `mapstructure:"allowed_origins"`
+	AllowAllOrigins bool     `mapstructure:"allow_all_origins"`
 }
 
 type DatabaseConfig struct {
@@ -143,8 +143,12 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Bind environment variables explicitly for sensitive data
+	v.BindEnv("qdrant.host", "QDRANT_HOST")
+	v.BindEnv("qdrant.port", "QDRANT_PORT")
+	v.BindEnv("minio.endpoint", "MINIO_ENDPOINT")
 	v.BindEnv("minio.access_key", "MINIO_ACCESS_KEY")
 	v.BindEnv("minio.secret_key", "MINIO_SECRET_KEY")
+	v.BindEnv("minio.use_ssl", "MINIO_USE_SSL")
 	v.BindEnv("vlm.api_key", "OPENAI_API_KEY")
 	v.BindEnv("vlm.base_url", "OPENAI_BASE_URL")
 	v.BindEnv("vlm.model", "VLM_MODEL")
