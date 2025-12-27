@@ -1,0 +1,483 @@
+package service
+
+import (
+	"bytes"
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
+	"os"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/timmy/emomo/internal/domain"
+	"github.com/timmy/emomo/internal/repository"
+	"github.com/timmy/emomo/internal/source"
+	"github.com/timmy/emomo/internal/storage"
+	"go.uber.org/zap"
+	_ "golang.org/x/image/webp"
+)
+
+// IngestService handles the data ingestion pipeline
+type IngestService struct {
+	memeRepo   *repository.MemeRepository
+	qdrantRepo *repository.QdrantRepository
+	storage    *storage.MinIOStorage
+	vlm        *VLMService
+	embedding  *EmbeddingService
+	logger     *zap.Logger
+	workers    int
+	batchSize  int
+}
+
+// IngestConfig holds configuration for the ingest service
+type IngestConfig struct {
+	Workers   int
+	BatchSize int
+}
+
+// NewIngestService creates a new ingest service
+func NewIngestService(
+	memeRepo *repository.MemeRepository,
+	qdrantRepo *repository.QdrantRepository,
+	storage *storage.MinIOStorage,
+	vlm *VLMService,
+	embedding *EmbeddingService,
+	logger *zap.Logger,
+	cfg *IngestConfig,
+) *IngestService {
+	return &IngestService{
+		memeRepo:   memeRepo,
+		qdrantRepo: qdrantRepo,
+		storage:    storage,
+		vlm:        vlm,
+		embedding:  embedding,
+		logger:     logger,
+		workers:    cfg.Workers,
+		batchSize:  cfg.BatchSize,
+	}
+}
+
+// IngestStats holds statistics for an ingestion run
+type IngestStats struct {
+	TotalItems     int64
+	ProcessedItems int64
+	SkippedItems   int64
+	FailedItems    int64
+	StartTime      time.Time
+	EndTime        time.Time
+}
+
+// IngestOptions holds options for ingestion
+type IngestOptions struct {
+	Force bool // If true, skip existence checks and force re-process
+}
+
+// IngestFromSource ingests memes from a data source
+func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source, limit int, opts *IngestOptions) (*IngestStats, error) {
+	if opts == nil {
+		opts = &IngestOptions{}
+	}
+
+	stats := &IngestStats{
+		StartTime: time.Now(),
+	}
+
+	s.logger.Info("Starting ingestion",
+		zap.String("source", src.GetSourceID()),
+		zap.Int("limit", limit),
+		zap.Bool("force", opts.Force),
+	)
+
+	// Create work channel and results channel
+	itemsChan := make(chan source.MemeItem, s.workers*2)
+	resultsChan := make(chan *processResult, s.workers*2)
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < s.workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			s.worker(ctx, workerID, src.GetSourceID(), itemsChan, resultsChan, opts)
+		}(i)
+	}
+
+	// Start result collector
+	done := make(chan struct{})
+	go func() {
+		for result := range resultsChan {
+			atomic.AddInt64(&stats.ProcessedItems, 1)
+			if result.skipped {
+				atomic.AddInt64(&stats.SkippedItems, 1)
+			} else if result.err != nil {
+				atomic.AddInt64(&stats.FailedItems, 1)
+				s.logger.Error("Failed to process item",
+					zap.String("source_id", result.sourceID),
+					zap.Error(result.err),
+				)
+			}
+		}
+		close(done)
+	}()
+
+	// Fetch items from source
+	cursor := ""
+	totalFetched := 0
+	for {
+		if ctx.Err() != nil {
+			break
+		}
+
+		remaining := limit - totalFetched
+		if remaining <= 0 {
+			break
+		}
+
+		batchLimit := s.batchSize
+		if batchLimit > remaining {
+			batchLimit = remaining
+		}
+
+		items, nextCursor, err := src.FetchBatch(ctx, cursor, batchLimit)
+		if err != nil {
+			s.logger.Error("Failed to fetch batch", zap.Error(err))
+			break
+		}
+
+		if len(items) == 0 {
+			break
+		}
+
+		atomic.AddInt64(&stats.TotalItems, int64(len(items)))
+		totalFetched += len(items)
+
+		for _, item := range items {
+			select {
+			case itemsChan <- item:
+			case <-ctx.Done():
+				break
+			}
+		}
+
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	// Close items channel and wait for workers
+	close(itemsChan)
+	wg.Wait()
+
+	// Close results channel and wait for collector
+	close(resultsChan)
+	<-done
+
+	stats.EndTime = time.Now()
+
+	s.logger.Info("Ingestion completed",
+		zap.Int64("total", stats.TotalItems),
+		zap.Int64("processed", stats.ProcessedItems),
+		zap.Int64("skipped", stats.SkippedItems),
+		zap.Int64("failed", stats.FailedItems),
+		zap.Duration("duration", stats.EndTime.Sub(stats.StartTime)),
+	)
+
+	return stats, nil
+}
+
+type processResult struct {
+	sourceID string
+	skipped  bool
+	err      error
+}
+
+// errSkipDuplicate is a sentinel error to indicate MD5 duplicate skip
+var errSkipDuplicate = fmt.Errorf("skipped: duplicate MD5")
+
+func (s *IngestService) worker(ctx context.Context, workerID int, sourceType string, items <-chan source.MemeItem, results chan<- *processResult, opts *IngestOptions) {
+	for item := range items {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		result := &processResult{sourceID: item.SourceID}
+
+		// Check if already exists by source ID (skip if force is enabled)
+		if !opts.Force {
+			exists, err := s.memeRepo.ExistsBySourceID(ctx, sourceType, item.SourceID)
+			if err != nil {
+				result.err = fmt.Errorf("failed to check existence: %w", err)
+				results <- result
+				continue
+			}
+			if exists {
+				result.skipped = true
+				results <- result
+				continue
+			}
+		}
+
+		// Process the item
+		if err := s.processItem(ctx, sourceType, &item, opts); err != nil {
+			if err == errSkipDuplicate {
+				result.skipped = true
+			} else {
+				result.err = err
+			}
+		}
+
+		results <- result
+	}
+}
+
+func (s *IngestService) processItem(ctx context.Context, sourceType string, item *source.MemeItem, opts *IngestOptions) error {
+	// Read image data
+	imageData, err := s.readImage(item)
+	if err != nil {
+		return fmt.Errorf("failed to read image: %w", err)
+	}
+
+	// Calculate MD5 hash
+	md5Hash := calculateMD5(imageData)
+
+	// Check for duplicates by MD5 (skip if force is enabled)
+	if !opts.Force {
+		exists, err := s.memeRepo.ExistsByMD5Hash(ctx, md5Hash)
+		if err != nil {
+			return fmt.Errorf("failed to check MD5: %w", err)
+		}
+		if exists {
+			return errSkipDuplicate // Return sentinel error to indicate skip
+		}
+	}
+
+	// Get image dimensions
+	width, height, err := getImageDimensions(imageData)
+	if err != nil {
+		s.logger.Warn("Failed to get image dimensions", zap.Error(err))
+		width, height = 0, 0
+	}
+
+	// Generate UUID
+	memeID := uuid.New().String()
+
+	// Upload to storage
+	storageKey := fmt.Sprintf("%s/%s.%s", sourceType, memeID, item.Format)
+	contentType := getContentType(item.Format)
+
+	if err := s.storage.Upload(ctx, storageKey, bytes.NewReader(imageData), int64(len(imageData)), contentType); err != nil {
+		return fmt.Errorf("failed to upload to storage: %w", err)
+	}
+
+	// Generate VLM description
+	description, err := s.vlm.DescribeImage(ctx, imageData, item.Format)
+	if err != nil {
+		// Log but don't fail - we can retry later
+		s.logger.Warn("Failed to generate VLM description",
+			zap.String("source_id", item.SourceID),
+			zap.Error(err),
+		)
+		description = ""
+	}
+
+	// Generate embedding
+	var embedding []float32
+	if description != "" {
+		embedding, err = s.embedding.Embed(ctx, description)
+		if err != nil {
+			s.logger.Warn("Failed to generate embedding",
+				zap.String("source_id", item.SourceID),
+				zap.Error(err),
+			)
+		}
+	}
+
+	// Get storage URL
+	storageURL := s.storage.GetURL(storageKey)
+
+	// Create meme record
+	meme := &domain.Meme{
+		ID:             memeID,
+		SourceType:     sourceType,
+		SourceID:       item.SourceID,
+		StorageKey:     storageKey,
+		LocalPath:      item.LocalPath,
+		Width:          width,
+		Height:         height,
+		Format:         item.Format,
+		IsAnimated:     item.IsAnimated,
+		FileSize:       int64(len(imageData)),
+		MD5Hash:        md5Hash,
+		QdrantPointID:  memeID, // Use same ID for Qdrant
+		VLMDescription: description,
+		VLMModel:       s.vlm.GetModel(),
+		EmbeddingModel: s.embedding.GetModel(),
+		Tags:           item.Tags,
+		Category:       item.Category,
+		Status:         domain.MemeStatusActive,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	if description == "" {
+		meme.Status = domain.MemeStatusPending // Need to retry VLM
+	}
+
+	// Upsert to Qdrant (only if we have embedding)
+	if len(embedding) > 0 {
+		payload := &repository.MemePayload{
+			MemeID:         memeID,
+			SourceType:     sourceType,
+			Category:       item.Category,
+			IsAnimated:     item.IsAnimated,
+			Tags:           item.Tags,
+			VLMDescription: description,
+			StorageURL:     storageURL,
+		}
+
+		if err := s.qdrantRepo.Upsert(ctx, memeID, embedding, payload); err != nil {
+			return fmt.Errorf("failed to upsert to Qdrant: %w", err)
+		}
+	}
+
+	// Save to SQLite
+	if err := s.memeRepo.Create(ctx, meme); err != nil {
+		return fmt.Errorf("failed to save to database: %w", err)
+	}
+
+	return nil
+}
+
+func (s *IngestService) readImage(item *source.MemeItem) ([]byte, error) {
+	if item.LocalPath != "" {
+		return os.ReadFile(item.LocalPath)
+	}
+	// TODO: Implement HTTP download for URL-based sources
+	return nil, fmt.Errorf("URL-based sources not implemented yet")
+}
+
+func calculateMD5(data []byte) string {
+	hash := md5.Sum(data)
+	return hex.EncodeToString(hash[:])
+}
+
+func getImageDimensions(data []byte) (int, int, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return 0, 0, err
+	}
+	return config.Width, config.Height, nil
+}
+
+func getContentType(format string) string {
+	switch format {
+	case "jpeg", "jpg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "gif":
+		return "image/gif"
+	case "webp":
+		return "image/webp"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// RetryPending retries processing for memes with pending status
+func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestStats, error) {
+	stats := &IngestStats{
+		StartTime: time.Now(),
+	}
+
+	memes, err := s.memeRepo.ListByStatus(ctx, domain.MemeStatusPending, limit, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pending memes: %w", err)
+	}
+
+	stats.TotalItems = int64(len(memes))
+
+	for _, meme := range memes {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+
+		// Download from storage
+		reader, err := s.storage.Download(ctx, meme.StorageKey)
+		if err != nil {
+			s.logger.Error("Failed to download from storage", zap.Error(err))
+			stats.FailedItems++
+			continue
+		}
+
+		imageData, err := io.ReadAll(reader)
+		reader.Close()
+		if err != nil {
+			s.logger.Error("Failed to read image data", zap.Error(err))
+			stats.FailedItems++
+			continue
+		}
+
+		// Generate VLM description
+		description, err := s.vlm.DescribeImage(ctx, imageData, meme.Format)
+		if err != nil {
+			s.logger.Warn("Failed to generate VLM description", zap.Error(err))
+			stats.FailedItems++
+			continue
+		}
+
+		// Generate embedding
+		embedding, err := s.embedding.Embed(ctx, description)
+		if err != nil {
+			s.logger.Warn("Failed to generate embedding", zap.Error(err))
+			stats.FailedItems++
+			continue
+		}
+
+		// Update Qdrant
+		payload := &repository.MemePayload{
+			MemeID:         meme.ID,
+			SourceType:     meme.SourceType,
+			Category:       meme.Category,
+			IsAnimated:     meme.IsAnimated,
+			Tags:           meme.Tags,
+			VLMDescription: description,
+			StorageURL:     s.storage.GetURL(meme.StorageKey),
+		}
+
+		if err := s.qdrantRepo.Upsert(ctx, meme.ID, embedding, payload); err != nil {
+			s.logger.Error("Failed to upsert to Qdrant", zap.Error(err))
+			stats.FailedItems++
+			continue
+		}
+
+		// Update SQLite
+		meme.VLMDescription = description
+		meme.Status = domain.MemeStatusActive
+		meme.UpdatedAt = time.Now()
+
+		if err := s.memeRepo.Update(ctx, &meme); err != nil {
+			s.logger.Error("Failed to update database", zap.Error(err))
+			stats.FailedItems++
+			continue
+		}
+
+		stats.ProcessedItems++
+	}
+
+	stats.EndTime = time.Now()
+	return stats, nil
+}
