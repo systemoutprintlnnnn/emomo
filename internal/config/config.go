@@ -150,6 +150,7 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("vlm.model", "VLM_MODEL")
 	v.BindEnv("embedding.api_key", "JINA_API_KEY")
 	v.BindEnv("search.score_threshold", "SEARCH_SCORE_THRESHOLD")
+	v.BindEnv("search.query_expansion.model", "QUERY_EXPANSION_MODEL")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

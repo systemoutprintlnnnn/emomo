@@ -6,27 +6,27 @@ database:
   path: ./data/memes.db
 
 qdrant:
-  host: ${QDRANT_HOST:-qdrant}  # Use service name in Docker, or external host
-  port: ${QDRANT_PORT:-6334}
+  host: localhost
+  port: 6334
   collection: memes
 
 minio:
-  endpoint: ${MINIO_ENDPOINT:-minio:9000}  # Use service name in Docker, or external endpoint
-  access_key: ${MINIO_ACCESS_KEY}
-  secret_key: ${MINIO_SECRET_KEY}
-  use_ssl: ${MINIO_USE_SSL:-false}
+  endpoint: localhost:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  use_ssl: false
   bucket: memes
 
 vlm:
   provider: openai
-  model: ${VLM_MODEL:-gpt-4o-mini}
-  api_key: ${OPENAI_API_KEY}
-  base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  model: qwen/qwen-2.5-vl-7b-instruct:free
+  api_key: <REMOVED>
+  base_url: https://openrouter.ai/api/v1
 
 embedding:
   provider: jina
   model: jina-embeddings-v3
-  api_key: ${JINA_API_KEY}
+  api_key: <REMOVED>
   dimensions: 1024
 
 ingest:
@@ -35,10 +35,10 @@ ingest:
   retry_count: 3
 
 search:
-  score_threshold: ${SEARCH_SCORE_THRESHOLD:-0.0}
+  score_threshold: 0.0
   query_expansion:
     enabled: true
-    model: ${QUERY_EXPANSION_MODEL:-gpt-4o-mini}
+    model: qwen/qwen-2.5-vl-7b-instruct:free
 
 sources:
   chinesebqb:
