@@ -40,6 +40,8 @@ type QdrantConfig struct {
 	Host       string `mapstructure:"host"`
 	Port       int    `mapstructure:"port"`
 	Collection string `mapstructure:"collection"`
+	APIKey     string `mapstructure:"api_key"` // Qdrant Cloud API Key
+	UseTLS     bool   `mapstructure:"use_tls"` // Enable TLS (auto-enabled when APIKey is set)
 }
 
 type MinIOConfig struct {
@@ -129,7 +131,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("database.path", "./data/memes.db")
 	v.SetDefault("qdrant.host", "localhost")
 	v.SetDefault("qdrant.port", 6334)
-	v.SetDefault("qdrant.collection", "memes")
+	v.SetDefault("qdrant.collection", "emomo")
+	v.SetDefault("qdrant.api_key", "")
+	v.SetDefault("qdrant.use_tls", false)
 	v.SetDefault("minio.endpoint", "localhost:9000")
 	v.SetDefault("minio.use_ssl", false)
 	v.SetDefault("minio.bucket", "memes")
@@ -158,6 +162,9 @@ func Load(configPath string) (*Config, error) {
 	// Bind environment variables explicitly for sensitive data
 	v.BindEnv("qdrant.host", "QDRANT_HOST")
 	v.BindEnv("qdrant.port", "QDRANT_PORT")
+	v.BindEnv("qdrant.collection", "QDRANT_COLLECTION")
+	v.BindEnv("qdrant.api_key", "QDRANT_API_KEY")
+	v.BindEnv("qdrant.use_tls", "QDRANT_USE_TLS")
 	v.BindEnv("minio.endpoint", "MINIO_ENDPOINT")
 	v.BindEnv("minio.access_key", "MINIO_ACCESS_KEY")
 	v.BindEnv("minio.secret_key", "MINIO_SECRET_KEY")
