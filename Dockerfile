@@ -3,8 +3,8 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Install git (needed for some Go modules)
-RUN apk add --no-cache git
+# Install git and build tools (gcc needed for CGO/SQLite)
+RUN apk add --no-cache git gcc musl-dev
 
 # Copy go mod files
 COPY go.mod go.sum ./
