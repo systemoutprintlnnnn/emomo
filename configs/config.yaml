@@ -25,6 +25,18 @@ minio:
   use_ssl: false
   bucket: memes
 
+# 通用存储配置（支持 MinIO、Cloudflare R2、AWS S3）
+# 如果配置了 storage，将优先使用；否则回退到上面的 minio 配置
+# storage:
+#   type: r2                                          # minio, r2, s3
+#   endpoint: <account_id>.r2.cloudflarestorage.com   # S3 API endpoint
+#   access_key: <r2_access_key>                       # 或通过 STORAGE_ACCESS_KEY 设置
+#   secret_key: <r2_secret_key>                       # 或通过 STORAGE_SECRET_KEY 设置
+#   use_ssl: true
+#   bucket: memes
+#   region: auto                                      # R2 使用 "auto"，AWS S3 使用具体 region
+#   public_url: https://pub-xxx.r2.dev                # R2.dev 公开访问 URL
+
 vlm:
   provider: openai
   model: qwen/qwen-2.5-vl-7b-instruct:free
