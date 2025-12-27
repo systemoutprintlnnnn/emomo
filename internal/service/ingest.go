@@ -29,7 +29,7 @@ import (
 type IngestService struct {
 	memeRepo   *repository.MemeRepository
 	qdrantRepo *repository.QdrantRepository
-	storage    *storage.MinIOStorage
+	storage    storage.ObjectStorage
 	vlm        *VLMService
 	embedding  *EmbeddingService
 	logger     *zap.Logger
@@ -47,7 +47,7 @@ type IngestConfig struct {
 func NewIngestService(
 	memeRepo *repository.MemeRepository,
 	qdrantRepo *repository.QdrantRepository,
-	storage *storage.MinIOStorage,
+	objectStorage storage.ObjectStorage,
 	vlm *VLMService,
 	embedding *EmbeddingService,
 	logger *zap.Logger,
@@ -56,7 +56,7 @@ func NewIngestService(
 	return &IngestService{
 		memeRepo:   memeRepo,
 		qdrantRepo: qdrantRepo,
-		storage:    storage,
+		storage:    objectStorage,
 		vlm:        vlm,
 		embedding:  embedding,
 		logger:     logger,

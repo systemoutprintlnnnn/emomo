@@ -20,9 +20,10 @@ Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和 MinIO
 - 兼容 S3 API
 - 免费额度充足
 
-选项 B：使用 [Cloudflare R2](https://www.cloudflare.com/products/r2/)（免费 10GB/月）
+选项 B：使用 [Cloudflare R2](https://www.cloudflare.com/products/r2/)（免费 10GB/月）⭐ **推荐**
 - 兼容 S3 API
 - 无出站流量费用
+- 详细配置指南：参见 [CLOUDFLARE_R2_SETUP.md](./CLOUDFLARE_R2_SETUP.md)
 
 选项 C：使用其他云存储（AWS S3、阿里云 OSS 等）
 
@@ -39,13 +40,41 @@ QDRANT_PORT=6333
 
 如果使用 Qdrant Cloud，还需要在代码中添加 API Key 支持（当前版本暂不支持，需要修改代码）。
 
-### MinIO/S3 配置
+### 存储配置（使用新的统一配置）
+
+#### Cloudflare R2（推荐）
+
+```bash
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=https://<YOUR_ACCOUNT_ID>.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=<YOUR_ACCESS_KEY_ID>
+STORAGE_SECRET_KEY=<YOUR_SECRET_ACCESS_KEY>
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=<YOUR_BUCKET_NAME>
+STORAGE_PUBLIC_URL=https://pub-<random-id>.r2.dev  # 可选
+```
+
+**如何获取访问密钥**：参见 [CLOUDFLARE_R2_SETUP.md](./CLOUDFLARE_R2_SETUP.md)
+
+#### Backblaze B2（兼容旧配置）
 
 ```bash
 MINIO_ENDPOINT=s3.us-west-000.backblazeb2.com
 MINIO_ACCESS_KEY=your-access-key
 MINIO_SECRET_KEY=your-secret-key
 MINIO_USE_SSL=true
+MINIO_BUCKET=your-bucket-name
+```
+
+#### 或使用新的统一配置格式
+
+```bash
+STORAGE_TYPE=s3
+STORAGE_ENDPOINT=s3.us-west-000.backblazeb2.com
+STORAGE_ACCESS_KEY=your-access-key
+STORAGE_SECRET_KEY=your-secret-key
+STORAGE_USE_SSL=true
+STORAGE_BUCKET=your-bucket-name
 ```
 
 ### API Keys

@@ -13,6 +13,7 @@ type Config struct {
 	Database  DatabaseConfig  `mapstructure:"database"`
 	Qdrant    QdrantConfig    `mapstructure:"qdrant"`
 	MinIO     MinIOConfig     `mapstructure:"minio"`
+	Storage   StorageConfig   `mapstructure:"storage"`
 	VLM       VLMConfig       `mapstructure:"vlm"`
 	Embedding EmbeddingConfig `mapstructure:"embedding"`
 	Ingest    IngestConfig    `mapstructure:"ingest"`
@@ -47,6 +48,18 @@ type MinIOConfig struct {
 	SecretKey string `mapstructure:"secret_key"`
 	UseSSL    bool   `mapstructure:"use_ssl"`
 	Bucket    string `mapstructure:"bucket"`
+}
+
+// StorageConfig holds configuration for S3-compatible storage (MinIO, R2, S3)
+type StorageConfig struct {
+	Type      string `mapstructure:"type"`       // "minio", "r2", "s3"
+	Endpoint  string `mapstructure:"endpoint"`   // S3 API endpoint
+	AccessKey string `mapstructure:"access_key"` // Access key ID
+	SecretKey string `mapstructure:"secret_key"` // Secret access key
+	UseSSL    bool   `mapstructure:"use_ssl"`    // Use HTTPS
+	Bucket    string `mapstructure:"bucket"`     // Bucket name
+	Region    string `mapstructure:"region"`     // Region (for AWS S3)
+	PublicURL string `mapstructure:"public_url"` // Public URL prefix (e.g., R2.dev domain)
 }
 
 type VLMConfig struct {
@@ -149,6 +162,16 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("minio.access_key", "MINIO_ACCESS_KEY")
 	v.BindEnv("minio.secret_key", "MINIO_SECRET_KEY")
 	v.BindEnv("minio.use_ssl", "MINIO_USE_SSL")
+
+	// Storage environment variables (new unified config)
+	v.BindEnv("storage.type", "STORAGE_TYPE")
+	v.BindEnv("storage.endpoint", "STORAGE_ENDPOINT")
+	v.BindEnv("storage.access_key", "STORAGE_ACCESS_KEY")
+	v.BindEnv("storage.secret_key", "STORAGE_SECRET_KEY")
+	v.BindEnv("storage.use_ssl", "STORAGE_USE_SSL")
+	v.BindEnv("storage.bucket", "STORAGE_BUCKET")
+	v.BindEnv("storage.region", "STORAGE_REGION")
+	v.BindEnv("storage.public_url", "STORAGE_PUBLIC_URL")
 	v.BindEnv("vlm.api_key", "OPENAI_API_KEY")
 	v.BindEnv("vlm.base_url", "OPENAI_BASE_URL")
 	v.BindEnv("vlm.model", "VLM_MODEL")
@@ -162,4 +185,25 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// GetStorageConfig returns the storage configuration with backward compatibility.
+// It prioritizes the new Storage config, falling back to MinIO config if Storage is not configured.
+func (c *Config) GetStorageConfig() *StorageConfig {
+	// If new storage config has endpoint configured, use it
+	if c.Storage.Endpoint != "" {
+		return &c.Storage
+	}
+
+	// Fall back to legacy MinIO config for backward compatibility
+	return &StorageConfig{
+		Type:      "minio",
+		Endpoint:  c.MinIO.Endpoint,
+		AccessKey: c.MinIO.AccessKey,
+		SecretKey: c.MinIO.SecretKey,
+		UseSSL:    c.MinIO.UseSSL,
+		Bucket:    c.MinIO.Bucket,
+		Region:    "",
+		PublicURL: "",
+	}
 }

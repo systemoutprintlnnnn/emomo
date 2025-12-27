@@ -7,6 +7,9 @@ import (
 
 // ObjectStorage defines the interface for object storage operations
 type ObjectStorage interface {
+	// EnsureBucket creates the bucket if it doesn't exist
+	EnsureBucket(ctx context.Context) error
+
 	// Upload uploads an object to storage
 	Upload(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error
 

@@ -58,21 +58,25 @@ func main() {
 		logger.Fatal("Failed to ensure Qdrant collection", zap.Error(err))
 	}
 
-	// Initialize storage
-	minioStorage, err := storage.NewMinIOStorage(&storage.MinIOConfig{
-		Endpoint:  cfg.MinIO.Endpoint,
-		AccessKey: cfg.MinIO.AccessKey,
-		SecretKey: cfg.MinIO.SecretKey,
-		UseSSL:    cfg.MinIO.UseSSL,
-		Bucket:    cfg.MinIO.Bucket,
+	// Initialize storage (supports MinIO, R2, S3)
+	storageCfg := cfg.GetStorageConfig()
+	objectStorage, err := storage.NewStorage(&storage.S3Config{
+		Type:      storage.StorageType(storageCfg.Type),
+		Endpoint:  storageCfg.Endpoint,
+		AccessKey: storageCfg.AccessKey,
+		SecretKey: storageCfg.SecretKey,
+		UseSSL:    storageCfg.UseSSL,
+		Bucket:    storageCfg.Bucket,
+		Region:    storageCfg.Region,
+		PublicURL: storageCfg.PublicURL,
 	})
 	if err != nil {
-		logger.Fatal("Failed to initialize MinIO storage", zap.Error(err))
+		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
 
 	// Ensure bucket exists
-	if err := minioStorage.EnsureBucket(ctx); err != nil {
-		logger.Fatal("Failed to ensure MinIO bucket", zap.Error(err))
+	if err := objectStorage.EnsureBucket(ctx); err != nil {
+		logger.Fatal("Failed to ensure storage bucket", zap.Error(err))
 	}
 
 	// Initialize services
