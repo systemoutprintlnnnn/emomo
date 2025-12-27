@@ -14,6 +14,8 @@ import (
 	"github.com/timmy/emomo/internal/config"
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
+	"github.com/timmy/emomo/internal/source"
+	"github.com/timmy/emomo/internal/source/chinesebqb"
 	"github.com/timmy/emomo/internal/storage"
 	"go.uber.org/zap"
 )
@@ -114,8 +116,35 @@ func main() {
 		},
 	)
 
+	// Initialize VLM service for ingest
+	vlmService := service.NewVLMService(&service.VLMConfig{
+		Provider: cfg.VLM.Provider,
+		Model:    cfg.VLM.Model,
+		APIKey:   cfg.VLM.APIKey,
+		BaseURL:  cfg.VLM.BaseURL,
+	})
+
+	// Initialize ingest service
+	ingestService := service.NewIngestService(
+		memeRepo,
+		qdrantRepo,
+		objectStorage,
+		vlmService,
+		embeddingService,
+		logger,
+		&service.IngestConfig{
+			Workers:   cfg.Ingest.Workers,
+			BatchSize: cfg.Ingest.BatchSize,
+		},
+	)
+
+	// Initialize data sources
+	sources := map[string]source.Source{
+		"chinesebqb": chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath),
+	}
+
 	// Setup router
-	router := api.SetupRouter(searchService, cfg)
+	router := api.SetupRouter(searchService, ingestService, sources, cfg)
 
 	// Create HTTP server
 	srv := &http.Server{

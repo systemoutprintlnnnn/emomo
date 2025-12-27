@@ -6,11 +6,14 @@ import (
 	"github.com/timmy/emomo/internal/api/middleware"
 	"github.com/timmy/emomo/internal/config"
 	"github.com/timmy/emomo/internal/service"
+	"github.com/timmy/emomo/internal/source"
 )
 
 // SetupRouter configures the Gin router with all routes
 func SetupRouter(
 	searchService *service.SearchService,
+	ingestService *service.IngestService,
+	sources map[string]source.Source,
 	cfg *config.Config,
 ) *gin.Engine {
 	// Set Gin mode
@@ -37,6 +40,10 @@ func SetupRouter(
 	healthHandler := handler.NewHealthHandler()
 	searchHandler := handler.NewSearchHandler(searchService)
 	memeHandler := handler.NewMemeHandler(searchService)
+	adminHandler := handler.NewAdminHandler(ingestService, sources)
+
+	// Admin page (root)
+	r.GET("/", adminHandler.AdminPage)
 
 	// Health check
 	r.GET("/health", healthHandler.Health)
@@ -56,6 +63,10 @@ func SetupRouter(
 
 		// Stats
 		v1.GET("/stats", searchHandler.GetStats)
+
+		// Ingest (admin)
+		v1.POST("/ingest", adminHandler.TriggerIngest)
+		v1.GET("/ingest/status", adminHandler.GetIngestStatus)
 	}
 
 	return r
