@@ -93,7 +93,10 @@ func (a *Adapter) FetchBatch(ctx context.Context, cursor string, limit int) ([]s
 func (a *Adapter) loadItems() error {
 	// Check if repo path exists
 	if _, err := os.Stat(a.repoPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository path does not exist: %s", a.repoPath)
+		return fmt.Errorf("ChineseBQB repository path does not exist: %s. "+
+			"Please ensure the directory is mounted correctly in Docker. "+
+			"In docker-compose.yml, ensure '../data:/root/data' volume mount includes the ChineseBQB subdirectory",
+			a.repoPath)
 	}
 
 	a.items = []source.MemeItem{}

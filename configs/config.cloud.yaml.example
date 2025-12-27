@@ -1,0 +1,71 @@
+server:
+  port: 8080
+  mode: release
+
+database:
+  path: ./data/memes.db
+
+# Qdrant Cloud 配置
+qdrant:
+  host: your-cluster.qdrant.io  # Qdrant Cloud 集群地址
+  port: 443                      # Qdrant Cloud 使用 HTTPS
+  collection: emomo
+  api_key: your-qdrant-api-key    # Qdrant Cloud API Key
+  use_tls: true                  # Qdrant Cloud 需要 TLS
+
+# MinIO 配置（不使用，将被 storage 配置覆盖）
+minio:
+  endpoint: localhost:9000
+  use_ssl: false
+  bucket: memes
+
+# 云存储配置（Cloudflare R2）
+storage:
+  type: r2                                          # 存储类型: r2, s3, minio
+  endpoint: your-account-id.r2.cloudflarestorage.com  # R2 S3 API endpoint
+  access_key: your-r2-access-key                    # R2 Access Key ID
+  secret_key: your-r2-secret-key                    # R2 Secret Access Key
+  use_ssl: true                                     # R2 使用 HTTPS
+  bucket: memes                                     # Bucket 名称
+  region: auto                                      # R2 使用 "auto"
+  public_url: https://pub-xxx.r2.dev                # R2.dev 公开访问 URL（可选）
+
+# 如果使用 AWS S3，配置示例：
+# storage:
+#   type: s3
+#   endpoint: s3.amazonaws.com
+#   access_key: your-aws-access-key
+#   secret_key: your-aws-secret-key
+#   use_ssl: true
+#   bucket: your-bucket-name
+#   region: us-east-1
+#   public_url: https://your-bucket-name.s3.amazonaws.com
+
+vlm:
+  provider: openai
+  model: qwen/qwen-2.5-vl-7b-instruct:free
+  # api_key: 通过环境变量 OPENAI_API_KEY 设置
+  base_url: https://openrouter.ai/api/v1
+
+embedding:
+  provider: jina
+  model: jina-embeddings-v3
+  # api_key: 通过环境变量 JINA_API_KEY 设置
+  dimensions: 1024
+
+ingest:
+  workers: 5
+  batch_size: 10
+  retry_count: 3
+
+search:
+  score_threshold: 0.0
+  query_expansion:
+    enabled: true
+    model: qwen/qwen-2.5-vl-7b-instruct:free
+
+sources:
+  chinesebqb:
+    enabled: true
+    repo_path: ./data/ChineseBQB
+
