@@ -21,7 +21,8 @@ FROM alpine:latest
 
 # Install required packages
 # findutils provides GNU find which has better Unicode support than busybox find
-RUN apk --no-cache add ca-certificates tzdata findutils
+# git is needed to clone ChineseBQB repository if not present
+RUN apk --no-cache add ca-certificates tzdata findutils git
 
 # Set UTF-8 locale for proper handling of Chinese/Unicode filenames
 # Alpine uses musl which has limited locale support, but C.UTF-8 works for file operations
