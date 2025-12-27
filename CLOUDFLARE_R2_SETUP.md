@@ -95,10 +95,12 @@ STORAGE_PUBLIC_URL=https://pub-xyz123.r2.dev
 配置完成后，应用启动时会尝试连接 R2。检查日志确认连接成功：
 
 ```
-INFO    MinIO connection established
+INFO    Storage connection established
         endpoint=https://abc123def456.r2.cloudflarestorage.com
         bucket=emomo-memes
 ```
+
+**注意**：日志可能显示 "MinIO connection"，这是因为代码使用 minio-go 库作为 S3 兼容客户端，这是正常的。
 
 ## 注意事项
 

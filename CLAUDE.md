@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Emomo is an AI-powered meme/sticker semantic search system. Users can search for memes using natural language queries in Chinese.
 
-**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), MinIO (object storage), SQLite/PostgreSQL, OpenAI GPT-4o mini (VLM), Jina Embeddings v3
+**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (MinIO/R2/S3), SQLite/PostgreSQL, OpenAI GPT-4o mini (VLM), Jina Embeddings v3
 
 ## Build & Run Commands
 
@@ -15,7 +15,7 @@ Emomo is an AI-powered meme/sticker semantic search system. Users can search for
 go build -o api ./cmd/api
 go build -o ingest ./cmd/ingest
 
-# Start infrastructure (Qdrant + MinIO)
+# Start infrastructure (Qdrant, object storage can use cloud services like Cloudflare R2)
 docker-compose -f deployments/docker-compose.yml up -d
 
 # Data ingestion
@@ -49,14 +49,14 @@ internal/
 ├── repository/
 │   ├── meme_repo.go     # SQLite/PostgreSQL operations
 │   └── qdrant_repo.go   # Vector search operations (gRPC)
-├── storage/minio.go     # S3-compatible object storage
+├── storage/s3.go        # S3-compatible object storage (supports MinIO, R2, S3)
 ├── source/              # Data source adapters (extensible)
 └── domain/              # Data models (Meme, Source, Job)
 ```
 
 ### Data Flow
 
-1. **Ingestion**: Source adapter → VLM description → Jina embedding → MinIO upload → Qdrant upsert → SQLite save
+1. **Ingestion**: Source adapter → VLM description → Jina embedding → Object storage upload → Qdrant upsert → SQLite save
 2. **Search**: Query text → Jina embedding → Qdrant cosine similarity → Return top-K results
 
 ## API Endpoints
@@ -73,7 +73,7 @@ internal/
 Environment variables (see `.env.example`):
 - `OPENAI_API_KEY`, `OPENAI_BASE_URL` - VLM provider
 - `JINA_API_KEY` - Embeddings API
-- `MINIO_*` - Object storage credentials
+- `STORAGE_*` - Object storage credentials (supports MinIO, R2, S3)
 - `QDRANT_HOST`, `QDRANT_PORT` - Vector DB connection
 - `DATABASE_PATH` - SQLite path
 
