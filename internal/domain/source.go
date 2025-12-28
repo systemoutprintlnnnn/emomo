@@ -50,8 +50,8 @@ type DataSource struct {
 	Config         SourceConfig `gorm:"type:text" json:"config"`
 	LastSyncAt     *time.Time   `gorm:"type:text" json:"last_sync_at,omitempty"`
 	LastSyncCursor string       `gorm:"type:text" json:"last_sync_cursor,omitempty"`
-	IsEnabled      bool         `gorm:"type:integer;default:1" json:"is_enabled"`
-	Priority       int          `gorm:"type:integer;default:0" json:"priority"`
+	IsEnabled      bool         `gorm:"default:true" json:"is_enabled"`
+	Priority       int          `gorm:"default:0" json:"priority"`
 	CreatedAt      time.Time    `gorm:"type:text" json:"created_at"`
 	UpdatedAt      time.Time    `gorm:"type:text" json:"updated_at"`
 }

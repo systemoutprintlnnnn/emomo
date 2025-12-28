@@ -37,7 +37,7 @@ func main() {
 	defer logger.Sync()
 
 	// Initialize database
-	db, err := repository.InitDB(cfg.Database.Path)
+	db, err := repository.InitDB(&cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}

@@ -5,30 +5,48 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/timmy/emomo/internal/config"
 	"github.com/timmy/emomo/internal/domain"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// InitDB initializes the SQLite database connection and runs migrations
-func InitDB(dbPath string) (*gorm.DB, error) {
-	// Ensure the directory exists
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create database directory: %w", err)
-	}
-
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+// InitDB initializes the database connection based on configuration and runs migrations
+func InitDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {
+	gormConfig := &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Enable WAL mode for better concurrency
-	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA foreign_keys=ON")
+	var db *gorm.DB
+	var err error
+
+	switch cfg.Driver {
+	case "postgres":
+		db, err = initPostgres(cfg, gormConfig)
+	case "sqlite":
+		db, err = initSQLite(cfg, gormConfig)
+	default:
+		// Default to SQLite
+		db, err = initSQLite(cfg, gormConfig)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure connection pool
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sql.DB instance: %w", err)
+	}
+
+	// Set standard connection pool settings
+	// These are critical for production stability regardless of the underlying driver
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 
 	// Auto migrate schemas
 	if err := db.AutoMigrate(
@@ -38,6 +56,45 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
+
+	return db, nil
+}
+
+// initPostgres initializes a PostgreSQL database connection using the unified DSN
+func initPostgres(cfg *config.DatabaseConfig, gormConfig *gorm.Config) (*gorm.DB, error) {
+	dsn := cfg.DSN()
+	// Use postgres.New with PreferSimpleProtocol: true to support Transaction Poolers (like Supabase port 6543)
+	// This disables implicit prepared statements which are incompatible with transaction pooling
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  dsn,
+		PreferSimpleProtocol: true,
+	}), gormConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+	}
+	return db, nil
+}
+
+// initSQLite initializes a SQLite database connection
+func initSQLite(cfg *config.DatabaseConfig, gormConfig *gorm.Config) (*gorm.DB, error) {
+	// Ensure the directory exists
+	if cfg.Path != "" {
+		dir := filepath.Dir(cfg.Path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
+	}
+
+	dsn := cfg.DSN()
+	db, err := gorm.Open(sqlite.Open(dsn), gormConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to SQLite: %w", err)
+	}
+
+	// Enable WAL mode for better concurrency (SQLite specific)
+	// These are PRAGMA statements, separate from the connection pool settings
+	db.Exec("PRAGMA journal_mode=WAL")
+	db.Exec("PRAGMA foreign_keys=ON")
 
 	return db, nil
 }

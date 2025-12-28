@@ -48,13 +48,13 @@ type Meme struct {
 	SourceType     string      `gorm:"type:text;not null;index:idx_memes_source,unique" json:"source_type"`
 	SourceID       string      `gorm:"type:text;not null;index:idx_memes_source,unique" json:"source_id"`
 	StorageKey     string      `gorm:"type:text" json:"storage_key"`
-	LocalPath      string      `gorm:"type:text;column:local_path" json:"local_path,omitempty"`
-	Width          int         `gorm:"type:integer" json:"width"`
-	Height         int         `gorm:"type:integer" json:"height"`
-	Format         string      `gorm:"type:text" json:"format"`
-	IsAnimated     bool        `gorm:"type:integer" json:"is_animated"`
-	FileSize       int64       `gorm:"type:integer" json:"file_size"`
-	MD5Hash        string      `gorm:"type:text;index:idx_memes_md5" json:"md5_hash"`
+	LocalPath      string      `gorm:"column:local_path" json:"local_path,omitempty"`
+	Width          int         `json:"width"`
+	Height         int         `json:"height"`
+	Format         string      `json:"format"`
+	IsAnimated     bool        `json:"is_animated"`
+	FileSize       int64       `json:"file_size"`
+	MD5Hash        string      `gorm:"index:idx_memes_md5" json:"md5_hash"`
 	PerceptualHash string      `gorm:"type:text" json:"perceptual_hash,omitempty"`
 	QdrantPointID  string      `gorm:"type:text" json:"qdrant_point_id,omitempty"`
 	VLMDescription string      `gorm:"type:text" json:"vlm_description,omitempty"`
