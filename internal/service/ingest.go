@@ -272,35 +272,26 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	// Generate UUID
 	memeID := uuid.New().String()
 
+	// Generate VLM description first - most likely to fail (external API)
+	// No rollback needed if this fails since nothing has been persisted yet
+	description, err := s.vlm.DescribeImage(ctx, imageData, item.Format)
+	if err != nil {
+		return fmt.Errorf("failed to generate VLM description: %w", err)
+	}
+
+	// Generate embedding - also external API, do before any persistence
+	embedding, err := s.embedding.Embed(ctx, description)
+	if err != nil {
+		return fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	// Now start persistence operations (require rollback on failure)
 	// Upload to storage
 	storageKey := fmt.Sprintf("%s/%s.%s", sourceType, memeID, item.Format)
 	contentType := getContentType(item.Format)
 
 	if err := s.storage.Upload(ctx, storageKey, bytes.NewReader(imageData), int64(len(imageData)), contentType); err != nil {
 		return fmt.Errorf("failed to upload to storage: %w", err)
-	}
-
-	// Generate VLM description
-	description, err := s.vlm.DescribeImage(ctx, imageData, item.Format)
-	if err != nil {
-		// Log but don't fail - we can retry later
-		s.logger.Warn("Failed to generate VLM description",
-			zap.String("source_id", item.SourceID),
-			zap.Error(err),
-		)
-		description = ""
-	}
-
-	// Generate embedding
-	var embedding []float32
-	if description != "" {
-		embedding, err = s.embedding.Embed(ctx, description)
-		if err != nil {
-			s.logger.Warn("Failed to generate embedding",
-				zap.String("source_id", item.SourceID),
-				zap.Error(err),
-			)
-		}
 	}
 
 	// Get storage URL
@@ -330,29 +321,43 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		UpdatedAt:      time.Now(),
 	}
 
-	if description == "" {
-		meme.Status = domain.MemeStatusPending // Need to retry VLM
+	// Upsert to Qdrant
+	payload := &repository.MemePayload{
+		MemeID:         memeID,
+		SourceType:     sourceType,
+		Category:       item.Category,
+		IsAnimated:     item.IsAnimated,
+		Tags:           item.Tags,
+		VLMDescription: description,
+		StorageURL:     storageURL,
 	}
 
-	// Upsert to Qdrant (only if we have embedding)
-	if len(embedding) > 0 {
-		payload := &repository.MemePayload{
-			MemeID:         memeID,
-			SourceType:     sourceType,
-			Category:       item.Category,
-			IsAnimated:     item.IsAnimated,
-			Tags:           item.Tags,
-			VLMDescription: description,
-			StorageURL:     storageURL,
+	if err := s.qdrantRepo.Upsert(ctx, memeID, embedding, payload); err != nil {
+		// Rollback: delete uploaded file
+		if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+			s.logger.Error("Failed to rollback storage upload",
+				zap.String("storage_key", storageKey),
+				zap.Error(delErr),
+			)
 		}
-
-		if err := s.qdrantRepo.Upsert(ctx, memeID, embedding, payload); err != nil {
-			return fmt.Errorf("failed to upsert to Qdrant: %w", err)
-		}
+		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
 	}
 
-	// Save to SQLite
+	// Save to database
 	if err := s.memeRepo.Create(ctx, meme); err != nil {
+		// Rollback: delete from Qdrant and storage
+		if delErr := s.qdrantRepo.Delete(ctx, memeID); delErr != nil {
+			s.logger.Error("Failed to rollback Qdrant upsert",
+				zap.String("meme_id", memeID),
+				zap.Error(delErr),
+			)
+		}
+		if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+			s.logger.Error("Failed to rollback storage upload",
+				zap.String("storage_key", storageKey),
+				zap.Error(delErr),
+			)
+		}
 		return fmt.Errorf("failed to save to database: %w", err)
 	}
 
