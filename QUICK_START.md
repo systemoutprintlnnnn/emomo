@@ -44,11 +44,11 @@ STORAGE_USE_SSL=true
 STORAGE_BUCKET=memes
 STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 
-# 或使用本地 MinIO（需要先启动 docker-compose）
-# STORAGE_TYPE=minio
+# 或使用本地 S3 兼容存储（需要先启动 docker-compose）
+# STORAGE_TYPE=s3compatible
 # STORAGE_ENDPOINT=localhost:9000
-# STORAGE_ACCESS_KEY=minioadmin
-# STORAGE_SECRET_KEY=minioadmin
+# STORAGE_ACCESS_KEY=accesskey
+# STORAGE_SECRET_KEY=secretkey
 # STORAGE_USE_SSL=false
 # STORAGE_BUCKET=memes
 

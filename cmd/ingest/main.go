@@ -74,7 +74,7 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
 	}
 
-	// Initialize storage (supports MinIO, R2, S3)
+	// Initialize S3-compatible storage (supports R2, S3, etc.)
 	storageCfg := cfg.GetStorageConfig()
 	objectStorage, err := storage.NewStorage(&storage.S3Config{
 		Type:      storage.StorageType(storageCfg.Type),

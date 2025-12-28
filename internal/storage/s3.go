@@ -6,17 +6,19 @@ import (
 	"io"
 	"strings"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // StorageType defines the type of S3-compatible storage
 type StorageType string
 
 const (
-	StorageTypeMinio StorageType = "minio"
-	StorageTypeR2    StorageType = "r2"
-	StorageTypeS3    StorageType = "s3"
+	StorageTypeR2  StorageType = "r2"
+	StorageTypeS3  StorageType = "s3"
+	StorageTypeS3Compatible StorageType = "s3compatible"
 )
 
 // S3Config holds configuration for S3-compatible storage
@@ -33,7 +35,7 @@ type S3Config struct {
 
 // S3Storage implements ObjectStorage for S3-compatible services
 type S3Storage struct {
-	client    *minio.Client
+	client    *s3.Client
 	bucket    string
 	endpoint  string
 	useSSL    bool
@@ -47,25 +49,41 @@ func NewS3Storage(cfg *S3Config) (*S3Storage, error) {
 	// Normalize endpoint: remove protocol prefix and trailing slashes/paths
 	endpoint := normalizeEndpoint(cfg.Endpoint)
 
-	opts := &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.UseSSL,
-	}
-
-	// Set region based on storage type
-	switch cfg.Type {
-	case StorageTypeR2:
-		opts.Region = "auto" // R2 uses "auto" region
-	case StorageTypeS3:
-		if cfg.Region != "" {
-			opts.Region = cfg.Region
+	// Determine region
+	region := cfg.Region
+	if region == "" {
+		if cfg.Type == StorageTypeR2 {
+			region = "auto"
+		} else {
+			region = "us-east-1" // Default region for S3-compatible services
 		}
 	}
 
-	client, err := minio.New(endpoint, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create S3 client: %w", err)
+	// Build endpoint URL
+	scheme := "http"
+	if cfg.UseSSL {
+		scheme = "https"
 	}
+	endpointURL := fmt.Sprintf("%s://%s", scheme, endpoint)
+
+	// Create AWS config
+	awsCfg, err := config.LoadDefaultConfig(context.Background(),
+		config.WithRegion(region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			cfg.AccessKey,
+			cfg.SecretKey,
+			"",
+		)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Create S3 client with custom endpoint
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(endpointURL)
+		o.UsePathStyle = true // Use path-style for S3-compatible services
+	})
 
 	// Normalize public URL (remove trailing slash)
 	publicURL := strings.TrimSuffix(cfg.PublicURL, "/")
@@ -77,7 +95,7 @@ func NewS3Storage(cfg *S3Config) (*S3Storage, error) {
 		useSSL:    cfg.UseSSL,
 		storeType: cfg.Type,
 		publicURL: publicURL,
-		region:    cfg.Region,
+		region:    region,
 	}, nil
 }
 
@@ -100,12 +118,11 @@ func normalizeEndpoint(endpoint string) string {
 
 // EnsureBucket creates the bucket if it doesn't exist
 func (s *S3Storage) EnsureBucket(ctx context.Context) error {
-	exists, err := s.client.BucketExists(ctx, s.bucket)
-	if err != nil {
-		return fmt.Errorf("failed to check bucket existence: %w", err)
-	}
-
-	if exists {
+	// Check if bucket exists
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err == nil {
 		return nil
 	}
 
@@ -114,34 +131,12 @@ func (s *S3Storage) EnsureBucket(ctx context.Context) error {
 		return fmt.Errorf("bucket %s does not exist, please create it in R2 dashboard", s.bucket)
 	}
 
-	// Create bucket for MinIO and S3
-	opts := minio.MakeBucketOptions{}
-	if s.region != "" {
-		opts.Region = s.region
-	}
-
-	if err := s.client.MakeBucket(ctx, s.bucket, opts); err != nil {
+	// Create bucket for S3 and S3-compatible services
+	_, err = s.client.CreateBucket(ctx, &s3.CreateBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err != nil {
 		return fmt.Errorf("failed to create bucket: %w", err)
-	}
-
-	// Set bucket policy to allow public read access (MinIO only)
-	if s.storeType == StorageTypeMinio {
-		policy := fmt.Sprintf(`{
-			"Version": "2012-10-17",
-			"Statement": [
-				{
-					"Effect": "Allow",
-					"Principal": {"AWS": ["*"]},
-					"Action": ["s3:GetObject"],
-					"Resource": ["arn:aws:s3:::%s/*"]
-				}
-			]
-		}`, s.bucket)
-
-		if err := s.client.SetBucketPolicy(ctx, s.bucket, policy); err != nil {
-			// Non-fatal: bucket is created, just can't set public policy
-			fmt.Printf("Warning: failed to set bucket policy: %v\n", err)
-		}
 	}
 
 	return nil
@@ -149,11 +144,13 @@ func (s *S3Storage) EnsureBucket(ctx context.Context) error {
 
 // Upload uploads an object to storage
 func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error {
-	opts := minio.PutObjectOptions{
-		ContentType: contentType,
-	}
-
-	_, err := s.client.PutObject(ctx, s.bucket, key, reader, size, opts)
+	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(key),
+		Body:          reader,
+		ContentLength: aws.Int64(size),
+		ContentType:   aws.String(contentType),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to upload object: %w", err)
 	}
@@ -163,12 +160,15 @@ func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, si
 
 // Download downloads an object from storage
 func (s *S3Storage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
-	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to download object: %w", err)
 	}
 
-	return obj, nil
+	return result.Body, nil
 }
 
 // GetURL returns the public URL for accessing an object
@@ -192,7 +192,7 @@ func (s *S3Storage) GetURL(key string) string {
 		}
 		return fmt.Sprintf("%s://%s/%s/%s", scheme, s.endpoint, s.bucket, key)
 	default:
-		// MinIO and other compatible services
+		// S3-compatible services (path-style)
 		scheme := "http"
 		if s.useSSL {
 			scheme = "https"
@@ -203,7 +203,10 @@ func (s *S3Storage) GetURL(key string) string {
 
 // Delete deletes an object from storage
 func (s *S3Storage) Delete(ctx context.Context, key string) error {
-	err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to delete object: %w", err)
 	}
@@ -212,10 +215,13 @@ func (s *S3Storage) Delete(ctx context.Context, key string) error {
 
 // Exists checks if an object exists in storage
 func (s *S3Storage) Exists(ctx context.Context, key string) (bool, error) {
-	_, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
 	if err != nil {
-		errResponse := minio.ToErrorResponse(err)
-		if errResponse.Code == "NoSuchKey" {
+		// Check if it's a "not found" error
+		if strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "404") {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check object existence: %w", err)

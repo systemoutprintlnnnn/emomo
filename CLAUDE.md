@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Emomo is an AI-powered meme/sticker semantic search system. Users can search for memes using natural language queries in Chinese.
 
-**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (MinIO/R2/S3), SQLite/PostgreSQL, OpenAI GPT-4o mini (VLM), Jina Embeddings v3
+**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (R2/S3), SQLite/PostgreSQL, OpenAI GPT-4o mini (VLM), Jina Embeddings v3
 
 ## Build & Run Commands
 
@@ -49,7 +49,7 @@ internal/
 ├── repository/
 │   ├── meme_repo.go     # SQLite/PostgreSQL operations
 │   └── qdrant_repo.go   # Vector search operations (gRPC)
-├── storage/s3.go        # S3-compatible object storage (supports MinIO, R2, S3)
+├── storage/s3.go        # S3-compatible object storage (supports R2, S3, etc.)
 ├── source/              # Data source adapters (extensible)
 └── domain/              # Data models (Meme, Source, Job)
 ```
@@ -73,7 +73,7 @@ internal/
 Environment variables (see `.env.example`):
 - `OPENAI_API_KEY`, `OPENAI_BASE_URL` - VLM provider
 - `JINA_API_KEY` - Embeddings API
-- `STORAGE_*` - Object storage credentials (supports MinIO, R2, S3)
+- `STORAGE_*` - Object storage credentials (supports R2, S3, etc.)
 - `QDRANT_HOST`, `QDRANT_PORT` - Vector DB connection
 - `DATABASE_PATH` - SQLite path
 

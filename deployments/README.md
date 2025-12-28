@@ -4,7 +4,7 @@
 
 ## 文件说明
 
-- `docker-compose.yml` - 开发环境配置（仅包含 Qdrant 和 MinIO）
+- `docker-compose.yml` - 开发环境配置（包含 Qdrant 和 S3 兼容存储）
 - `docker-compose.prod.yml` - 生产环境配置（支持本地服务和云服务）
 
 ## 部署模式
@@ -52,11 +52,11 @@
 
 ### 模式 2: 仅使用本地服务
 
-使用本地 Qdrant 和 MinIO。
+使用本地 Qdrant 和 S3 兼容存储服务。
 
 **步骤**：
 
-1. 启动所有服务（包括本地 Qdrant 和 MinIO）：
+1. 启动所有服务（包括本地 Qdrant 和 S3 兼容存储）：
    ```bash
    docker-compose -f docker-compose.prod.yml --profile local up -d
    ```
@@ -65,8 +65,8 @@
    ```bash
    # 检查 Qdrant
    curl http://localhost:6333/health
-   
-   # 检查 MinIO
+
+   # 检查 S3 兼容存储
    curl http://localhost:9000/minio/health/live
    ```
 
@@ -83,24 +83,24 @@
 
 2. 配置云存储环境变量（见模式 1）
 
-### 模式 4: 混合模式 - 云 Qdrant + 本地 MinIO
+### 模式 4: 混合模式 - 云 Qdrant + 本地 S3 存储
 
-使用 Qdrant Cloud，但使用本地 MinIO 存储图片。
+使用 Qdrant Cloud，但使用本地 S3 兼容存储服务存储图片。
 
 **步骤**：
 
-1. 启动本地 MinIO：
+1. 启动本地 S3 兼容存储：
    ```bash
-   docker-compose -f docker-compose.prod.yml --profile minio-local up -d
+   docker-compose -f docker-compose.prod.yml --profile s3-local up -d
    ```
 
 2. 配置 Qdrant Cloud 环境变量（见模式 1）
 
 ## Profiles 说明
 
-- `local` - 启动所有本地服务（Qdrant + MinIO）
+- `local` - 启动所有本地服务（Qdrant + S3 兼容存储）
 - `qdrant-local` - 仅启动本地 Qdrant
-- `minio-local` - 仅启动本地 MinIO
+- `s3-local` - 仅启动本地 S3 兼容存储
 - 无 profile - 仅启动 API 服务（使用云服务）
 
 ## 环境变量配置
@@ -124,11 +124,14 @@ export QDRANT_USE_TLS=true
 
 ### 存储配置
 
-**本地 MinIO**：
+**本地 S3 兼容存储**：
 ```bash
-export MINIO_ACCESS_KEY=minioadmin
-export MINIO_SECRET_KEY=minioadmin
-# 不设置 STORAGE_TYPE，将使用 MinIO
+export STORAGE_TYPE=s3compatible
+export STORAGE_ENDPOINT=localhost:9000
+export STORAGE_ACCESS_KEY=accesskey
+export STORAGE_SECRET_KEY=secretkey
+export STORAGE_BUCKET=memes
+export STORAGE_USE_SSL=false
 ```
 
 **Cloudflare R2**：
@@ -198,9 +201,9 @@ docker-compose -f docker-compose.prod.yml ps
 
 ### API 无法连接存储
 
-1. 检查存储服务是否运行（本地 MinIO）：
+1. 检查存储服务是否运行（本地 S3 兼容存储）：
    ```bash
-   docker ps | grep minio
+   docker ps | grep s3
    ```
 
 2. 检查环境变量：
@@ -209,7 +212,7 @@ docker-compose -f docker-compose.prod.yml ps
    ```
 
 3. 验证存储配置：
-   - 本地 MinIO：访问 http://localhost:9001 检查 bucket
+   - 本地 S3 兼容存储：访问 http://localhost:9001 检查 bucket
    - Cloudflare R2：检查 R2 dashboard
    - AWS S3：检查 AWS Console
 

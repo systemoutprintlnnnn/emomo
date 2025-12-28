@@ -25,15 +25,9 @@ qdrant:
   api_key: your-qdrant-api-key    # Qdrant Cloud API Key
   use_tls: true                  # Qdrant Cloud 需要 TLS
 
-# MinIO 配置（不使用，将被 storage 配置覆盖）
-minio:
-  endpoint: localhost:9000
-  use_ssl: false
-  bucket: memes
-
-# 云存储配置（Cloudflare R2）
+# S3 兼容存储配置（Cloudflare R2）
 storage:
-  type: r2                                          # 存储类型: r2, s3, minio
+  type: r2                                          # 存储类型: r2, s3, s3compatible
   endpoint: your-account-id.r2.cloudflarestorage.com  # R2 S3 API endpoint
   access_key: your-r2-access-key                    # R2 Access Key ID
   secret_key: your-r2-secret-key                    # R2 Secret Access Key

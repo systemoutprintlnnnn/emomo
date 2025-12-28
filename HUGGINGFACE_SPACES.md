@@ -67,7 +67,7 @@ STORAGE_USE_SSL=true
 STORAGE_BUCKET=your-bucket-name
 ```
 
-**注意**：旧版 `MINIO_*` 环境变量仍支持（向后兼容），但推荐使用新的 `STORAGE_*` 格式。
+**注意**：使用 `STORAGE_*` 环境变量配置 S3 兼容存储。
 
 ### API Keys
 

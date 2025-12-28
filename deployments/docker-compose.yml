@@ -13,17 +13,19 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
     restart: unless-stopped
 
-  minio:
+  # S3-compatible object storage for local development
+  # In production, use Cloudflare R2, AWS S3, or other S3-compatible services
+  s3:
     image: minio/minio:latest
-    container_name: emomo-minio
+    container_name: emomo-s3
     ports:
-      - "9000:9000"  # API
+      - "9000:9000"  # S3 API
       - "9001:9001"  # Console
     volumes:
-      - minio_data:/data
+      - s3_data:/data
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_ROOT_USER=accesskey
+      - MINIO_ROOT_PASSWORD=secretkey
     command: server /data --console-address ":9001"
     restart: unless-stopped
     healthcheck:
@@ -34,4 +36,4 @@ services:
 
 volumes:
   qdrant_data:
-  minio_data:
+  s3_data:

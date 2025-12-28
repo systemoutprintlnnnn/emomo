@@ -100,7 +100,7 @@ INFO    Storage connection established
         bucket=emomo-memes
 ```
 
-**注意**：日志可能显示 "MinIO connection"，这是因为代码使用 minio-go 库作为 S3 兼容客户端，这是正常的。
+**注意**：项目使用 AWS SDK for Go v2 作为 S3 兼容客户端，支持 R2、S3 等 S3 兼容存储服务。
 
 ## 注意事项
 

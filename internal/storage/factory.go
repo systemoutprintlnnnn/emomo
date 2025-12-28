@@ -22,6 +22,6 @@ func detectStorageType(endpoint string) StorageType {
 	case strings.Contains(endpoint, "amazonaws.com"):
 		return StorageTypeS3
 	default:
-		return StorageTypeMinio
+		return StorageTypeS3Compatible
 	}
 }
