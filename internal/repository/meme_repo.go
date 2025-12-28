@@ -6,6 +6,7 @@ import (
 
 	"github.com/timmy/emomo/internal/domain"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // MemeRepository handles meme data operations
@@ -21,6 +22,14 @@ func NewMemeRepository(db *gorm.DB) *MemeRepository {
 // Create creates a new meme record
 func (r *MemeRepository) Create(ctx context.Context, meme *domain.Meme) error {
 	return r.db.WithContext(ctx).Create(meme).Error
+}
+
+// Upsert creates or updates a meme record
+func (r *MemeRepository) Upsert(ctx context.Context, meme *domain.Meme) error {
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "source_type"}, {Name: "source_id"}},
+		UpdateAll: true,
+	}).Create(meme).Error
 }
 
 // Update updates an existing meme record

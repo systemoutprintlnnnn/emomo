@@ -48,12 +48,12 @@ type DataSource struct {
 	Name           string       `gorm:"type:text;not null" json:"name"`
 	Type           SourceType   `gorm:"type:text;not null" json:"type"`
 	Config         SourceConfig `gorm:"type:text" json:"config"`
-	LastSyncAt     *time.Time   `gorm:"type:text" json:"last_sync_at,omitempty"`
+	LastSyncAt     *time.Time   `json:"last_sync_at,omitempty"`
 	LastSyncCursor string       `gorm:"type:text" json:"last_sync_cursor,omitempty"`
 	IsEnabled      bool         `gorm:"default:true" json:"is_enabled"`
 	Priority       int          `gorm:"default:0" json:"priority"`
-	CreatedAt      time.Time    `gorm:"type:text" json:"created_at"`
-	UpdatedAt      time.Time    `gorm:"type:text" json:"updated_at"`
+	CreatedAt      time.Time    `json:"created_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
 }
 
 func (DataSource) TableName() string {

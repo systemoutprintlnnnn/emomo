@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -23,6 +24,7 @@ import (
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/storage"
 	_ "golang.org/x/image/webp"
+	"gorm.io/gorm"
 )
 
 // IngestService handles the data ingestion pipeline
@@ -219,24 +221,27 @@ func (s *IngestService) worker(ctx context.Context, workerID int, sourceType str
 		}
 
 		result := &processResult{sourceID: item.SourceID}
+		var existingID string
 
-		// Check if already exists by source ID (skip if force is enabled)
-		if !opts.Force {
-			exists, err := s.memeRepo.ExistsBySourceID(ctx, sourceType, item.SourceID)
-			if err != nil {
-				result.err = fmt.Errorf("failed to check existence: %w", err)
-				results <- result
-				continue
-			}
-			if exists {
+		// Check if already exists by source ID
+		existingMeme, err := s.memeRepo.GetBySourceID(ctx, sourceType, item.SourceID)
+		if err == nil {
+			// Found existing record
+			existingID = existingMeme.ID
+			if !opts.Force {
 				result.skipped = true
 				results <- result
 				continue
 			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			// Real error occurred
+			result.err = fmt.Errorf("failed to check existence: %w", err)
+			results <- result
+			continue
 		}
 
 		// Process the item
-		if err := s.processItem(ctx, sourceType, &item, opts); err != nil {
+		if err := s.processItem(ctx, sourceType, &item, opts, existingID); err != nil {
 			if err == errSkipDuplicate {
 				result.skipped = true
 			} else {
@@ -248,7 +253,7 @@ func (s *IngestService) worker(ctx context.Context, workerID int, sourceType str
 	}
 }
 
-func (s *IngestService) processItem(ctx context.Context, sourceType string, item *source.MemeItem, opts *IngestOptions) error {
+func (s *IngestService) processItem(ctx context.Context, sourceType string, item *source.MemeItem, opts *IngestOptions, existingID string) error {
 	// Read image data
 	imageData, err := s.readImage(item)
 	if err != nil {
@@ -276,8 +281,13 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		width, height = 0, 0
 	}
 
-	// Generate UUID
-	memeID := uuid.New().String()
+	// Determine Meme ID (reuse existing if available, otherwise generate new)
+	var memeID string
+	if existingID != "" {
+		memeID = existingID
+	} else {
+		memeID = uuid.New().String()
+	}
 
 	// Generate VLM description first - most likely to fail (external API)
 	// No rollback needed if this fails since nothing has been persisted yet
@@ -349,8 +359,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
 	}
 
-	// Save to database
-	if err := s.memeRepo.Create(ctx, meme); err != nil {
+	// Save to database (Upsert)
+	if err := s.memeRepo.Upsert(ctx, meme); err != nil {
 		// Rollback: delete from Qdrant and storage
 		if delErr := s.qdrantRepo.Delete(ctx, memeID); delErr != nil {
 			s.log(ctx).WithFields(logger.Fields{

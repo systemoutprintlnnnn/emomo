@@ -23,7 +23,11 @@ func (a StringArray) Value() (driver.Value, error) {
 	if a == nil {
 		return "[]", nil
 	}
-	return json.Marshal(a)
+	b, err := json.Marshal(a)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }
 
 func (a *StringArray) Scan(value interface{}) error {
@@ -63,8 +67,8 @@ type Meme struct {
 	Tags           StringArray `gorm:"type:text" json:"tags"`
 	Category       string      `gorm:"type:text;index:idx_memes_category" json:"category"`
 	Status         MemeStatus  `gorm:"type:text;index:idx_memes_status;default:pending" json:"status"`
-	CreatedAt      time.Time   `gorm:"type:text" json:"created_at"`
-	UpdatedAt      time.Time   `gorm:"type:text" json:"updated_at"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
 func (Meme) TableName() string {
