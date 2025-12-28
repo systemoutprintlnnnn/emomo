@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -22,13 +23,17 @@ func InitDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 	var db *gorm.DB
 	var err error
 
+	log.Printf("[DB] Initializing database with driver: %q", cfg.Driver)
+
 	switch cfg.Driver {
 	case "postgres":
+		log.Printf("[DB] Using PostgreSQL driver")
 		db, err = initPostgres(cfg, gormConfig)
 	case "sqlite":
+		log.Printf("[DB] Using SQLite driver")
 		db, err = initSQLite(cfg, gormConfig)
 	default:
-		// Default to SQLite
+		log.Printf("[DB] Unknown driver %q, defaulting to SQLite", cfg.Driver)
 		db, err = initSQLite(cfg, gormConfig)
 	}
 
