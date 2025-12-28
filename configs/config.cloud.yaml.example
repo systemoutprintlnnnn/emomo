@@ -3,7 +3,19 @@ server:
   mode: release
 
 database:
-  path: ./data/memes.db
+  driver: postgres  # 使用 PostgreSQL 数据库
+  # 方式1: 使用连接字符串 URL（推荐，支持 Transaction Pooler）
+  # 适用于 Supabase Transaction Pooler (端口 6543) 或 Session Pooler (端口 5432)
+  # url: postgresql://postgres.juyjvbdplgwsravreplc:[YOUR-PASSWORD]@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+  # 方式2: 使用单独的字段配置
+  # host: aws-1-ap-south-1.pooler.supabase.com
+  # port: 6543  # Transaction Pooler 使用 6543，Session Pooler 使用 5432
+  # user: postgres.juyjvbdplgwsravreplc
+  # password: [YOUR-PASSWORD]  # 或通过环境变量 DATABASE_PASSWORD 设置
+  # dbname: postgres
+  # sslmode: require
+  # SQLite 配置（如果使用 SQLite，取消下面的注释）
+  # path: ./data/memes.db
 
 # Qdrant Cloud 配置
 qdrant:
