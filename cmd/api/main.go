@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,34 +11,35 @@ import (
 
 	"github.com/timmy/emomo/internal/api"
 	"github.com/timmy/emomo/internal/config"
+	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/source/chinesebqb"
 	"github.com/timmy/emomo/internal/storage"
-	"go.uber.org/zap"
 )
 
 func main() {
+	// Initialize logger first (with defaults)
+	appLogger := logger.New(&logger.Config{
+		Level:       "info",
+		Format:      "json",
+		ServiceName: "emomo-api",
+	})
+	logger.SetDefaultLogger(appLogger)
+
 	// Load configuration
 	// Support CONFIG_PATH environment variable for production deployments
 	configPath := os.Getenv("CONFIG_PATH")
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		appLogger.WithError(err).Fatal("Failed to load config")
 	}
-
-	// Initialize logger
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		log.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Sync()
 
 	// Initialize database
 	db, err := repository.InitDB(&cfg.Database)
 	if err != nil {
-		logger.Fatal("Failed to initialize database", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to initialize database")
 	}
 
 	// Initialize repositories
@@ -52,14 +52,14 @@ func main() {
 		UseTLS:     cfg.Qdrant.UseTLS,
 	})
 	if err != nil {
-		logger.Fatal("Failed to initialize Qdrant repository", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
 	}
 	defer qdrantRepo.Close()
 
 	// Ensure Qdrant collection exists
 	ctx := context.Background()
 	if err := qdrantRepo.EnsureCollection(ctx); err != nil {
-		logger.Fatal("Failed to ensure Qdrant collection", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
 	}
 
 	// Initialize storage (supports MinIO, R2, S3)
@@ -75,12 +75,12 @@ func main() {
 		PublicURL: storageCfg.PublicURL,
 	})
 	if err != nil {
-		logger.Fatal("Failed to initialize storage", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to initialize storage")
 	}
 
 	// Ensure bucket exists
 	if err := objectStorage.EnsureBucket(ctx); err != nil {
-		logger.Fatal("Failed to ensure storage bucket", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to ensure storage bucket")
 	}
 
 	// Initialize services
@@ -100,9 +100,9 @@ func main() {
 	})
 
 	if queryExpansionService.IsEnabled() {
-		logger.Info("Query expansion enabled",
-			zap.String("model", cfg.Search.QueryExpansion.Model),
-		)
+		appLogger.WithFields(logger.Fields{
+			"model": cfg.Search.QueryExpansion.Model,
+		}).Info("Query expansion enabled")
 	}
 
 	searchService := service.NewSearchService(
@@ -110,7 +110,7 @@ func main() {
 		qdrantRepo,
 		embeddingService,
 		queryExpansionService,
-		logger,
+		appLogger,
 		&service.SearchConfig{
 			ScoreThreshold: cfg.Search.ScoreThreshold,
 		},
@@ -131,7 +131,7 @@ func main() {
 		objectStorage,
 		vlmService,
 		embeddingService,
-		logger,
+		appLogger,
 		&service.IngestConfig{
 			Workers:   cfg.Ingest.Workers,
 			BatchSize: cfg.Ingest.BatchSize,
@@ -144,7 +144,7 @@ func main() {
 	}
 
 	// Setup router
-	router := api.SetupRouter(searchService, ingestService, sources, cfg, logger)
+	router := api.SetupRouter(searchService, ingestService, sources, cfg, appLogger)
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -154,12 +154,12 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		logger.Info("Starting API server",
-			zap.Int("port", cfg.Server.Port),
-			zap.String("mode", cfg.Server.Mode),
-		)
+		appLogger.WithFields(logger.Fields{
+			"port": cfg.Server.Port,
+			"mode": cfg.Server.Mode,
+		}).Info("Starting API server")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to start server", zap.Error(err))
+			appLogger.WithError(err).Fatal("Failed to start server")
 		}
 	}()
 
@@ -168,15 +168,15 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("Shutting down server...")
+	appLogger.Info("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Fatal("Server forced to shutdown", zap.Error(err))
+		appLogger.WithError(err).Fatal("Server forced to shutdown")
 	}
 
-	logger.Info("Server exited")
+	appLogger.Info("Server exited")
 }
