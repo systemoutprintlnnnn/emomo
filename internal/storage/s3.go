@@ -173,32 +173,7 @@ func (s *S3Storage) Download(ctx context.Context, key string) (io.ReadCloser, er
 
 // GetURL returns the public URL for accessing an object
 func (s *S3Storage) GetURL(key string) string {
-	// If public URL is configured (R2.dev or custom CDN), use it
-	if s.publicURL != "" {
-		return fmt.Sprintf("%s/%s", s.publicURL, key)
-	}
-
-	// Generate URL based on storage type
-	switch s.storeType {
-	case StorageTypeS3:
-		// AWS S3 virtual-hosted style URL
-		return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.bucket, s.region, key)
-	case StorageTypeR2:
-		// R2 without public URL configured - use S3 API endpoint (requires signing)
-		// Note: It's recommended to always configure public_url for R2
-		scheme := "http"
-		if s.useSSL {
-			scheme = "https"
-		}
-		return fmt.Sprintf("%s://%s/%s/%s", scheme, s.endpoint, s.bucket, key)
-	default:
-		// S3-compatible services (path-style)
-		scheme := "http"
-		if s.useSSL {
-			scheme = "https"
-		}
-		return fmt.Sprintf("%s://%s/%s/%s", scheme, s.endpoint, s.bucket, key)
-	}
+	return fmt.Sprintf("%s/%s", s.publicURL, key)
 }
 
 // Delete deletes an object from storage

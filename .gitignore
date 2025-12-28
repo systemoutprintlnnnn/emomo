@@ -42,3 +42,6 @@ Thumbs.db
 /dist/
 
 .mcp.json
+
+# Scripts with hardcoded secrets
+scripts/clear-qdrant.sh
