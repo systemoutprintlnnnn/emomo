@@ -27,7 +27,7 @@ func (h *MemeHandler) ListMemes(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
-	memes, err := h.searchService.ListMemes(c.Request.Context(), category, limit, offset)
+	result, err := h.searchService.ListMemes(c.Request.Context(), category, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to list memes: " + err.Error(),
@@ -35,12 +35,7 @@ func (h *MemeHandler) ListMemes(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"memes":  memes,
-		"count":  len(memes),
-		"limit":  limit,
-		"offset": offset,
-	})
+	c.JSON(http.StatusOK, result)
 }
 
 // GetMeme handles GET /api/v1/memes/:id

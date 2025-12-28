@@ -110,6 +110,7 @@ func main() {
 		qdrantRepo,
 		embeddingService,
 		queryExpansionService,
+		objectStorage,
 		appLogger,
 		&service.SearchConfig{
 			ScoreThreshold: cfg.Search.ScoreThreshold,
