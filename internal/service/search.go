@@ -7,6 +7,7 @@ import (
 	"github.com/timmy/emomo/internal/domain"
 	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/repository"
+	"github.com/timmy/emomo/internal/storage"
 )
 
 // SearchConfig holds configuration for search service
@@ -20,6 +21,7 @@ type SearchService struct {
 	qdrantRepo     *repository.QdrantRepository
 	embedding      *EmbeddingService
 	queryExpansion *QueryExpansionService
+	storage        storage.ObjectStorage
 	logger         *logger.Logger
 	scoreThreshold float32
 }
@@ -30,6 +32,7 @@ func NewSearchService(
 	qdrantRepo *repository.QdrantRepository,
 	embedding *EmbeddingService,
 	queryExpansion *QueryExpansionService,
+	objectStorage storage.ObjectStorage,
 	log *logger.Logger,
 	cfg *SearchConfig,
 ) *SearchService {
@@ -42,6 +45,7 @@ func NewSearchService(
 		qdrantRepo:     qdrantRepo,
 		embedding:      embedding,
 		queryExpansion: queryExpansion,
+		storage:        objectStorage,
 		logger:         log,
 		scoreThreshold: threshold,
 	}
@@ -66,15 +70,15 @@ type SearchRequest struct {
 
 // SearchResult represents a single search result
 type SearchResult struct {
-	ID             string   `json:"id"`
-	URL            string   `json:"url"`
-	Score          float32  `json:"score"`
-	Description    string   `json:"description"`
-	Category       string   `json:"category"`
-	Tags           []string `json:"tags"`
-	IsAnimated     bool     `json:"is_animated"`
-	Width          int      `json:"width,omitempty"`
-	Height         int      `json:"height,omitempty"`
+	ID          string   `json:"id"`
+	URL         string   `json:"url"`
+	Score       float32  `json:"score"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	Tags        []string `json:"tags"`
+	IsAnimated  bool     `json:"is_animated"`
+	Width       int      `json:"width,omitempty"`
+	Height      int      `json:"height,omitempty"`
 }
 
 // SearchResponse represents the search response
@@ -214,8 +218,17 @@ func (s *SearchService) GetMemeByID(ctx context.Context, id string) (*domain.Mem
 	return s.memeRepo.GetByID(ctx, id)
 }
 
+// MemeListResponse represents the response for listing memes
+type MemeListResponse struct {
+	Results []SearchResult `json:"results"`
+	Total   int            `json:"total"`
+	Limit   int            `json:"limit"`
+	Offset  int            `json:"offset"`
+}
+
 // ListMemes retrieves memes with optional category filter
-func (s *SearchService) ListMemes(ctx context.Context, category string, limit, offset int) ([]domain.Meme, error) {
+// Returns results in the same format as search results for API consistency
+func (s *SearchService) ListMemes(ctx context.Context, category string, limit, offset int) (*MemeListResponse, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -223,7 +236,39 @@ func (s *SearchService) ListMemes(ctx context.Context, category string, limit, o
 		limit = 100
 	}
 
-	return s.memeRepo.ListByCategory(ctx, category, limit, offset)
+	memes, err := s.memeRepo.ListByCategory(ctx, category, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert domain.Meme to SearchResult format for API consistency
+	results := make([]SearchResult, len(memes))
+	for i, meme := range memes {
+		// Generate URL from storage_key
+		url := ""
+		if meme.StorageKey != "" && s.storage != nil {
+			url = s.storage.GetURL(meme.StorageKey)
+		}
+
+		results[i] = SearchResult{
+			ID:          meme.ID,
+			URL:         url,
+			Score:       0, // No score for listing (not a search)
+			Description: meme.VLMDescription,
+			Category:    meme.Category,
+			Tags:        meme.Tags,
+			IsAnimated:  meme.IsAnimated,
+			Width:       meme.Width,
+			Height:      meme.Height,
+		}
+	}
+
+	return &MemeListResponse{
+		Results: results,
+		Total:   len(results),
+		Limit:   limit,
+		Offset:  offset,
+	}, nil
 }
 
 // GetStats returns search-related statistics
@@ -244,8 +289,8 @@ func (s *SearchService) GetStats(ctx context.Context) (map[string]interface{}, e
 	}
 
 	return map[string]interface{}{
-		"total_active":      activeCount,
-		"total_pending":     pendingCount,
-		"total_categories":  len(categories),
+		"total_active":     activeCount,
+		"total_pending":    pendingCount,
+		"total_categories": len(categories),
 	}, nil
 }
