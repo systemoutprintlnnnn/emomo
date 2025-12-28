@@ -34,69 +34,37 @@ type CORSConfig struct {
 }
 
 type DatabaseConfig struct {
-
 	Driver          string        `mapstructure:"driver"`          // Database driver: sqlite, postgres
-
 	URL             string        `mapstructure:"url"`             // PostgreSQL connection URL (takes priority)
-
 	Path            string        `mapstructure:"path"`            // SQLite path
-
 	Host            string        `mapstructure:"host"`            // PostgreSQL host
-
 	Port            int           `mapstructure:"port"`            // PostgreSQL port
-
 	User            string        `mapstructure:"user"`            // PostgreSQL user
-
 	Password        string        `mapstructure:"password"`        // PostgreSQL password
-
 	DBName          string        `mapstructure:"dbname"`          // PostgreSQL db name
-
 	SSLMode         string        `mapstructure:"sslmode"`         // PostgreSQL sslmode
-
 	MaxIdleConns    int           `mapstructure:"max_idle_conns"`  // Connection pool: max idle
-
 	MaxOpenConns    int           `mapstructure:"max_open_conns"`  // Connection pool: max open
-
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"` // Connection pool: max lifetime
-
 }
 
-
-
 // DSN returns the Data Source Name for the database connection
-
 func (c *DatabaseConfig) DSN() string {
-
 	if c.Driver == "sqlite" {
-
 		return c.Path
-
 	}
-
-	
 
 	// If URL is explicitly provided, use it
-
 	if c.URL != "" {
-
 		return c.URL
-
 	}
 
-
-
 	// Build PostgreSQL DSN
-
 	dsn := fmt.Sprintf(
-
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-
 		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode,
-
 	)
-
 	return dsn
-
 }
 
 type QdrantConfig struct {
