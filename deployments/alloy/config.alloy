@@ -1,0 +1,153 @@
+// =============================================================================
+// Grafana Alloy Configuration for Emomo Project
+// =============================================================================
+// This configuration collects logs from Docker containers and forwards them
+// to Grafana Cloud Loki with proper JSON parsing and labeling.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Docker Discovery
+// -----------------------------------------------------------------------------
+// Discovers all running Docker containers
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+// -----------------------------------------------------------------------------
+// Relabeling: Extract metadata from Docker containers
+// -----------------------------------------------------------------------------
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  // Extract container name (remove leading slash)
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  // Extract container ID
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "container_id"
+  }
+
+  // Add project label
+  rule {
+    replacement  = "emomo"
+    target_label = "project"
+  }
+
+  // Add environment label from container label or default
+  rule {
+    source_labels = ["__meta_docker_container_label_environment"]
+    target_label  = "environment"
+  }
+
+  // Default environment to value from env var if not set by container label
+  rule {
+    source_labels = ["environment"]
+    regex         = "^$"
+    replacement   = env("ENVIRONMENT")
+    target_label  = "environment"
+  }
+
+  // Keep only emomo containers
+  rule {
+    source_labels = ["container"]
+    regex         = "emomo-.+"
+    action        = "keep"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Loki Source: Collect logs from Docker containers
+// -----------------------------------------------------------------------------
+loki.source.docker "emomo_logs" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_logs.output
+  forward_to = [loki.process.parse_json.receiver]
+
+  relabel_rules = discovery.relabel.docker_logs.rules
+}
+
+// -----------------------------------------------------------------------------
+// Log Processing: Parse JSON and extract fields
+// -----------------------------------------------------------------------------
+loki.process "parse_json" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  // Stage 1: Parse JSON log lines
+  stage.json {
+    expressions = {
+      timestamp   = "timestamp",
+      level       = "level",
+      message     = "message",
+      service     = "service",
+      request_id  = "request_id",
+      error_msg   = "error",
+      path        = "path",
+      method      = "method",
+      status      = "status",
+      latency_ms  = "latency_ms",
+      client_ip   = "client_ip",
+      source      = "source",
+      duration    = "duration",
+    }
+  }
+
+  // Stage 2: Set timestamp from log (RFC3339 format)
+  stage.timestamp {
+    source = "timestamp"
+    format = "2006-01-02T15:04:05.000Z07:00"
+  }
+
+  // Stage 3: Add labels from JSON fields
+  stage.labels {
+    values = {
+      service = "service",
+      level   = "level",
+    }
+  }
+
+  // Stage 4: Add structured metadata (Loki 3.0+)
+  stage.structured_metadata {
+    values = {
+      request_id = "request_id",
+      path       = "path",
+      method     = "method",
+      status     = "status",
+      latency_ms = "latency_ms",
+      client_ip  = "client_ip",
+      error_msg  = "error_msg",
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Loki Write: Send logs to Grafana Cloud
+// -----------------------------------------------------------------------------
+loki.write "grafana_cloud" {
+  endpoint {
+    url = env("LOKI_URL")
+
+    basic_auth {
+      username = env("LOKI_USERNAME")
+      password = env("LOKI_PASSWORD")
+    }
+  }
+
+  external_labels = {
+    cluster = env("CLUSTER_NAME"),
+    host    = env("HOSTNAME"),
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Logging: Alloy self-monitoring
+// -----------------------------------------------------------------------------
+logging {
+  level  = "info"
+  format = "logfmt"
+}

@@ -1,66 +1,10 @@
 version: '3.8'
 
-# Docker Compose 配置文件说明
-#
-# 使用方式：
-# 1. 仅使用本地服务（Qdrant + S3 兼容存储）：
-#    docker-compose -f docker-compose.prod.yml --profile local up -d
-#
-# 2. 仅使用云服务（Qdrant Cloud + Cloudflare R2/S3）：
-#    docker-compose -f docker-compose.prod.yml up -d
-#
-# 3. 混合模式（本地 Qdrant + 云存储）：
-#    docker-compose -f docker-compose.prod.yml --profile qdrant-local up -d
-#
-# 4. 混合模式（云 Qdrant + 本地 S3 存储）：
-#    docker-compose -f docker-compose.prod.yml --profile s3-local up -d
+# Qdrant and S3 are now using remote services (Qdrant Cloud + Cloudflare R2/AWS S3)
+# Configure via environment variables in .env file
 
 services:
-  # 本地 Qdrant 服务（可选，通过 profile 控制）
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: emomo-qdrant
-    profiles:
-      - qdrant-local  # 使用 --profile qdrant-local 启动
-      - local         # 使用 --profile local 启动
-    ports:
-      - "6333:6333"  # REST API
-      - "6334:6334"  # gRPC
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
-    restart: unless-stopped
-    networks:
-      - emomo-network
-
-  # 本地 S3 兼容存储服务（可选，通过 profile 控制）
-  # 使用 MinIO 作为本地开发的 S3 兼容存储
-  s3:
-    image: minio/minio:latest
-    container_name: emomo-s3
-    profiles:
-      - s3-local  # 使用 --profile s3-local 启动
-      - local     # 使用 --profile local 启动
-    ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # Console
-    volumes:
-      - s3_data:/data
-    environment:
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-accesskey}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-secretkey}
-    command: server /data --console-address ":9001"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    networks:
-      - emomo-network
-
-  # API 服务（始终启动）
+  # API 服务
   api:
     build:
       context: ..
@@ -79,40 +23,83 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - JINA_API_KEY=${JINA_API_KEY}
 
-      # Qdrant 配置（如果使用 Qdrant Cloud，设置这些环境变量）
-      - QDRANT_HOST=${QDRANT_HOST:-localhost}
+      # Qdrant Cloud 配置
+      - QDRANT_HOST=${QDRANT_HOST}
       - QDRANT_PORT=${QDRANT_PORT:-6334}
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-emomo}
-      - QDRANT_API_KEY=${QDRANT_API_KEY:-}  # Qdrant Cloud API Key（如果使用云服务）
-      - QDRANT_USE_TLS=${QDRANT_USE_TLS:-false}  # 使用 Qdrant Cloud 时设置为 true
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_USE_TLS=${QDRANT_USE_TLS:-true}
 
-      # S3 兼容存储配置
-      - STORAGE_TYPE=${STORAGE_TYPE:-s3compatible}  # r2, s3, s3compatible
-      - STORAGE_ENDPOINT=${STORAGE_ENDPOINT:-localhost:9000}
-      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-accesskey}
-      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-secretkey}
-      - STORAGE_USE_SSL=${STORAGE_USE_SSL:-false}
+      # S3/R2 存储配置
+      - STORAGE_TYPE=${STORAGE_TYPE:-s3compatible}
+      - STORAGE_ENDPOINT=${STORAGE_ENDPOINT}
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY}
+      - STORAGE_USE_SSL=${STORAGE_USE_SSL:-true}
       - STORAGE_BUCKET=${STORAGE_BUCKET:-memes}
       - STORAGE_REGION=${STORAGE_REGION:-}  # R2 使用 "auto"，AWS S3 使用具体 region
       - STORAGE_PUBLIC_URL=${STORAGE_PUBLIC_URL:-}  # 公开访问 URL
 
       # VLM 配置
       - VLM_MODEL=${VLM_MODEL:-gpt-4o-mini}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - QUERY_EXPANSION_MODEL=${QUERY_EXPANSION_MODEL:-gpt-4o-mini}
       - SEARCH_SCORE_THRESHOLD=${SEARCH_SCORE_THRESHOLD:-0.0}
+
+      # 数据库配置
+      - DATABASE_DRIVER=${DATABASE_DRIVER:-sqlite}
+      - DATABASE_PATH=${DATABASE_PATH:-/root/data/memes.db}
 
       # 可选配置
       - DATA_DIR=${DATA_DIR:-/root/data}
       - CONFIG_PATH=${CONFIG_PATH:-/root/configs/config.prod.yaml}
-    # 注意：如果使用本地服务，确保先启动 qdrant 和 s3
-    # 如果使用云服务，不需要 depends_on
     restart: unless-stopped
     networks:
       - emomo-network
+    labels:
+      - "environment=${ENVIRONMENT:-production}"
+      - "project=emomo"
+      - "service=emomo-api"
+
+  # Grafana Alloy for log collection
+  alloy:
+    image: grafana/alloy:latest
+    container_name: emomo-alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    environment:
+      - LOKI_URL=${LOKI_URL}
+      - LOKI_USERNAME=${LOKI_USERNAME}
+      - LOKI_PASSWORD=${LOKI_PASSWORD}
+      - CLUSTER_NAME=${CLUSTER_NAME:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - HOSTNAME=${HOSTNAME:-emomo-prod}
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "12345:12345"  # Alloy UI
+    restart: unless-stopped
+    networks:
+      - emomo-network
+    labels:
+      - "environment=${ENVIRONMENT:-production}"
+      - "project=emomo"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
 
 volumes:
-  qdrant_data:
-  s3_data:
+  alloy_data:
 
 networks:
   emomo-network:
