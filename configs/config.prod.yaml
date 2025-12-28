@@ -1,47 +1,48 @@
 server:
   port: 8080
   mode: release  # Use release mode in production
+  cors:
+    allow_all_origins: false # Set to false for better security in production
+    allowed_origins: []      # Add your domains here
 
 database:
-  driver: postgres  # 使用 PostgreSQL 数据库
-  # 方式1: 使用连接字符串 URL（推荐，支持 Transaction Pooler）
-  # url: postgresql://postgres.juyjvbdplgwsravreplc:[YOUR-PASSWORD]@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
-  # 方式2: 使用单独的字段配置
-  # host: aws-1-ap-south-1.pooler.supabase.com
-  # port: 6543
-  # user: postgres.juyjvbdplgwsravreplc
-  # password: [YOUR-PASSWORD]
-  # dbname: postgres
-  # sslmode: require
-  # SQLite 配置（如果使用 SQLite，取消下面的注释）
-  # path: ./data/memes.db
+  driver: postgres
+  # host: set via DATABASE_HOST env var
+  host: ""
+  port: 5432
+  user: postgres
+  dbname: emomo
+  sslmode: disable
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 1h
 
 qdrant:
-  host: localhost
+  # host: set via QDRANT_HOST env var
+  host: ""
   port: 6334
   collection: emomo
 
-# S3 兼容存储配置（支持 Cloudflare R2、AWS S3 及其他 S3 兼容服务）
 storage:
-  # type: s3compatible                                # r2, s3, s3compatible
-  endpoint: localhost:9000                            # S3 API endpoint
-  # access_key: <access_key>                          # 或通过 STORAGE_ACCESS_KEY 设置
-  # secret_key: <secret_key>                          # 或通过 STORAGE_SECRET_KEY 设置
-  use_ssl: false
-  bucket: memes
-  # region: us-east-1                                 # R2 使用 "auto"，AWS S3 使用具体 region
-  # public_url: https://pub-xxx.r2.dev                # 公开访问 URL（推荐配置）
+  type: r2
+  # endpoint: set via STORAGE_ENDPOINT env var
+  endpoint: ""
+  use_ssl: true
+  bucket: emomo
+  region: auto
+  # public_url: set via STORAGE_PUBLIC_URL env var
+  public_url: ""
 
 vlm:
   provider: openai
-  model: qwen/qwen-2.5-vl-7b-instruct:free
-  # api_key: 通过环境变量 OPENAI_API_KEY 设置
+  # model: set via VLM_MODEL env var
+  model: ""
   base_url: https://openrouter.ai/api/v1
 
 embedding:
   provider: jina
-  model: jina-embeddings-v3
-  # api_key: 通过环境变量 JINA_API_KEY 设置
+  # model: set via EMBEDDING_MODEL env var
+  model: ""
   dimensions: 1024
 
 ingest:
@@ -50,13 +51,13 @@ ingest:
   retry_count: 3
 
 search:
-  score_threshold: 0.0
+  score_threshold: 0.1 # Slightly higher threshold for production
   query_expansion:
     enabled: true
-    model: qwen/qwen-2.5-vl-7b-instruct:free
+    # model: set via QUERY_EXPANSION_MODEL env var
+    model: ""
 
 sources:
   chinesebqb:
     enabled: true
     repo_path: ./data/ChineseBQB
-
