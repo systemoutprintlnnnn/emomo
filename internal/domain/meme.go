@@ -58,7 +58,7 @@ type Meme struct {
 	Format         string      `json:"format"`
 	IsAnimated     bool        `json:"is_animated"`
 	FileSize       int64       `json:"file_size"`
-	MD5Hash        string      `gorm:"index:idx_memes_md5" json:"md5_hash"`
+	MD5Hash        string      `gorm:"uniqueIndex:idx_memes_md5" json:"md5_hash"`
 	PerceptualHash string      `gorm:"type:text" json:"perceptual_hash,omitempty"`
 	QdrantPointID  string      `gorm:"type:text" json:"qdrant_point_id,omitempty"`
 	VLMDescription string      `gorm:"type:text" json:"vlm_description,omitempty"`

@@ -304,11 +304,23 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 
 	// Now start persistence operations (require rollback on failure)
 	// Upload to storage
-	storageKey := fmt.Sprintf("%s/%s.%s", sourceType, memeID, item.Format)
+	storageKey := fmt.Sprintf("%s/%s.%s", sourceType, md5Hash, item.Format)
 	contentType := getContentType(item.Format)
+	
+	// Check if file already exists in storage
+	existsInStorage, err := s.storage.Exists(ctx, storageKey)
+	if err != nil {
+		return fmt.Errorf("failed to check storage existence: %w", err)
+	}
 
-	if err := s.storage.Upload(ctx, storageKey, bytes.NewReader(imageData), int64(len(imageData)), contentType); err != nil {
-		return fmt.Errorf("failed to upload to storage: %w", err)
+	uploaded := false
+	if !existsInStorage {
+		if err := s.storage.Upload(ctx, storageKey, bytes.NewReader(imageData), int64(len(imageData)), contentType); err != nil {
+			return fmt.Errorf("failed to upload to storage: %w", err)
+		}
+		uploaded = true
+	} else {
+		s.log(ctx).WithField("storage_key", storageKey).Debug("File already exists in storage, skipping upload")
 	}
 
 	// Get storage URL
@@ -350,11 +362,13 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	if err := s.qdrantRepo.Upsert(ctx, memeID, embedding, payload); err != nil {
-		// Rollback: delete uploaded file
-		if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
-			s.log(ctx).WithFields(logger.Fields{
-				"storage_key": storageKey,
-			}).WithError(delErr).Error("Failed to rollback storage upload")
+		// Rollback: delete uploaded file ONLY if we uploaded it
+		if uploaded {
+			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+				s.log(ctx).WithFields(logger.Fields{
+					"storage_key": storageKey,
+				}).WithError(delErr).Error("Failed to rollback storage upload")
+			}
 		}
 		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
 	}
@@ -367,10 +381,13 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				"meme_id": memeID,
 			}).WithError(delErr).Error("Failed to rollback Qdrant upsert")
 		}
-		if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
-			s.log(ctx).WithFields(logger.Fields{
-				"storage_key": storageKey,
-			}).WithError(delErr).Error("Failed to rollback storage upload")
+		// Rollback storage ONLY if we uploaded it
+		if uploaded {
+			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+				s.log(ctx).WithFields(logger.Fields{
+					"storage_key": storageKey,
+				}).WithError(delErr).Error("Failed to rollback storage upload")
+			}
 		}
 		return fmt.Errorf("failed to save to database: %w", err)
 	}
