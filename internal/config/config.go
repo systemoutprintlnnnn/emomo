@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -245,6 +246,9 @@ func Load(configPath string) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	// Log database driver for debugging
+	fmt.Printf("[Config] Database driver: %q (env DATABASE_DRIVER=%q)\n", cfg.Database.Driver, os.Getenv("DATABASE_DRIVER"))
 
 	return &cfg, nil
 }

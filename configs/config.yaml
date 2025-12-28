@@ -11,6 +11,7 @@ server:
     allowed_origins: []
 
 database:
+  driver: sqlite  # sqlite or postgres (可通过 DATABASE_DRIVER 环境变量覆盖)
   path: ./data/memes.db
 
 qdrant:
