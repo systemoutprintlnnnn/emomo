@@ -1,47 +1,47 @@
 server:
   port: 8080
-  mode: debug  # debug, release, test
+  mode: debug
   cors:
-    # Set to true to allow all origins (not recommended for production)
-    # When true, credentials will be disabled for security
     allow_all_origins: true
-    # List of allowed origins (e.g., for Vercel deployment)
-    # Example: ["https://your-app.vercel.app", "https://your-custom-domain.com"]
-    # Leave empty if allow_all_origins is true
     allowed_origins: []
 
 database:
-  driver: sqlite  # sqlite or postgres (可通过 DATABASE_DRIVER 环境变量覆盖)
+  driver: postgres
   path: ./data/memes.db
+  host: localhost
+  port: 6543
+  user: postgres
+  dbname: emomo
+  sslmode: disable
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 1h
 
 qdrant:
   host: localhost
   port: 6334
   collection: emomo
-  # api_key: 通过环境变量 QDRANT_API_KEY 设置 (Qdrant Cloud 认证)
-  # use_tls: 设置了 api_key 时自动启用 TLS，也可通过 QDRANT_USE_TLS 显式设置
 
-# S3 兼容存储配置（支持 Cloudflare R2、AWS S3 及其他 S3 兼容服务）
 storage:
-  # type: s3compatible                                # r2, s3, s3compatible
-  endpoint: localhost:9000                            # S3 API endpoint
-  # access_key: <access_key>                          # 或通过 STORAGE_ACCESS_KEY 设置
-  # secret_key: <secret_key>                          # 或通过 STORAGE_SECRET_KEY 设置
-  use_ssl: false
-  bucket: memes
-  # region: us-east-1                                 # R2 使用 "auto"，AWS S3 使用具体 region
-  # public_url: https://pub-xxx.r2.dev                # 公开访问 URL（推荐配置）
+  type: r2
+  # endpoint: set via STORAGE_ENDPOINT env var
+  endpoint: ""
+  use_ssl: true
+  bucket: emomo
+  region: auto
+  # public_url: set via STORAGE_PUBLIC_URL env var
+  public_url: ""
 
 vlm:
   provider: openai
-  model: qwen/qwen-2.5-vl-7b-instruct:free
-  # api_key: 通过环境变量 OPENAI_API_KEY 设置
+  # model: set via VLM_MODEL env var
+  model: ""
   base_url: https://openrouter.ai/api/v1
 
 embedding:
   provider: jina
-  model: jina-embeddings-v3
-  # api_key: 通过环境变量 JINA_API_KEY 设置
+  # model: set via EMBEDDING_MODEL env var
+  model: ""
   dimensions: 1024
 
 ingest:
@@ -52,8 +52,9 @@ ingest:
 search:
   score_threshold: 0.0
   query_expansion:
-    enabled: true  # Enable LLM-based query expansion for better search results
-    model: qwen/qwen-2.5-vl-7b-instruct:free  # Model to use for query expansion (can be overridden by QUERY_EXPANSION_MODEL env var)
+    enabled: true
+    # model: set via QUERY_EXPANSION_MODEL env var
+    model: ""
 
 sources:
   chinesebqb:
