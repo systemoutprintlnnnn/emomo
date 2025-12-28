@@ -14,7 +14,6 @@ type Config struct {
 	Server    ServerConfig    `mapstructure:"server"`
 	Database  DatabaseConfig  `mapstructure:"database"`
 	Qdrant    QdrantConfig    `mapstructure:"qdrant"`
-	MinIO     MinIOConfig     `mapstructure:"minio"`
 	Storage   StorageConfig   `mapstructure:"storage"`
 	VLM       VLMConfig       `mapstructure:"vlm"`
 	Embedding EmbeddingConfig `mapstructure:"embedding"`
@@ -76,17 +75,9 @@ type QdrantConfig struct {
 	UseTLS     bool   `mapstructure:"use_tls"` // Enable TLS (auto-enabled when APIKey is set)
 }
 
-type MinIOConfig struct {
-	Endpoint  string `mapstructure:"endpoint"`
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
-	UseSSL    bool   `mapstructure:"use_ssl"`
-	Bucket    string `mapstructure:"bucket"`
-}
-
-// StorageConfig holds configuration for S3-compatible storage (MinIO, R2, S3)
+// StorageConfig holds configuration for S3-compatible storage (R2, S3, etc.)
 type StorageConfig struct {
-	Type      string `mapstructure:"type"`       // "minio", "r2", "s3"
+	Type      string `mapstructure:"type"`       // "r2", "s3", "s3compatible"
 	Endpoint  string `mapstructure:"endpoint"`   // S3 API endpoint
 	AccessKey string `mapstructure:"access_key"` // Access key ID
 	SecretKey string `mapstructure:"secret_key"` // Secret access key
@@ -176,9 +167,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("qdrant.collection", "emomo")
 	v.SetDefault("qdrant.api_key", "")
 	v.SetDefault("qdrant.use_tls", false)
-	v.SetDefault("minio.endpoint", "localhost:9000")
-	v.SetDefault("minio.use_ssl", false)
-	v.SetDefault("minio.bucket", "memes")
+	v.SetDefault("storage.endpoint", "localhost:9000")
+	v.SetDefault("storage.use_ssl", false)
+	v.SetDefault("storage.bucket", "memes")
 	v.SetDefault("vlm.provider", "openai")
 	v.SetDefault("vlm.model", "gpt-4o-mini")
 	v.SetDefault("vlm.base_url", "https://api.openai.com/v1")
@@ -221,12 +212,8 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("qdrant.collection", "QDRANT_COLLECTION")
 	v.BindEnv("qdrant.api_key", "QDRANT_API_KEY")
 	v.BindEnv("qdrant.use_tls", "QDRANT_USE_TLS")
-	v.BindEnv("minio.endpoint", "MINIO_ENDPOINT")
-	v.BindEnv("minio.access_key", "MINIO_ACCESS_KEY")
-	v.BindEnv("minio.secret_key", "MINIO_SECRET_KEY")
-	v.BindEnv("minio.use_ssl", "MINIO_USE_SSL")
 
-	// Storage environment variables (new unified config)
+	// Storage environment variables
 	v.BindEnv("storage.type", "STORAGE_TYPE")
 	v.BindEnv("storage.endpoint", "STORAGE_ENDPOINT")
 	v.BindEnv("storage.access_key", "STORAGE_ACCESS_KEY")
@@ -253,23 +240,7 @@ func Load(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
-// GetStorageConfig returns the storage configuration with backward compatibility.
-// It prioritizes the new Storage config, falling back to MinIO config if Storage is not configured.
+// GetStorageConfig returns the storage configuration.
 func (c *Config) GetStorageConfig() *StorageConfig {
-	// If new storage config has endpoint configured, use it
-	if c.Storage.Endpoint != "" {
-		return &c.Storage
-	}
-
-	// Fall back to legacy MinIO config for backward compatibility
-	return &StorageConfig{
-		Type:      "minio",
-		Endpoint:  c.MinIO.Endpoint,
-		AccessKey: c.MinIO.AccessKey,
-		SecretKey: c.MinIO.SecretKey,
-		UseSSL:    c.MinIO.UseSSL,
-		Bucket:    c.MinIO.Bucket,
-		Region:    "",
-		PublicURL: "",
-	}
+	return &c.Storage
 }

@@ -18,7 +18,7 @@ Check out the configuration reference at https://huggingface.co/docs/hub/spaces-
 - **后端**: Go + Gin + GORM
 - **向量数据库**: Qdrant
 - **元数据存储**: SQLite (MVP) / PostgreSQL (生产)
-- **对象存储**: S3 兼容存储（MinIO、Cloudflare R2、AWS S3 等）
+- **对象存储**: S3 兼容存储（Cloudflare R2、AWS S3 等）
 - **VLM**: GPT-4o mini (图片描述生成)
 - **Text Embedding**: Jina Embeddings v3 (向量化)
 
@@ -117,7 +117,7 @@ curl http://localhost:8080/api/v1/stats
 |--------|----------|------|
 | vlm.api_key | OPENAI_API_KEY | OpenAI API Key |
 | embedding.api_key | JINA_API_KEY | Jina API Key |
-| storage.type | STORAGE_TYPE | 存储类型：minio, r2, s3 |
+| storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
 | storage.endpoint | STORAGE_ENDPOINT | 存储端点地址 |
 | storage.access_key | STORAGE_ACCESS_KEY | 存储访问密钥 |
 | storage.secret_key | STORAGE_SECRET_KEY | 存储密钥 |

@@ -8,7 +8,7 @@
 - **前端**：React + Vite（已部署在 Vercel）
 - **后端 API**：Go + Gin（需要部署）
 - **向量数据库**：Qdrant（需要部署）
-- **对象存储**：S3 兼容存储（MinIO、Cloudflare R2、AWS S3 等）
+- **对象存储**：S3 兼容存储（Cloudflare R2、AWS S3 等）
 - **元数据数据库**：SQLite（文件存储）
 - **外部 API**：OpenAI（VLM）、Jina（Embedding）
 
@@ -69,7 +69,7 @@ SERVER_CORS_ALLOWED_ORIGINS=https://your-app.vercel.app,https://your-domain.com
 ### 优势
 - ✅ 永久免费（2核 ARM CPU，4GB RAM，200GB 存储）
 - ✅ 性能稳定，不会休眠
-- ✅ 可以运行所有服务（Qdrant、MinIO、后端 API）
+- ✅ 可以运行所有服务（Qdrant、S3 兼容存储、后端 API）
 
 ### 步骤
 
@@ -133,11 +133,11 @@ STORAGE_USE_SSL=true
 STORAGE_BUCKET=memes
 STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 
-# 或使用本地 MinIO（需要部署）
-# STORAGE_TYPE=minio
+# 或使用本地 S3 兼容存储（需要部署）
+# STORAGE_TYPE=s3compatible
 # STORAGE_ENDPOINT=localhost:9000
-# STORAGE_ACCESS_KEY=your-access-key
-# STORAGE_SECRET_KEY=your-secret-key
+# STORAGE_ACCESS_KEY=accesskey
+# STORAGE_SECRET_KEY=secretkey
 # STORAGE_USE_SSL=false
 # STORAGE_BUCKET=memes
 
@@ -335,8 +335,8 @@ JINA_API_KEY=your-key
 项目提供了 `deployments/docker-compose.prod.yml` 用于生产环境部署，支持多种部署模式：
 
 - **仅云服务**：使用 Qdrant Cloud + Cloudflare R2（推荐生产环境）
-- **仅本地服务**：使用本地 Qdrant + MinIO
-- **混合模式**：本地 Qdrant + 云存储，或云 Qdrant + 本地 MinIO
+- **仅本地服务**：使用本地 Qdrant + S3 兼容存储
+- **混合模式**：本地 Qdrant + 云存储，或云 Qdrant + 本地 S3 存储
 
 详细说明请参考 [`deployments/README.md`](deployments/README.md)。
 
@@ -348,23 +348,23 @@ JINA_API_KEY=your-key
 
 ```bash
 # 1. 配置云服务（见下方配置说明）
-# 2. 启动 API 服务（不启动本地 Qdrant/MinIO）
+# 2. 启动 API 服务（不启动本地服务）
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
 **模式 2：仅本地服务**
 
-使用本地 Qdrant 和 MinIO：
+使用本地 Qdrant 和 S3 兼容存储：
 
 ```bash
-# 启动所有服务（包括本地 Qdrant 和 MinIO）
+# 启动所有服务（包括本地 Qdrant 和 S3 兼容存储）
 docker-compose -f docker-compose.prod.yml --profile local up -d
 ```
 
 **模式 3：混合模式**
 
 - 本地 Qdrant + 云存储：`docker-compose -f docker-compose.prod.yml --profile qdrant-local up -d`
-- 云 Qdrant + 本地 MinIO：`docker-compose -f docker-compose.prod.yml --profile minio-local up -d`
+- 云 Qdrant + 本地 S3 存储：`docker-compose -f docker-compose.prod.yml --profile s3-local up -d`
 
 #### 重要：ChineseBQB 目录挂载
 
