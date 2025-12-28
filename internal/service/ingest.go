@@ -18,10 +18,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/timmy/emomo/internal/domain"
+	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/storage"
-	"go.uber.org/zap"
 	_ "golang.org/x/image/webp"
 )
 
@@ -32,7 +32,7 @@ type IngestService struct {
 	storage    storage.ObjectStorage
 	vlm        *VLMService
 	embedding  *EmbeddingService
-	logger     *zap.Logger
+	logger     *logger.Logger
 	workers    int
 	batchSize  int
 }
@@ -50,7 +50,7 @@ func NewIngestService(
 	objectStorage storage.ObjectStorage,
 	vlm *VLMService,
 	embedding *EmbeddingService,
-	logger *zap.Logger,
+	log *logger.Logger,
 	cfg *IngestConfig,
 ) *IngestService {
 	return &IngestService{
@@ -59,10 +59,18 @@ func NewIngestService(
 		storage:    objectStorage,
 		vlm:        vlm,
 		embedding:  embedding,
-		logger:     logger,
+		logger:     log,
 		workers:    cfg.Workers,
 		batchSize:  cfg.BatchSize,
 	}
+}
+
+// log returns a logger from context if available, otherwise returns the default logger
+func (s *IngestService) log(ctx context.Context) *logger.Logger {
+	if l := logger.FromContext(ctx); l != nil {
+		return l
+	}
+	return s.logger
 }
 
 // IngestStats holds statistics for an ingestion run
@@ -90,11 +98,11 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 		StartTime: time.Now(),
 	}
 
-	s.logger.Info("Starting ingestion",
-		zap.String("source", src.GetSourceID()),
-		zap.Int("limit", limit),
-		zap.Bool("force", opts.Force),
-	)
+	s.log(ctx).WithFields(logger.Fields{
+		"source": src.GetSourceID(),
+		"limit":  limit,
+		"force":  opts.Force,
+	}).Info("Starting ingestion")
 
 	// Create work channel and results channel
 	itemsChan := make(chan source.MemeItem, s.workers*2)
@@ -119,10 +127,9 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 				atomic.AddInt64(&stats.SkippedItems, 1)
 			} else if result.err != nil {
 				atomic.AddInt64(&stats.FailedItems, 1)
-				s.logger.Error("Failed to process item",
-					zap.String("source_id", result.sourceID),
-					zap.Error(result.err),
-				)
+				s.log(ctx).WithFields(logger.Fields{
+					"source_id": result.sourceID,
+				}).WithError(result.err).Error("Failed to process item")
 			}
 		}
 		close(done)
@@ -148,7 +155,7 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 
 		items, nextCursor, err := src.FetchBatch(ctx, cursor, batchLimit)
 		if err != nil {
-			s.logger.Error("Failed to fetch batch", zap.Error(err))
+			s.log(ctx).WithError(err).Error("Failed to fetch batch")
 			break
 		}
 
@@ -183,13 +190,13 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 
 	stats.EndTime = time.Now()
 
-	s.logger.Info("Ingestion completed",
-		zap.Int64("total", stats.TotalItems),
-		zap.Int64("processed", stats.ProcessedItems),
-		zap.Int64("skipped", stats.SkippedItems),
-		zap.Int64("failed", stats.FailedItems),
-		zap.Duration("duration", stats.EndTime.Sub(stats.StartTime)),
-	)
+	s.log(ctx).WithFields(logger.Fields{
+		"total":     stats.TotalItems,
+		"processed": stats.ProcessedItems,
+		"skipped":   stats.SkippedItems,
+		"failed":    stats.FailedItems,
+		"duration":  stats.EndTime.Sub(stats.StartTime).String(),
+	}).Info("Ingestion completed")
 
 	return stats, nil
 }
@@ -265,7 +272,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	// Get image dimensions
 	width, height, err := getImageDimensions(imageData)
 	if err != nil {
-		s.logger.Warn("Failed to get image dimensions", zap.Error(err))
+		s.log(ctx).WithError(err).Warn("Failed to get image dimensions")
 		width, height = 0, 0
 	}
 
@@ -284,10 +291,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	description, err := s.vlm.DescribeImage(ctx, imageData, item.Format)
 	if err != nil {
 		// Log but don't fail - we can retry later
-		s.logger.Warn("Failed to generate VLM description",
-			zap.String("source_id", item.SourceID),
-			zap.Error(err),
-		)
+		s.log(ctx).WithFields(logger.Fields{
+			"source_id": item.SourceID,
+		}).WithError(err).Warn("Failed to generate VLM description")
 		description = ""
 	}
 
@@ -296,10 +302,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	if description != "" {
 		embedding, err = s.embedding.Embed(ctx, description)
 		if err != nil {
-			s.logger.Warn("Failed to generate embedding",
-				zap.String("source_id", item.SourceID),
-				zap.Error(err),
-			)
+			s.log(ctx).WithFields(logger.Fields{
+				"source_id": item.SourceID,
+			}).WithError(err).Warn("Failed to generate embedding")
 		}
 	}
 
@@ -418,7 +423,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		// Download from storage
 		reader, err := s.storage.Download(ctx, meme.StorageKey)
 		if err != nil {
-			s.logger.Error("Failed to download from storage", zap.Error(err))
+			s.log(ctx).WithError(err).Error("Failed to download from storage")
 			stats.FailedItems++
 			continue
 		}
@@ -426,7 +431,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		imageData, err := io.ReadAll(reader)
 		reader.Close()
 		if err != nil {
-			s.logger.Error("Failed to read image data", zap.Error(err))
+			s.log(ctx).WithError(err).Error("Failed to read image data")
 			stats.FailedItems++
 			continue
 		}
@@ -434,7 +439,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		// Generate VLM description
 		description, err := s.vlm.DescribeImage(ctx, imageData, meme.Format)
 		if err != nil {
-			s.logger.Warn("Failed to generate VLM description", zap.Error(err))
+			s.log(ctx).WithError(err).Warn("Failed to generate VLM description")
 			stats.FailedItems++
 			continue
 		}
@@ -442,7 +447,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		// Generate embedding
 		embedding, err := s.embedding.Embed(ctx, description)
 		if err != nil {
-			s.logger.Warn("Failed to generate embedding", zap.Error(err))
+			s.log(ctx).WithError(err).Warn("Failed to generate embedding")
 			stats.FailedItems++
 			continue
 		}
@@ -459,7 +464,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		}
 
 		if err := s.qdrantRepo.Upsert(ctx, meme.ID, embedding, payload); err != nil {
-			s.logger.Error("Failed to upsert to Qdrant", zap.Error(err))
+			s.log(ctx).WithError(err).Error("Failed to upsert to Qdrant")
 			stats.FailedItems++
 			continue
 		}
@@ -470,7 +475,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		meme.UpdatedAt = time.Now()
 
 		if err := s.memeRepo.Update(ctx, &meme); err != nil {
-			s.logger.Error("Failed to update database", zap.Error(err))
+			s.log(ctx).WithError(err).Error("Failed to update database")
 			stats.FailedItems++
 			continue
 		}

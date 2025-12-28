@@ -5,9 +5,9 @@ import (
 	"github.com/timmy/emomo/internal/api/handler"
 	"github.com/timmy/emomo/internal/api/middleware"
 	"github.com/timmy/emomo/internal/config"
+	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
-	"go.uber.org/zap"
 )
 
 // SetupRouter configures the Gin router with all routes
@@ -16,7 +16,7 @@ func SetupRouter(
 	ingestService *service.IngestService,
 	sources map[string]source.Source,
 	cfg *config.Config,
-	logger *zap.Logger,
+	log *logger.Logger,
 ) *gin.Engine {
 	// Set Gin mode
 	switch cfg.Server.Mode {
@@ -32,7 +32,7 @@ func SetupRouter(
 
 	// Add middleware
 	r.Use(gin.Recovery())
-	r.Use(middleware.Logger())
+	r.Use(middleware.LoggerMiddleware(log))
 	r.Use(middleware.CORS(middleware.CORSConfig{
 		AllowedOrigins:  cfg.Server.CORS.AllowedOrigins,
 		AllowAllOrigins: cfg.Server.CORS.AllowAllOrigins,
@@ -42,7 +42,7 @@ func SetupRouter(
 	healthHandler := handler.NewHealthHandler()
 	searchHandler := handler.NewSearchHandler(searchService)
 	memeHandler := handler.NewMemeHandler(searchService)
-	adminHandler := handler.NewAdminHandler(ingestService, sources, logger)
+	adminHandler := handler.NewAdminHandler(ingestService, sources, log)
 
 	// Admin page (root)
 	r.GET("/", adminHandler.AdminPage)

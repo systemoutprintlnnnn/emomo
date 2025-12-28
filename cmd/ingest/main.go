@@ -3,21 +3,28 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/timmy/emomo/internal/config"
+	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/source/chinesebqb"
 	"github.com/timmy/emomo/internal/storage"
-	"go.uber.org/zap"
 )
 
 func main() {
+	// Initialize logger first (with defaults)
+	appLogger := logger.New(&logger.Config{
+		Level:       "info",
+		Format:      "json",
+		ServiceName: "emomo-ingest",
+	})
+	logger.SetDefaultLogger(appLogger)
+
 	// Parse command line flags
 	sourceType := flag.String("source", "chinesebqb", "Data source to ingest from")
 	limit := flag.Int("limit", 100, "Maximum number of items to ingest")
@@ -29,27 +36,20 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		appLogger.WithError(err).Fatal("Failed to load config")
 	}
 
-	// Initialize logger
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		log.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Sync()
-
-	logger.Info("Starting ingestion",
-		zap.String("source", *sourceType),
-		zap.Int("limit", *limit),
-		zap.Bool("retry", *retryPending),
-		zap.Bool("force", *force),
-	)
+	appLogger.WithFields(logger.Fields{
+		"source": *sourceType,
+		"limit":  *limit,
+		"retry":  *retryPending,
+		"force":  *force,
+	}).Info("Starting ingestion")
 
 	// Initialize database
 	db, err := repository.InitDB(&cfg.Database)
 	if err != nil {
-		logger.Fatal("Failed to initialize database", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to initialize database")
 	}
 
 	// Initialize repositories
@@ -62,7 +62,7 @@ func main() {
 		UseTLS:     cfg.Qdrant.UseTLS,
 	})
 	if err != nil {
-		logger.Fatal("Failed to initialize Qdrant repository", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
 	}
 	defer qdrantRepo.Close()
 
@@ -71,7 +71,7 @@ func main() {
 	defer cancel()
 
 	if err := qdrantRepo.EnsureCollection(ctx); err != nil {
-		logger.Fatal("Failed to ensure Qdrant collection", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
 	}
 
 	// Initialize storage (supports MinIO, R2, S3)
@@ -87,12 +87,12 @@ func main() {
 		PublicURL: storageCfg.PublicURL,
 	})
 	if err != nil {
-		logger.Fatal("Failed to initialize storage", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to initialize storage")
 	}
 
 	// Ensure bucket exists
 	if err := objectStorage.EnsureBucket(ctx); err != nil {
-		logger.Fatal("Failed to ensure storage bucket", zap.Error(err))
+		appLogger.WithError(err).Fatal("Failed to ensure storage bucket")
 	}
 
 	// Initialize services
@@ -116,7 +116,7 @@ func main() {
 		objectStorage,
 		vlmService,
 		embeddingService,
-		logger,
+		appLogger,
 		&service.IngestConfig{
 			Workers:   cfg.Ingest.Workers,
 			BatchSize: cfg.Ingest.BatchSize,
@@ -128,7 +128,7 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		logger.Info("Received shutdown signal, canceling...")
+		appLogger.Info("Received shutdown signal, canceling...")
 		cancel()
 	}()
 
@@ -136,13 +136,13 @@ func main() {
 	if *retryPending {
 		stats, err := ingestService.RetryPending(ctx, *limit)
 		if err != nil {
-			logger.Fatal("Failed to retry pending items", zap.Error(err))
+			appLogger.WithError(err).Fatal("Failed to retry pending items")
 		}
-		logger.Info("Retry completed",
-			zap.Int64("total", stats.TotalItems),
-			zap.Int64("processed", stats.ProcessedItems),
-			zap.Int64("failed", stats.FailedItems),
-		)
+		appLogger.WithFields(logger.Fields{
+			"total":     stats.TotalItems,
+			"processed": stats.ProcessedItems,
+			"failed":    stats.FailedItems,
+		}).Info("Retry completed")
 	} else {
 		// Get data source
 		var src source.Source
@@ -150,20 +150,20 @@ func main() {
 		case "chinesebqb":
 			src = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
 		default:
-			logger.Fatal("Unknown source type", zap.String("source", *sourceType))
+			appLogger.WithField("source", *sourceType).Fatal("Unknown source type")
 		}
 
 		stats, err := ingestService.IngestFromSource(ctx, src, *limit, &service.IngestOptions{
 			Force: *force,
 		})
 		if err != nil {
-			logger.Fatal("Failed to ingest from source", zap.Error(err))
+			appLogger.WithError(err).Fatal("Failed to ingest from source")
 		}
-		logger.Info("Ingestion completed",
-			zap.Int64("total", stats.TotalItems),
-			zap.Int64("processed", stats.ProcessedItems),
-			zap.Int64("skipped", stats.SkippedItems),
-			zap.Int64("failed", stats.FailedItems),
-		)
+		appLogger.WithFields(logger.Fields{
+			"total":     stats.TotalItems,
+			"processed": stats.ProcessedItems,
+			"skipped":   stats.SkippedItems,
+			"failed":    stats.FailedItems,
+		}).Info("Ingestion completed")
 	}
 }

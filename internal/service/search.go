@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/timmy/emomo/internal/domain"
+	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/repository"
-	"go.uber.org/zap"
 )
 
 // SearchConfig holds configuration for search service
@@ -20,7 +20,7 @@ type SearchService struct {
 	qdrantRepo     *repository.QdrantRepository
 	embedding      *EmbeddingService
 	queryExpansion *QueryExpansionService
-	logger         *zap.Logger
+	logger         *logger.Logger
 	scoreThreshold float32
 }
 
@@ -30,7 +30,7 @@ func NewSearchService(
 	qdrantRepo *repository.QdrantRepository,
 	embedding *EmbeddingService,
 	queryExpansion *QueryExpansionService,
-	logger *zap.Logger,
+	log *logger.Logger,
 	cfg *SearchConfig,
 ) *SearchService {
 	var threshold float32
@@ -42,9 +42,17 @@ func NewSearchService(
 		qdrantRepo:     qdrantRepo,
 		embedding:      embedding,
 		queryExpansion: queryExpansion,
-		logger:         logger,
+		logger:         log,
 		scoreThreshold: threshold,
 	}
+}
+
+// log returns a logger from context if available, otherwise returns the default logger
+func (s *SearchService) log(ctx context.Context) *logger.Logger {
+	if l := logger.FromContext(ctx); l != nil {
+		return l
+	}
+	return s.logger
 }
 
 // SearchRequest represents a text search request
@@ -94,16 +102,15 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	if s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
 		expanded, err := s.queryExpansion.Expand(ctx, req.Query)
 		if err != nil {
-			s.logger.Warn("Query expansion failed, using original query",
-				zap.String("query", req.Query),
-				zap.Error(err),
-			)
+			s.log(ctx).WithFields(logger.Fields{
+				"query": req.Query,
+			}).WithError(err).Warn("Query expansion failed, using original query")
 		} else if expanded != req.Query {
 			expandedQuery = expanded
-			s.logger.Info("Query expanded",
-				zap.String("original", req.Query),
-				zap.String("expanded", expanded),
-			)
+			s.log(ctx).WithFields(logger.Fields{
+				"original": req.Query,
+				"expanded": expanded,
+			}).Info("Query expanded")
 		}
 	}
 
@@ -113,12 +120,12 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		queryForEmbedding = expandedQuery
 	}
 
-	s.logger.Info("Performing text search",
-		zap.String("query", originalQuery),
-		zap.String("query_for_embedding", queryForEmbedding),
-		zap.Int("top_k", req.TopK),
-		zap.Float32("score_threshold", s.scoreThreshold),
-	)
+	s.log(ctx).WithFields(logger.Fields{
+		"query":               originalQuery,
+		"query_for_embedding": queryForEmbedding,
+		"top_k":               req.TopK,
+		"score_threshold":     s.scoreThreshold,
+	}).Info("Performing text search")
 
 	// Generate query embedding
 	queryEmbedding, err := s.embedding.EmbedQuery(ctx, queryForEmbedding)
@@ -173,7 +180,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 
 		memes, err := s.memeRepo.GetByIDs(ctx, ids)
 		if err != nil {
-			s.logger.Warn("Failed to enrich results from database", zap.Error(err))
+			s.log(ctx).WithError(err).Warn("Failed to enrich results from database")
 		} else {
 			memeMap := make(map[string]*domain.Meme)
 			for i := range memes {
