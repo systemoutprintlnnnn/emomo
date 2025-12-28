@@ -14,12 +14,6 @@ fi
 # Create data directory
 mkdir -p data
 
-# Check if ChineseBQB is cloned
-if [ ! -d "data/ChineseBQB" ]; then
-    echo "Cloning ChineseBQB repository..."
-    git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
-fi
-
 # Build binaries
 echo "Building API server..."
 go build -o api ./cmd/api
