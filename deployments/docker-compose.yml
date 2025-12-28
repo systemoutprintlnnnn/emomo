@@ -1,39 +1,32 @@
 version: '3.8'
 
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: emomo-qdrant
-    ports:
-      - "6333:6333"  # REST API
-      - "6334:6334"  # gRPC
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
-    restart: unless-stopped
+# Qdrant and S3 are now using remote services (Qdrant Cloud + Cloudflare R2/AWS S3)
+# Configure via environment variables in .env file
 
-  # S3-compatible object storage for local development
-  # In production, use Cloudflare R2, AWS S3, or other S3-compatible services
-  s3:
-    image: minio/minio:latest
-    container_name: emomo-s3
-    ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # Console
+services:
+  # Grafana Alloy for log collection
+  alloy:
+    image: grafana/alloy:latest
+    container_name: emomo-alloy
     volumes:
-      - s3_data:/data
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
     environment:
-      - MINIO_ROOT_USER=accesskey
-      - MINIO_ROOT_PASSWORD=secretkey
-    command: server /data --console-address ":9001"
+      - LOKI_URL=${LOKI_URL:-}
+      - LOKI_USERNAME=${LOKI_USERNAME:-}
+      - LOKI_PASSWORD=${LOKI_PASSWORD:-}
+      - CLUSTER_NAME=${CLUSTER_NAME:-local}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - HOSTNAME=${HOSTNAME:-emomo-dev}
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "12345:12345"  # Alloy UI
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
 
 volumes:
-  qdrant_data:
-  s3_data:
+  alloy_data:
