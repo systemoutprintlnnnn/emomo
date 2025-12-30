@@ -10,7 +10,7 @@
 - **向量数据库**：Qdrant（需要部署）
 - **对象存储**：S3 兼容存储（Cloudflare R2、AWS S3 等）
 - **元数据数据库**：SQLite（文件存储）
-- **外部 API**：OpenAI（VLM）、Jina（Embedding）
+- **外部 API**：OpenAI Compatible VLM API（图片理解）、Jina（Embedding）
 
 ## CORS 配置（前端部署在 Vercel）
 
