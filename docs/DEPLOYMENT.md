@@ -338,7 +338,7 @@ JINA_API_KEY=your-key
 - **仅本地服务**：使用本地 Qdrant + S3 兼容存储
 - **混合模式**：本地 Qdrant + 云存储，或云 Qdrant + 本地 S3 存储
 
-详细说明请参考 [`deployments/README.md`](deployments/README.md)。
+详细说明请参考 [`deployments/README.md`](../deployments/README.md)。
 
 #### 部署模式选择
 
@@ -607,4 +607,3 @@ docker exec -it emomo-api sh
 - [ ] 配置监控和日志
 - [ ] 设置自动备份
 - [ ] 优化性能（CDN、缓存等）
-
