@@ -80,7 +80,7 @@ func NewVLMService(cfg *VLMConfig) *VLMService {
 	// Set timeout to prevent hanging requests
 	client.SetTimeout(60 * time.Second)
 
-	// Default to OpenAI if not specified
+	// Default to OpenAI compatible endpoint if not specified
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
@@ -100,7 +100,7 @@ func (s *VLMService) GetModel() string {
 	return s.model
 }
 
-// OpenAI API request/response structures
+// OpenAI-compatible Chat Completion API request/response structures
 type openAIRequest struct {
 	Model     string          `json:"model"`
 	Messages  []openAIMessage `json:"messages"`
