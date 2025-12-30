@@ -60,3 +60,6 @@ sources:
   chinesebqb:
     enabled: true
     repo_path: ./data/ChineseBQB
+  fabiaoqing:
+    enabled: true
+    request_delay_ms: 500  # 请求间隔（毫秒），避免被封

@@ -21,10 +21,13 @@ docker-compose -f deployments/docker-compose.yml up -d
 # Start infrastructure - Production (Full stack with API + Alloy)
 docker-compose -f deployments/docker-compose.prod.yml up -d
 
-# Data ingestion
+# Data ingestion (static sources)
 ./ingest --source=chinesebqb --limit=100    # Ingest memes
 ./ingest --retry --limit=100                # Retry pending items
 ./ingest --force --source=chinesebqb        # Force re-process
+
+# Data ingestion (from staging, after crawler)
+./ingest --source=staging:fabiaoqing --limit=50
 
 # Run API server (port 8080)
 ./api
@@ -78,6 +81,8 @@ internal/
 │   └── qdrant_repo.go   # Vector search operations (gRPC)
 ├── storage/s3.go        # S3-compatible object storage (supports R2, S3, etc.)
 ├── source/              # Data source adapters (extensible)
+│   ├── chinesebqb/      # Static file system source
+│   └── staging/         # Staging directory source (from Python crawler)
 └── domain/              # Data models (Meme, Source, Job)
 
 crawler/                 # Python crawler (requests + BeautifulSoup)
