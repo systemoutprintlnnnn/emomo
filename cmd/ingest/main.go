@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/timmy/emomo/internal/config"
@@ -13,6 +14,7 @@ import (
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/source/chinesebqb"
+	"github.com/timmy/emomo/internal/source/staging"
 	"github.com/timmy/emomo/internal/storage"
 )
 
@@ -146,11 +148,16 @@ func main() {
 	} else {
 		// Get data source
 		var src source.Source
-		switch *sourceType {
-		case "chinesebqb":
+		switch {
+		case *sourceType == "chinesebqb":
 			src = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
+		case strings.HasPrefix(*sourceType, "staging:"):
+			// Format: staging:<source_id>, e.g., staging:fabiaoqing
+			sourceID := strings.TrimPrefix(*sourceType, "staging:")
+			src = staging.NewAdapter(cfg.Sources.Staging.Path, sourceID)
+			appLogger.WithField("staging_source", sourceID).Info("Using staging source")
 		default:
-			appLogger.WithField("source", *sourceType).Fatal("Unknown source type")
+			appLogger.WithField("source", *sourceType).Fatal("Unknown source type. Use 'chinesebqb' or 'staging:<source_id>'")
 		}
 
 		stats, err := ingestService.IngestFromSource(ctx, src, *limit, &service.IngestOptions{
