@@ -303,8 +303,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	// Now start persistence operations (require rollback on failure)
-	// Upload to storage
-	storageKey := fmt.Sprintf("%s/%s.%s", sourceType, md5Hash, item.Format)
+	// Upload to storage (use MD5 prefix for bucketing, hide source info)
+	storageKey := fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, item.Format)
 	contentType := getContentType(item.Format)
 	
 	// Check if file already exists in storage
@@ -500,7 +500,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			continue
 		}
 
-		// Update SQLite
+		// Update database
 		meme.VLMDescription = description
 		meme.Status = domain.MemeStatusActive
 		meme.UpdatedAt = time.Now()

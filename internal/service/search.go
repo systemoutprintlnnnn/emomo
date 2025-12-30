@@ -175,7 +175,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		results = append(results, result)
 	}
 
-	// Optionally enrich with full meme data from SQLite
+	// Optionally enrich with full meme data from database
 	if len(results) > 0 {
 		ids := make([]string, len(results))
 		for i, r := range results {
