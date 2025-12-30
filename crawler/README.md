@@ -1,6 +1,6 @@
 # Emomo Crawler
 
-Python-based meme crawler for the emomo project, using [Crawl4AI](https://crawl4ai.com).
+Python-based meme crawler for the emomo project, using requests + BeautifulSoup.
 
 ## Installation
 
@@ -14,8 +14,6 @@ cd crawler
 # Install dependencies
 uv sync
 
-# Setup Crawl4AI (downloads browser)
-uv run crawl4ai-setup
 ```
 
 ## Usage

@@ -105,7 +105,7 @@ Staging statistics for fabiaoqing:
 uv run emomo-crawler staging clean --source fabiaoqing
 
 # 清理所有来源
-uv run emomo-crawler staging clean --all
+uv run emomo-crawler staging clean-all
 ```
 
 ## 4. 导入到系统
@@ -113,7 +113,7 @@ uv run emomo-crawler staging clean --all
 ### 4.1 前置条件
 
 确保以下服务已启动:
-- PostgreSQL 数据库
+- 数据库（SQLite 或 PostgreSQL）
 - Qdrant 向量数据库
 - S3/R2 对象存储已配置
 
@@ -160,7 +160,7 @@ go build -o ingest ./cmd/ingest
         ↓
 6. 写入 Qdrant (向量 + 元数据)
         ↓
-7. 写入 PostgreSQL (完整记录)
+7. 写入数据库 (SQLite/PostgreSQL)
 ```
 
 ## 5. 完整示例

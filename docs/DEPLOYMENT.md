@@ -5,12 +5,14 @@
 ## 架构概览
 
 项目包含以下组件：
-- **前端**：React + Vite（已部署在 Vercel）
+- **前端**：React + Vite（可选，Vercel/自部署）
 - **后端 API**：Go + Gin（需要部署）
 - **向量数据库**：Qdrant（需要部署）
 - **对象存储**：S3 兼容存储（Cloudflare R2、AWS S3 等）
-- **元数据数据库**：SQLite（文件存储）
+- **元数据数据库**：SQLite / PostgreSQL
 - **外部 API**：OpenAI Compatible VLM API（图片理解）、Jina（Embedding）
+
+> 说明：`deployments/docker-compose*.yml` 仅包含 API 与 Grafana Alloy，Qdrant 与对象存储需自行提供（云服务或本地容器）。
 
 ## CORS 配置（前端部署在 Vercel）
 
@@ -69,7 +71,7 @@ SERVER_CORS_ALLOWED_ORIGINS=https://your-app.vercel.app,https://your-domain.com
 ### 优势
 - ✅ 永久免费（2核 ARM CPU，4GB RAM，200GB 存储）
 - ✅ 性能稳定，不会休眠
-- ✅ 可以运行所有服务（Qdrant、S3 兼容存储、后端 API）
+- ✅ 可运行 API + 日志采集，并可选自建 Qdrant/MinIO
 
 ### 步骤
 
@@ -99,25 +101,29 @@ sudo yum install -y golang git
 exit
 ```
 
-#### 3. 部署基础设施（Qdrant + 对象存储）
+#### 3. 准备外部服务（Qdrant + 对象存储）
+
+推荐使用云服务（Qdrant Cloud + Cloudflare R2）。如果需要本地部署，可使用 Docker 启动 Qdrant 与 MinIO：
+
 ```bash
 # 克隆项目
 git clone <your-repo-url> emomo
 cd emomo
 
-# 启动 Qdrant（对象存储可使用云服务如 Cloudflare R2）
-cd deployments
-docker-compose up -d
+# 本地 Qdrant（gRPC 端口 6334）
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:latest
 
-# 验证服务
-docker ps
-curl http://localhost:6333/health  # Qdrant
+# 本地 MinIO（S3 兼容）
+docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=accesskey -e MINIO_ROOT_PASSWORD=secretkey \
+  quay.io/minio/minio server /data --console-address ":9001"
 ```
 
 #### 4. 配置防火墙
 在 Oracle Cloud 控制台配置安全规则，开放端口：
 - `8080`：后端 API
-- `6333`：Qdrant REST API（可选，如果不需要外部访问）
+- `6334`：Qdrant gRPC（仅在自建 Qdrant 且需要外部访问时）
+- `9000`：MinIO S3 API（仅在自建存储且需要外部访问时）
 
 #### 5. 配置环境变量
 ```bash
@@ -133,13 +139,24 @@ STORAGE_USE_SSL=true
 STORAGE_BUCKET=memes
 STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 
-# 或使用本地 S3 兼容存储（需要部署）
+# 或使用本地 S3 兼容存储（需要部署 MinIO 等服务）
 # STORAGE_TYPE=s3compatible
 # STORAGE_ENDPOINT=localhost:9000
 # STORAGE_ACCESS_KEY=accesskey
 # STORAGE_SECRET_KEY=secretkey
 # STORAGE_USE_SSL=false
 # STORAGE_BUCKET=memes
+
+# Qdrant Cloud（gRPC）
+QDRANT_HOST=your-cluster.qdrant.io
+QDRANT_PORT=6334
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_USE_TLS=true
+
+# 或本地 Qdrant（gRPC）
+# QDRANT_HOST=localhost
+# QDRANT_PORT=6334
+# QDRANT_USE_TLS=false
 
 # OpenAI API
 OPENAI_API_KEY=your-openai-key
@@ -154,7 +171,7 @@ SEARCH_SCORE_THRESHOLD=0.0
 EOF
 ```
 
-#### 7. 构建并运行后端 API
+#### 6. 构建并运行后端 API
 ```bash
 cd /home/opc/emomo
 
@@ -187,7 +204,7 @@ sudo systemctl start emomo-api
 sudo systemctl status emomo-api
 ```
 
-#### 8. 配置 Nginx 反向代理（可选，推荐）
+#### 7. 配置 Nginx 反向代理（可选，推荐）
 ```bash
 # 安装 Nginx
 sudo yum install -y nginx
@@ -213,7 +230,7 @@ sudo systemctl enable nginx
 sudo systemctl start nginx
 ```
 
-#### 9. 配置 Vercel 前端环境变量
+#### 8. 配置 Vercel 前端环境变量
 在 Vercel 项目设置中添加：
 ```
 VITE_API_BASE=https://<your-domain-or-ip>/api/v1
@@ -237,12 +254,9 @@ VITE_API_BASE=http://<your-server-ip>:8080/api/v1
 
 ### 步骤
 
-#### 1. 部署 Qdrant
-1. 访问 [Railway](https://railway.app/)
-2. 创建新项目
-3. 添加服务 → Deploy from GitHub
-4. 使用 Qdrant 官方 Docker 镜像：`qdrant/qdrant:latest`
-5. 配置端口：`6333`（REST API）
+#### 1. 准备 Qdrant
+- 推荐使用 [Qdrant Cloud](https://cloud.qdrant.io/)（gRPC 端口 6334）
+- 如需在 Railway 自建：使用 `qdrant/qdrant:latest` 镜像并确保 gRPC 端口 `6334` 可用
 
 #### 2. 配置对象存储（推荐使用 Cloudflare R2）
 1. 注册 Cloudflare 账户并创建 R2 bucket
@@ -251,9 +265,8 @@ VITE_API_BASE=http://<your-server-ip>:8080/api/v1
 
 #### 3. 部署后端 API
 1. 添加新服务，连接到 GitHub 仓库
-2. 配置环境变量（参考方案一的步骤 5）
-3. 修改 `configs/config.yaml` 中的 Qdrant 地址为 Railway 提供的内部地址
-4. Railway 会自动检测 Go 项目并构建
+2. 配置环境变量（参考方案一的步骤 5，设置 QDRANT_* 与 STORAGE_*）
+3. Railway 会自动检测 Go 项目并构建
 
 #### 4. 配置前端
 在 Vercel 中设置：
@@ -294,9 +307,10 @@ VITE_API_BASE=https://your-api.railway.app/api/v1
 ```bash
 # Qdrant Cloud
 QDRANT_HOST=your-cluster.qdrant.io
-QDRANT_PORT=443
+QDRANT_PORT=6334
 QDRANT_COLLECTION=memes
 QDRANT_API_KEY=your-api-key
+QDRANT_USE_TLS=true
 
 # Cloudflare R2（推荐使用新的统一配置格式）
 STORAGE_TYPE=r2
@@ -332,52 +346,23 @@ JINA_API_KEY=your-key
 
 ### 使用 Docker Compose 部署
 
-项目提供了 `deployments/docker-compose.prod.yml` 用于生产环境部署，支持多种部署模式：
-
-- **仅云服务**：使用 Qdrant Cloud + Cloudflare R2（推荐生产环境）
-- **仅本地服务**：使用本地 Qdrant + S3 兼容存储
-- **混合模式**：本地 Qdrant + 云存储，或云 Qdrant + 本地 S3 存储
+`deployments/docker-compose.prod.yml` 仅启动 API + Grafana Alloy，Qdrant 与对象存储需外部提供（云服务或本地容器）。
+如仅需日志采集，可运行 `deployments/docker-compose.yml`。
 
 详细说明请参考 [`deployments/README.md`](../deployments/README.md)。
-
-#### 部署模式选择
-
-**模式 1：仅云服务（推荐）**
-
-使用 Qdrant Cloud 和 Cloudflare R2，无需本地服务：
-
-```bash
-# 1. 配置云服务（见下方配置说明）
-# 2. 启动 API 服务（不启动本地服务）
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-**模式 2：仅本地服务**
-
-使用本地 Qdrant 和 S3 兼容存储：
-
-```bash
-# 启动所有服务（包括本地 Qdrant 和 S3 兼容存储）
-docker-compose -f docker-compose.prod.yml --profile local up -d
-```
-
-**模式 3：混合模式**
-
-- 本地 Qdrant + 云存储：`docker-compose -f docker-compose.prod.yml --profile qdrant-local up -d`
-- 云 Qdrant + 本地 S3 存储：`docker-compose -f docker-compose.prod.yml --profile s3-local up -d`
 
 #### 重要：ChineseBQB 目录挂载
 
 在使用 Docker 部署时，**必须确保 ChineseBQB 数据目录被正确挂载**，否则 ingestion 会失败（处理 0 个项目）。
 
-#### 云服务配置（模式 1）
+#### 云服务配置（推荐）
 
 如果使用云服务，需要配置以下环境变量：
 
 **Qdrant Cloud**：
 ```bash
 export QDRANT_HOST=your-cluster.qdrant.io
-export QDRANT_PORT=443
+export QDRANT_PORT=6334
 export QDRANT_API_KEY=your-qdrant-cloud-key
 export QDRANT_USE_TLS=true
 ```
@@ -496,8 +481,10 @@ curl -X POST http://localhost:8080/api/v1/ingest \
   }'
 
 # 或访问管理界面
-# http://localhost:8080/admin
+# http://localhost:8080/
 ```
+
+**说明**：API 摄入目前仅支持 `chinesebqb`，`staging:*` 来源请使用 CLI 工具。
 
 ### 方式二：使用命令行工具摄入
 
@@ -542,7 +529,7 @@ docker exec -it emomo-api sh
 对于个人项目，推荐**方案一（Oracle Cloud VPS）**：
 - 成本最低（$0）
 - 性能稳定
-- 可以运行所有服务
+- 可运行 API + 日志采集，并可选自建 Qdrant/MinIO
 - 不会休眠
 
 如果不想管理服务器，推荐**方案三（混合方案）**：
@@ -554,7 +541,8 @@ docker exec -it emomo-api sh
 
 ### 后端无法连接 Qdrant
 - 检查 Qdrant 是否运行：`docker ps`
-- 检查端口是否正确：`curl http://localhost:6333/health`
+- 确认 gRPC 端口是否正确（默认 `6334`）
+- 如有 REST 端口，可用 `curl http://localhost:6333/health` 验证
 - 检查防火墙规则
 
 ### 图片无法加载
@@ -577,7 +565,7 @@ docker exec -it emomo-api sh
   # 检查文件数量
   docker exec emomo-api find /root/data/ChineseBQB -type f | wc -l
   ```
-- **检查 docker-compose.yml 挂载配置**：
+- **检查 docker-compose.prod.yml 挂载配置**：
   - 确保 `../data:/root/data` 挂载正确
   - 如果使用绝对路径，确保路径正确
 - **检查主机上的目录**：
