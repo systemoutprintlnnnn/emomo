@@ -18,16 +18,41 @@ go build -o ingest ./cmd/ingest
 # Start infrastructure (Qdrant, object storage can use cloud services like Cloudflare R2)
 docker-compose -f deployments/docker-compose.yml up -d
 
-# Data ingestion
+# Data ingestion (static sources)
 ./ingest --source=chinesebqb --limit=100    # Ingest memes
 ./ingest --retry --limit=100                # Retry pending items
 ./ingest --force --source=chinesebqb        # Force re-process
+
+# Data ingestion (from staging, after crawler)
+./ingest --source=staging:fabiaoqing --limit=50
 
 # Run API server (port 8080)
 ./api
 
 # Full stack (backend + frontend)
 ./scripts/start.sh
+```
+
+## Python Crawler
+
+The `crawler/` directory contains a Python-based meme crawler using Crawl4AI.
+
+```bash
+# Setup crawler
+cd crawler
+uv sync
+uv run crawl4ai-setup
+
+# Crawl memes to staging
+uv run emomo-crawler crawl --source fabiaoqing --limit 100
+
+# View staging status
+uv run emomo-crawler staging list
+uv run emomo-crawler staging stats --source fabiaoqing
+
+# Import from staging to main system
+cd ..
+./ingest --source=staging:fabiaoqing --limit=50
 ```
 
 ## Architecture
@@ -51,7 +76,17 @@ internal/
 │   └── qdrant_repo.go   # Vector search operations (gRPC)
 ├── storage/s3.go        # S3-compatible object storage (supports R2, S3, etc.)
 ├── source/              # Data source adapters (extensible)
+│   ├── chinesebqb/      # Static file system source
+│   └── staging/         # Staging directory source (from Python crawler)
 └── domain/              # Data models (Meme, Source, Job)
+
+crawler/                 # Python crawler (Crawl4AI)
+├── src/emomo_crawler/
+│   ├── cli.py           # CLI commands
+│   ├── staging.py       # Staging area management
+│   ├── base.py          # Base crawler class
+│   └── sources/         # Crawler implementations
+└── pyproject.toml
 ```
 
 ### Data Flow

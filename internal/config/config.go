@@ -119,11 +119,16 @@ type QueryExpansionConfig struct {
 
 type SourcesConfig struct {
 	ChineseBQB ChineseBQBConfig `mapstructure:"chinesebqb"`
+	Staging    StagingConfig    `mapstructure:"staging"`
 }
 
 type ChineseBQBConfig struct {
 	Enabled  bool   `mapstructure:"enabled"`
 	RepoPath string `mapstructure:"repo_path"`
+}
+
+type StagingConfig struct {
+	Path string `mapstructure:"path"` // Base path for staging directory
 }
 
 func Load(configPath string) (*Config, error) {
@@ -181,6 +186,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ingest.retry_count", 3)
 	v.SetDefault("sources.chinesebqb.enabled", true)
 	v.SetDefault("sources.chinesebqb.repo_path", "./data/ChineseBQB")
+	v.SetDefault("sources.staging.path", "./data/staging")
 	v.SetDefault("search.score_threshold", 0.0)
 	v.SetDefault("search.query_expansion.enabled", true)
 	v.SetDefault("search.query_expansion.model", "gpt-4o-mini")

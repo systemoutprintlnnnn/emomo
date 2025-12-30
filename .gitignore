@@ -7,6 +7,8 @@
 /emomo
 /api
 /ingest
+bin/
+dist/
 
 # Test binary
 *.test
@@ -16,19 +18,38 @@
 
 # Dependency directories
 /vendor/
+node_modules/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+.fleet/
 
 # Environment variables
 .env
+*.env
+!.env.example
+configs/*.env
+!configs/*.env.example
 
 # Local data
 /data/
 *.db
+*.sqlite
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.uv/
+.ruff_cache/
+.mypy_cache/
 
 # OS files
 .DS_Store
@@ -36,11 +57,8 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
-# Build output
-/bin/
-/dist/
-
+# Misc
 .mcp.json
-
 scripts/clear-qdrant.sh
