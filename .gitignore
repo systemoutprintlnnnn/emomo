@@ -62,3 +62,4 @@ logs/
 # Misc
 .mcp.json
 scripts/clear-qdrant.sh
+emoji_images/

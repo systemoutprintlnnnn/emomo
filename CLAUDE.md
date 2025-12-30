@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Emomo is an AI-powered meme/sticker semantic search system. Users can search for memes using natural language queries in Chinese.
 
-**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (R2/S3), SQLite/PostgreSQL, OpenAI GPT-4o mini (VLM), Jina Embeddings v3
+**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (R2/S3), PostgreSQL, OpenAI-compatible VLM (e.g., GPT-4o mini), Jina Embeddings v3
 
 ## Build & Run Commands
 
@@ -35,16 +35,18 @@ docker-compose -f deployments/docker-compose.yml up -d
 
 ## Python Crawler
 
-The `crawler/` directory contains a Python-based meme crawler using Crawl4AI.
+The `crawler/` directory contains a Python-based meme crawler using requests + BeautifulSoup.
 
 ```bash
 # Setup crawler
 cd crawler
 uv sync
-uv run crawl4ai-setup
 
 # Crawl memes to staging
 uv run emomo-crawler crawl --source fabiaoqing --limit 100
+
+# Continue from a specific page
+uv run emomo-crawler crawl --source fabiaoqing --limit 100 --cursor 10
 
 # View staging status
 uv run emomo-crawler staging list
@@ -69,10 +71,10 @@ internal/
 ├── service/
 │   ├── search.go        # Semantic search (query → embedding → Qdrant)
 │   ├── ingest.go        # Ingestion pipeline with worker pool
-│   ├── vlm.go           # GPT-4o mini for image descriptions
+│   ├── vlm.go           # OpenAI-compatible VLM client for image descriptions
 │   └── embedding.go     # Jina text embeddings (1024-dim)
 ├── repository/
-│   ├── meme_repo.go     # SQLite/PostgreSQL operations
+│   ├── meme_repo.go     # PostgreSQL operations
 │   └── qdrant_repo.go   # Vector search operations (gRPC)
 ├── storage/s3.go        # S3-compatible object storage (supports R2, S3, etc.)
 ├── source/              # Data source adapters (extensible)
@@ -80,7 +82,7 @@ internal/
 │   └── staging/         # Staging directory source (from Python crawler)
 └── domain/              # Data models (Meme, Source, Job)
 
-crawler/                 # Python crawler (Crawl4AI)
+crawler/                 # Python crawler (requests + BeautifulSoup)
 ├── src/emomo_crawler/
 │   ├── cli.py           # CLI commands
 │   ├── staging.py       # Staging area management
@@ -91,7 +93,7 @@ crawler/                 # Python crawler (Crawl4AI)
 
 ### Data Flow
 
-1. **Ingestion**: Source adapter → VLM description → Jina embedding → Object storage upload → Qdrant upsert → SQLite save
+1. **Ingestion**: Source adapter → VLM description → Jina embedding → Object storage upload → Qdrant upsert → PostgreSQL save
 2. **Search**: Query text → Jina embedding → Qdrant cosine similarity → Return top-K results
 
 ## API Endpoints
@@ -106,11 +108,11 @@ crawler/                 # Python crawler (Crawl4AI)
 ## Configuration
 
 Environment variables (see `.env.example`):
-- `OPENAI_API_KEY`, `OPENAI_BASE_URL` - VLM provider
+- `OPENAI_API_KEY`, `OPENAI_BASE_URL` - VLM provider (OpenAI compatible)
 - `JINA_API_KEY` - Embeddings API
 - `STORAGE_*` - Object storage credentials (supports R2, S3, etc.)
 - `QDRANT_HOST`, `QDRANT_PORT` - Vector DB connection
-- `DATABASE_PATH` - SQLite path
+- `DATABASE_URL` - PostgreSQL connection URL
 
 Config file: `configs/config.yaml`
 

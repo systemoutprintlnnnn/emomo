@@ -175,8 +175,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("storage.endpoint", "localhost:9000")
 	v.SetDefault("storage.use_ssl", false)
 	v.SetDefault("storage.bucket", "memes")
+	// VLM Configuration (OpenAI Compatible)
 	v.SetDefault("vlm.provider", "openai")
-	v.SetDefault("vlm.model", "gpt-4o-mini")
+	v.SetDefault("vlm.model", "gpt-4o-mini") // Can be any compatible model
 	v.SetDefault("vlm.base_url", "https://api.openai.com/v1")
 	v.SetDefault("embedding.provider", "jina")
 	v.SetDefault("embedding.model", "jina-embeddings-v3")
