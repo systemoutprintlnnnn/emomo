@@ -41,6 +41,7 @@ services:
       - STORAGE_PUBLIC_URL=${STORAGE_PUBLIC_URL:-}  # 公开访问 URL
 
       # VLM 配置
+      # VLM Configuration (supports any OpenAI-compatible API)
       - VLM_MODEL=${VLM_MODEL:-gpt-4o-mini}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - QUERY_EXPANSION_MODEL=${QUERY_EXPANSION_MODEL:-gpt-4o-mini}

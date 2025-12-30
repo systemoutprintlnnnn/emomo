@@ -2,7 +2,7 @@
 
 ## 前置要求
 
-- OpenAI API Key（用于 VLM）
+- OpenAI Compatible API Key（用于 VLM，支持 OpenAI, OpenRouter 等）
 - Jina API Key（用于 Embedding）
 - 已部署的前端（Vercel）
 

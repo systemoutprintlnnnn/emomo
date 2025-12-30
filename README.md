@@ -19,7 +19,7 @@ Check out the configuration reference at https://huggingface.co/docs/hub/spaces-
 - **向量数据库**: Qdrant
 - **元数据存储**: SQLite (MVP) / PostgreSQL (生产)
 - **对象存储**: S3 兼容存储（Cloudflare R2、AWS S3 等）
-- **VLM**: GPT-4o mini (图片描述生成)
+- **VLM**: OpenAI-compatible API (e.g., GPT-4o mini, Claude via OpenRouter) (图片描述生成)
 - **Text Embedding**: Jina Embeddings v3 (向量化)
 
 ## 快速开始
