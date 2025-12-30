@@ -2,9 +2,11 @@
 
 ## 前置要求
 
-- OpenAI Compatible API Key（用于 VLM，支持 OpenAI, OpenRouter 等）
+- OpenAI Compatible API Key（用于 VLM/查询扩展，支持 OpenAI, OpenRouter 等）
 - Jina API Key（用于 Embedding）
-- 已部署的前端（Vercel）
+- Qdrant 服务（本地或云端，使用 gRPC 端口）
+- S3 兼容对象存储（Cloudflare R2 / AWS S3 / MinIO 等）
+- 前端部署（可选，如 Vercel）
 
 ## 方案选择
 
@@ -44,7 +46,7 @@ STORAGE_USE_SSL=true
 STORAGE_BUCKET=memes
 STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 
-# 或使用本地 S3 兼容存储（需要先启动 docker-compose）
+# 或使用本地 S3 兼容存储（需要先启动 MinIO 等服务）
 # STORAGE_TYPE=s3compatible
 # STORAGE_ENDPOINT=localhost:9000
 # STORAGE_ACCESS_KEY=accesskey
@@ -52,17 +54,23 @@ STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 # STORAGE_USE_SSL=false
 # STORAGE_BUCKET=memes
 
+# Qdrant Cloud（gRPC）
+QDRANT_HOST=your-cluster.qdrant.io
+QDRANT_PORT=6334
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_USE_TLS=true
+
 OPENAI_API_KEY=your-openai-key
 JINA_API_KEY=your-jina-key
 EOF
 
-# 5. 启动所有服务
+# 5. 启动服务（API + 日志采集，依赖外部 Qdrant/存储）
 cd deployments
 docker-compose -f docker-compose.prod.yml up -d
 
 # 6. 检查服务状态
 docker ps
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/health
 
 # 7. 配置 Vercel 环境变量
 # VITE_API_BASE=http://<your-server-ip>:8080/api/v1
@@ -93,6 +101,8 @@ OPENAI_API_KEY=your-openai-key
 JINA_API_KEY=your-jina-key
 QDRANT_HOST=your-qdrant-host
 QDRANT_PORT=6334
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_USE_TLS=true
 ```
 
 **注意**：需要单独部署 Qdrant 和配置对象存储，或者使用云服务：
@@ -112,8 +122,9 @@ QDRANT_PORT=6334
 ```
 CONFIG_PATH=./configs/config.prod.yaml
 QDRANT_HOST=your-cluster.qdrant.io
-QDRANT_PORT=443
+QDRANT_PORT=6334
 QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_USE_TLS=true
 STORAGE_TYPE=r2
 STORAGE_ENDPOINT=your-account-id.r2.cloudflarestorage.com
 STORAGE_ACCESS_KEY=your-r2-access-key
@@ -125,7 +136,7 @@ OPENAI_API_KEY=your-openai-key
 JINA_API_KEY=your-jina-key
 ```
 
-**注意**：需要修改代码以支持 Qdrant Cloud 的 API Key 认证（当前代码使用 gRPC，Qdrant Cloud 可能需要 REST API）。
+**注意**：当前代码已支持 Qdrant Cloud API Key（gRPC + TLS）。
 
 ## 数据摄入
 
@@ -165,7 +176,7 @@ VITE_API_BASE=http://your-server-ip:8080/api/v1
 
 1. **健康检查**：
    ```bash
-   curl http://your-api/api/v1/health
+   curl http://your-api/health
    ```
 
 2. **搜索测试**：
@@ -199,4 +210,3 @@ VITE_API_BASE=http://your-server-ip:8080/api/v1
 - [ ] 优化性能（CDN、缓存）
 
 更多详细信息请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
-

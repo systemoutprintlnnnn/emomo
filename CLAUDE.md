@@ -18,7 +18,7 @@ go build -o ingest ./cmd/ingest
 # Start infrastructure - Development (Grafana Alloy only, Qdrant/S3 use cloud services)
 docker-compose -f deployments/docker-compose.yml up -d
 
-# Start infrastructure - Production (Full stack with API + Alloy)
+# Start infrastructure - Production (API + Alloy; Qdrant/S3 are external)
 docker-compose -f deployments/docker-compose.prod.yml up -d
 
 # Data ingestion (static sources)
@@ -124,7 +124,7 @@ Config file: `configs/config.yaml`
 ## Deployment & Monitoring
 
 - **Development**: Run `docker-compose.yml` for Grafana Alloy log collection only (Qdrant/S3 use cloud services)
-- **Production**: Run `docker-compose.prod.yml` for full stack (API + Alloy) with resource limits
+- **Production**: Run `docker-compose.prod.yml` for API + Alloy (Qdrant/S3 are external)
 - **Logging**: Grafana Alloy collects Docker container logs and forwards to Grafana Cloud Loki
 - **Observability**: Alloy UI available at `http://localhost:12345` for pipeline monitoring
 

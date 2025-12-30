@@ -3,6 +3,7 @@
 > 技术栈：Golang + Qdrant + VLM + Text Embedding  
 > 数据源：ChineseBQB（MVP）、Tenor API、爬虫（扩展）  
 > 目标：快速跑通 MVP，同时预留多数据源扩展能力
+> 备注：下文为早期规划示意，实际实现以当前仓库为准（Docker Compose 仅包含 API + Alloy，Qdrant/存储外部）。
 
 ---
 
@@ -576,7 +577,8 @@ meme-library/
 │   └── config.example.yaml     # 示例配置
 │
 ├── deployments/                # 部署相关
-│   ├── docker-compose.yml      # Qdrant + MinIO
+│   ├── docker-compose.yml      # Grafana Alloy（日志采集）
+│   ├── docker-compose.prod.yml # API + Alloy（Qdrant/存储外部）
 │   └── Dockerfile
 │
 ├── scripts/                    # 脚本
@@ -599,7 +601,7 @@ meme-library/
 
 | 任务 | 产出 | 优先级 |
 |------|------|--------|
-| 搭建 Docker Compose 环境 | Qdrant + MinIO 一键启动（SQLite 无需容器） | P0 |
+| 搭建 Docker Compose 环境 | API + Alloy Compose（Qdrant/存储外部） | P0 |
 | 初始化 Go 项目结构 | 按目录规划创建骨架 | P0 |
 | 实现 SQLite 数据模型 | memes、data_sources、ingest_jobs 三张表 + GORM | P0 |
 | 实现存储抽象层 | MinIO 上传/下载/URL 生成 | P0 |

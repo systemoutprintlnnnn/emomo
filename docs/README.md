@@ -30,25 +30,73 @@ Check out the configuration reference at https://huggingface.co/docs/hub/spaces-
 # 复制环境变量配置
 cp .env.example .env
 
-# 编辑 .env 填入 API Keys
+# 编辑 .env 填入 API Keys 和服务地址
 vim .env
 ```
 
-### 2. 启动基础设施
+### 2. 配置基础服务（Qdrant + 对象存储）
+
+本项目不会自动启动 Qdrant 或对象存储，请选择云服务或本地服务。
+
+**推荐：云服务（Qdrant Cloud + Cloudflare R2）**
 
 ```bash
-# 启动 Qdrant（对象存储可使用云服务如 Cloudflare R2）
+# Qdrant Cloud (gRPC)
+QDRANT_HOST=your-cluster.qdrant.io
+QDRANT_PORT=6334
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_USE_TLS=true
+
+# Cloudflare R2
+STORAGE_TYPE=r2
+STORAGE_ENDPOINT=your-account-id.r2.cloudflarestorage.com
+STORAGE_ACCESS_KEY=your-r2-access-key
+STORAGE_SECRET_KEY=your-r2-secret-key
+STORAGE_BUCKET=memes
+STORAGE_REGION=auto
+STORAGE_USE_SSL=true
+STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
+```
+
+**本地体验：Docker 启动 Qdrant + MinIO（S3 兼容）**
+
+```bash
+# Qdrant
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:latest
+
+# 本地 Qdrant 配置
+QDRANT_HOST=localhost
+QDRANT_PORT=6334
+QDRANT_USE_TLS=false
+
+# MinIO
+docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=accesskey -e MINIO_ROOT_PASSWORD=secretkey \
+  quay.io/minio/minio server /data --console-address ":9001"
+
+# 本地存储配置
+STORAGE_TYPE=s3compatible
+STORAGE_ENDPOINT=localhost:9000
+STORAGE_ACCESS_KEY=accesskey
+STORAGE_SECRET_KEY=secretkey
+STORAGE_BUCKET=memes
+STORAGE_USE_SSL=false
+```
+
+### 3. 可选：启动日志采集（Grafana Alloy）
+
+```bash
 docker-compose -f deployments/docker-compose.yml up -d
 ```
 
-### 3. 准备数据源
+### 4. 准备数据源
 
 ```bash
 # Clone ChineseBQB 表情包仓库
 git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
 ```
 
-### 4. 数据摄入
+### 5. 数据摄入
 
 ```bash
 # 构建摄入工具
@@ -61,7 +109,7 @@ go build -o ingest ./cmd/ingest
 ./ingest --source=chinesebqb --limit=10000
 ```
 
-### 5. 启动 API 服务
+### 6. 启动 API 服务
 
 ```bash
 # 构建 API 服务
@@ -71,7 +119,7 @@ go build -o api ./cmd/api
 ./api
 ```
 
-服务默认运行在 `http://localhost:8080`
+服务默认运行在 `http://localhost:8080`，健康检查 `http://localhost:8080/health`。
 
 ## API 接口
 
@@ -109,20 +157,25 @@ curl http://localhost:8080/api/v1/stats
 
 ## 配置说明
 
-配置文件: `configs/config.yaml`
+配置文件: `configs/config.yaml`（可用 `CONFIG_PATH` 指定）
 
 主要配置项:
 
 | 配置项 | 环境变量 | 说明 |
 |--------|----------|------|
-| vlm.api_key | OPENAI_API_KEY | OpenAI API Key |
+| vlm.api_key | OPENAI_API_KEY | OpenAI-compatible API Key |
+| vlm.base_url | OPENAI_BASE_URL | OpenAI-compatible Base URL |
 | embedding.api_key | JINA_API_KEY | Jina API Key |
 | storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
-| storage.endpoint | STORAGE_ENDPOINT | 存储端点地址 |
-| storage.access_key | STORAGE_ACCESS_KEY | 存储访问密钥 |
-| storage.secret_key | STORAGE_SECRET_KEY | 存储密钥 |
+| storage.endpoint | STORAGE_ENDPOINT | 存储端点地址（不包含 bucket） |
 | storage.bucket | STORAGE_BUCKET | 存储桶名称 |
+| storage.region | STORAGE_REGION | 存储区域（R2 使用 `auto`） |
+| storage.use_ssl | STORAGE_USE_SSL | 是否使用 HTTPS |
 | storage.public_url | STORAGE_PUBLIC_URL | 公开访问 URL（R2 推荐配置） |
+| qdrant.host | QDRANT_HOST | Qdrant 地址 |
+| qdrant.port | QDRANT_PORT | Qdrant gRPC 端口（默认 6334） |
+| qdrant.api_key | QDRANT_API_KEY | Qdrant Cloud API Key |
+| qdrant.use_tls | QDRANT_USE_TLS | Qdrant TLS（Cloud 建议 true） |
 
 ## 项目结构
 
@@ -131,6 +184,7 @@ emomo/
 ├── cmd/
 │   ├── api/          # API 服务入口
 │   └── ingest/       # 摄入 CLI 工具
+├── crawler/          # Python 爬虫
 ├── internal/
 │   ├── api/          # API 层
 │   ├── config/       # 配置管理

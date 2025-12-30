@@ -11,7 +11,7 @@ Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和对象
 1. 注册 [Qdrant Cloud](https://cloud.qdrant.io/) 账户（免费套餐可用）
 2. 创建集群并获取连接信息：
    - Host: `xxx.qdrant.io`
-   - Port: `6333` (HTTPS) 或 `6334` (HTTP)
+   - Port: `6334` (gRPC + TLS)
    - API Key: `your-api-key`
 
 ### 2. 使用兼容 S3 的对象存储
@@ -35,10 +35,10 @@ Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和对象
 
 ```bash
 QDRANT_HOST=your-cluster.qdrant.io
-QDRANT_PORT=6333
+QDRANT_PORT=6334
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_USE_TLS=true
 ```
-
-如果使用 Qdrant Cloud，还需要在代码中添加 API Key 支持（当前版本暂不支持，需要修改代码）。
 
 ### 存储配置（使用新的统一配置）
 
@@ -121,4 +121,3 @@ if err != nil {
 2. **Qdrant API Key**: 当前代码版本已支持 Qdrant Cloud 的 API Key 认证
 3. **HTTPS**: Qdrant Cloud 使用 HTTPS，设置 `QDRANT_API_KEY` 后会自动启用 TLS
 4. **数据持久化**: Hugging Face Spaces 的存储是临时的，重启后会丢失 SQLite 数据，建议使用外部数据库（如 Supabase PostgreSQL）
-
