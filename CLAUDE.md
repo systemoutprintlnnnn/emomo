@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Emomo is an AI-powered meme/sticker semantic search system. Users can search for memes using natural language queries in Chinese.
 
-**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (R2/S3), PostgreSQL, OpenAI-compatible VLM (e.g., GPT-4o mini), Jina Embeddings v3
+**Tech Stack:** Go 1.24 + Gin, Qdrant (vector DB), S3-compatible storage (R2/S3), SQLite/PostgreSQL, OpenAI-compatible VLM (e.g., GPT-4o mini), Jina Embeddings v3, Grafana Alloy + Loki (logging)
 
 ## Build & Run Commands
 
@@ -15,8 +15,11 @@ Emomo is an AI-powered meme/sticker semantic search system. Users can search for
 go build -o api ./cmd/api
 go build -o ingest ./cmd/ingest
 
-# Start infrastructure (Qdrant, object storage can use cloud services like Cloudflare R2)
+# Start infrastructure - Development (Grafana Alloy only, Qdrant/S3 use cloud services)
 docker-compose -f deployments/docker-compose.yml up -d
+
+# Start infrastructure - Production (Full stack with API + Alloy)
+docker-compose -f deployments/docker-compose.prod.yml up -d
 
 # Data ingestion (static sources)
 ./ingest --source=chinesebqb --limit=100    # Ingest memes
@@ -93,8 +96,8 @@ crawler/                 # Python crawler (requests + BeautifulSoup)
 
 ### Data Flow
 
-1. **Ingestion**: Source adapter → VLM description → Jina embedding → Object storage upload → Qdrant upsert → PostgreSQL save
-2. **Search**: Query text → Jina embedding → Qdrant cosine similarity → Return top-K results
+1. **Ingestion**: Source adapter → VLM description → Jina embedding → Object storage upload → Qdrant upsert → Database save
+2. **Search**: Query text → (Optional: VLM query expansion) → Jina embedding → Qdrant cosine similarity → Return top-K results
 
 ## API Endpoints
 
@@ -108,13 +111,22 @@ crawler/                 # Python crawler (requests + BeautifulSoup)
 ## Configuration
 
 Environment variables (see `.env.example`):
-- `OPENAI_API_KEY`, `OPENAI_BASE_URL` - VLM provider (OpenAI compatible)
-- `JINA_API_KEY` - Embeddings API
-- `STORAGE_*` - Object storage credentials (supports R2, S3, etc.)
-- `QDRANT_HOST`, `QDRANT_PORT` - Vector DB connection
-- `DATABASE_URL` - PostgreSQL connection URL
+- **VLM**: `VLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` - Vision-language model for image descriptions
+- **Embeddings**: `EMBEDDING_MODEL`, `JINA_API_KEY` - Text embedding service
+- **Search**: `QUERY_EXPANSION_MODEL` - Optional VLM for query enhancement
+- **Storage**: `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_PUBLIC_URL` - S3/R2 configuration
+- **Qdrant**: `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_API_KEY`, `QDRANT_USE_TLS` - Vector database
+- **Database**: `DATABASE_DRIVER` (sqlite/postgres), `DATABASE_PATH` or `DATABASE_URL` - Relational DB
+- **Monitoring**: `LOKI_URL`, `LOKI_USERNAME`, `LOKI_PASSWORD`, `CLUSTER_NAME`, `ENVIRONMENT` - Grafana Cloud logging
 
 Config file: `configs/config.yaml`
+
+## Deployment & Monitoring
+
+- **Development**: Run `docker-compose.yml` for Grafana Alloy log collection only (Qdrant/S3 use cloud services)
+- **Production**: Run `docker-compose.prod.yml` for full stack (API + Alloy) with resource limits
+- **Logging**: Grafana Alloy collects Docker container logs and forwards to Grafana Cloud Loki
+- **Observability**: Alloy UI available at `http://localhost:12345` for pipeline monitoring
 
 ## Key Patterns
 
