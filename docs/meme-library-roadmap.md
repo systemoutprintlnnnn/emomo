@@ -584,7 +584,7 @@ meme-library/
 │
 ├── go.mod
 ├── go.sum
-└── README.md
+└── docs/README.md
 ```
 
 ---
@@ -685,4 +685,3 @@ meme-library/
 - **部署灵活**：可以在低峰期运行摄入任务
 
 ---
-

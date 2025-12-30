@@ -66,7 +66,7 @@ go build -o ingest ./cmd/ingest
 ```
 crawler/
 ├── pyproject.toml              # Project config (uv/pip)
-├── README.md
+├── docs/README.md
 └── src/
     └── emomo_crawler/
         ├── __init__.py
