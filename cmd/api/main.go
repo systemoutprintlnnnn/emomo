@@ -44,19 +44,24 @@ func main() {
 
 	// Initialize repositories
 	memeRepo := repository.NewMemeRepository(db)
+	vectorRepo := repository.NewMemeVectorRepository(db)
+
+	// Initialize default Qdrant repository
+	defaultCollection := cfg.GetCollectionForEmbedding("")
 	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
-		Host:       cfg.Qdrant.Host,
-		Port:       cfg.Qdrant.Port,
-		Collection: cfg.Qdrant.Collection,
-		APIKey:     cfg.Qdrant.APIKey,
-		UseTLS:     cfg.Qdrant.UseTLS,
+		Host:            cfg.Qdrant.Host,
+		Port:            cfg.Qdrant.Port,
+		Collection:      defaultCollection,
+		APIKey:          cfg.Qdrant.APIKey,
+		UseTLS:          cfg.Qdrant.UseTLS,
+		VectorDimension: cfg.Embedding.Dimensions,
 	})
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
 	}
 	defer qdrantRepo.Close()
 
-	// Ensure Qdrant collection exists
+	// Ensure default Qdrant collection exists
 	ctx := context.Background()
 	if err := qdrantRepo.EnsureCollection(ctx); err != nil {
 		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
@@ -83,13 +88,17 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to ensure storage bucket")
 	}
 
-	// Initialize services
-	embeddingService := service.NewEmbeddingService(&service.EmbeddingConfig{
+	// Initialize default embedding provider
+	defaultEmbedding, err := service.NewEmbeddingProvider(&service.EmbeddingConfig{
 		Provider:   cfg.Embedding.Provider,
 		Model:      cfg.Embedding.Model,
 		APIKey:     cfg.Embedding.APIKey,
+		BaseURL:    cfg.Embedding.BaseURL,
 		Dimensions: cfg.Embedding.Dimensions,
 	})
+	if err != nil {
+		appLogger.WithError(err).Fatal("Failed to initialize default embedding provider")
+	}
 
 	// Initialize query expansion service
 	queryExpansionService := service.NewQueryExpansionService(&service.QueryExpansionConfig{
@@ -105,17 +114,102 @@ func main() {
 		}).Info("Query expansion enabled")
 	}
 
+	// Create search service with default collection
 	searchService := service.NewSearchService(
 		memeRepo,
 		qdrantRepo,
-		embeddingService,
+		defaultEmbedding,
 		queryExpansionService,
 		objectStorage,
 		appLogger,
 		&service.SearchConfig{
-			ScoreThreshold: cfg.Search.ScoreThreshold,
+			ScoreThreshold:    cfg.Search.ScoreThreshold,
+			DefaultCollection: defaultCollection,
 		},
 	)
+
+	// Track additional qdrant repos for cleanup
+	var additionalQdrantRepos []*repository.QdrantRepository
+
+	// Initialize additional embedding providers and register collections
+	for name, embCfg := range cfg.Embeddings {
+		// Skip if it's the same as default
+		collectionName := cfg.GetCollectionForEmbedding(name)
+		if collectionName == defaultCollection {
+			continue
+		}
+
+		// Check if API key is available
+		if embCfg.APIKey == "" {
+			appLogger.WithFields(logger.Fields{
+				"name":       name,
+				"collection": collectionName,
+			}).Warn("Skipping embedding config: no API key configured")
+			continue
+		}
+
+		// Create embedding provider
+		embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingConfig{
+			Provider:   embCfg.Provider,
+			Model:      embCfg.Model,
+			APIKey:     embCfg.APIKey,
+			BaseURL:    embCfg.BaseURL,
+			Dimensions: embCfg.Dimensions,
+		})
+		if err != nil {
+			appLogger.WithFields(logger.Fields{
+				"name":  name,
+				"error": err.Error(),
+			}).Warn("Failed to create embedding provider, skipping")
+			continue
+		}
+
+		// Create Qdrant repository for this collection
+		additionalQdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
+			Host:            cfg.Qdrant.Host,
+			Port:            cfg.Qdrant.Port,
+			Collection:      collectionName,
+			APIKey:          cfg.Qdrant.APIKey,
+			UseTLS:          cfg.Qdrant.UseTLS,
+			VectorDimension: embCfg.Dimensions,
+		})
+		if err != nil {
+			appLogger.WithFields(logger.Fields{
+				"name":       name,
+				"collection": collectionName,
+				"error":      err.Error(),
+			}).Warn("Failed to create Qdrant repository, skipping")
+			continue
+		}
+		additionalQdrantRepos = append(additionalQdrantRepos, additionalQdrantRepo)
+
+		// Ensure collection exists (but don't fail if it doesn't)
+		if err := additionalQdrantRepo.EnsureCollection(ctx); err != nil {
+			appLogger.WithFields(logger.Fields{
+				"name":       name,
+				"collection": collectionName,
+				"error":      err.Error(),
+			}).Warn("Failed to ensure collection, but continuing")
+		}
+
+		// Register with search service
+		searchService.RegisterCollection(name, additionalQdrantRepo, embeddingProvider)
+
+		appLogger.WithFields(logger.Fields{
+			"name":       name,
+			"collection": collectionName,
+			"provider":   embCfg.Provider,
+			"model":      embCfg.Model,
+			"dimensions": embCfg.Dimensions,
+		}).Info("Registered additional embedding collection")
+	}
+
+	// Cleanup additional qdrant repos on exit
+	defer func() {
+		for _, repo := range additionalQdrantRepos {
+			repo.Close()
+		}
+	}()
 
 	// Initialize VLM service for ingest
 	vlmService := service.NewVLMService(&service.VLMConfig{
@@ -125,17 +219,19 @@ func main() {
 		BaseURL:  cfg.VLM.BaseURL,
 	})
 
-	// Initialize ingest service
+	// Initialize ingest service (uses default embedding for web UI ingest)
 	ingestService := service.NewIngestService(
 		memeRepo,
+		vectorRepo,
 		qdrantRepo,
 		objectStorage,
 		vlmService,
-		embeddingService,
+		defaultEmbedding,
 		appLogger,
 		&service.IngestConfig{
-			Workers:   cfg.Ingest.Workers,
-			BatchSize: cfg.Ingest.BatchSize,
+			Workers:    cfg.Ingest.Workers,
+			BatchSize:  cfg.Ingest.BatchSize,
+			Collection: defaultCollection,
 		},
 	)
 
@@ -156,8 +252,10 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		appLogger.WithFields(logger.Fields{
-			"port": cfg.Server.Port,
-			"mode": cfg.Server.Mode,
+			"port":               cfg.Server.Port,
+			"mode":               cfg.Server.Mode,
+			"default_collection": defaultCollection,
+			"available_collections": searchService.GetAvailableCollections(),
 		}).Info("Starting API server")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			appLogger.WithError(err).Fatal("Failed to start server")

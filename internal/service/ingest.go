@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -24,39 +23,43 @@ import (
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/storage"
 	_ "golang.org/x/image/webp"
-	"gorm.io/gorm"
 )
 
 // IngestService handles the data ingestion pipeline
 type IngestService struct {
 	memeRepo   *repository.MemeRepository
+	vectorRepo *repository.MemeVectorRepository
 	qdrantRepo *repository.QdrantRepository
 	storage    storage.ObjectStorage
 	vlm        *VLMService
-	embedding  *EmbeddingService
+	embedding  EmbeddingProvider
 	logger     *logger.Logger
 	workers    int
 	batchSize  int
+	collection string // Target Qdrant collection name
 }
 
 // IngestConfig holds configuration for the ingest service
 type IngestConfig struct {
-	Workers   int
-	BatchSize int
+	Workers    int
+	BatchSize  int
+	Collection string // Target Qdrant collection name
 }
 
 // NewIngestService creates a new ingest service
 func NewIngestService(
 	memeRepo *repository.MemeRepository,
+	vectorRepo *repository.MemeVectorRepository,
 	qdrantRepo *repository.QdrantRepository,
 	objectStorage storage.ObjectStorage,
 	vlm *VLMService,
-	embedding *EmbeddingService,
+	embedding EmbeddingProvider,
 	log *logger.Logger,
 	cfg *IngestConfig,
 ) *IngestService {
 	return &IngestService{
 		memeRepo:   memeRepo,
+		vectorRepo: vectorRepo,
 		qdrantRepo: qdrantRepo,
 		storage:    objectStorage,
 		vlm:        vlm,
@@ -64,6 +67,7 @@ func NewIngestService(
 		logger:     log,
 		workers:    cfg.Workers,
 		batchSize:  cfg.BatchSize,
+		collection: cfg.Collection,
 	}
 }
 
@@ -221,27 +225,9 @@ func (s *IngestService) worker(ctx context.Context, workerID int, sourceType str
 		}
 
 		result := &processResult{sourceID: item.SourceID}
-		var existingID string
 
-		// Check if already exists by source ID
-		existingMeme, err := s.memeRepo.GetBySourceID(ctx, sourceType, item.SourceID)
-		if err == nil {
-			// Found existing record
-			existingID = existingMeme.ID
-			if !opts.Force {
-				result.skipped = true
-				results <- result
-				continue
-			}
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			// Real error occurred
-			result.err = fmt.Errorf("failed to check existence: %w", err)
-			results <- result
-			continue
-		}
-
-		// Process the item
-		if err := s.processItem(ctx, sourceType, &item, opts, existingID); err != nil {
+		// Process the item with the new multi-embedding logic
+		if err := s.processItem(ctx, sourceType, &item, opts); err != nil {
 			if err == errSkipDuplicate {
 				result.skipped = true
 			} else {
@@ -253,7 +239,7 @@ func (s *IngestService) worker(ctx context.Context, workerID int, sourceType str
 	}
 }
 
-func (s *IngestService) processItem(ctx context.Context, sourceType string, item *source.MemeItem, opts *IngestOptions, existingID string) error {
+func (s *IngestService) processItem(ctx context.Context, sourceType string, item *source.MemeItem, opts *IngestOptions) error {
 	// Read image data
 	imageData, err := s.readImage(item)
 	if err != nil {
@@ -263,92 +249,125 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	// Calculate MD5 hash
 	md5Hash := calculateMD5(imageData)
 
-	// Check for duplicates by MD5 (skip if force is enabled)
-	if !opts.Force {
-		exists, err := s.memeRepo.ExistsByMD5Hash(ctx, md5Hash)
+	// NEW: Check if vector already exists for this MD5 + Collection combination
+	if !opts.Force && s.vectorRepo != nil {
+		exists, err := s.vectorRepo.ExistsByMD5AndCollection(ctx, md5Hash, s.collection)
 		if err != nil {
-			return fmt.Errorf("failed to check MD5: %w", err)
+			return fmt.Errorf("failed to check vector existence: %w", err)
 		}
 		if exists {
-			return errSkipDuplicate // Return sentinel error to indicate skip
+			return errSkipDuplicate // Already has vector in this collection
 		}
 	}
 
-	// Get image dimensions
-	width, height, err := getImageDimensions(imageData)
-	if err != nil {
-		s.log(ctx).WithError(err).Warn("Failed to get image dimensions")
-		width, height = 0, 0
-	}
+	// Check if we have an existing meme record (for resource reuse)
+	existingMeme, err := s.memeRepo.GetByMD5Hash(ctx, md5Hash)
+	hasExistingMeme := err == nil && existingMeme != nil
 
-	// Determine Meme ID (reuse existing if available, otherwise generate new)
 	var memeID string
-	if existingID != "" {
-		memeID = existingID
+	var storageKey string
+	var storageURL string
+	var vlmDescription string
+	var width, height int
+	uploaded := false
+
+	if hasExistingMeme {
+		// REUSE existing resources: S3 path and VLM description
+		memeID = existingMeme.ID
+		storageKey = existingMeme.StorageKey
+		storageURL = s.storage.GetURL(storageKey)
+		vlmDescription = existingMeme.VLMDescription
+		width = existingMeme.Width
+		height = existingMeme.Height
+
+		s.log(ctx).WithFields(logger.Fields{
+			"md5_hash":    md5Hash,
+			"meme_id":     memeID,
+			"storage_key": storageKey,
+			"collection":  s.collection,
+		}).Info("Reusing existing meme record for new embedding")
 	} else {
+		// NEW meme: full processing pipeline
 		memeID = uuid.New().String()
+
+		// Get image dimensions
+		width, height, err = getImageDimensions(imageData)
+		if err != nil {
+			s.log(ctx).WithError(err).Warn("Failed to get image dimensions")
+			width, height = 0, 0
+		}
+
+		// Generate VLM description - most likely to fail (external API)
+		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
+		if err != nil {
+			return fmt.Errorf("failed to generate VLM description: %w", err)
+		}
+
+		// Upload to storage (use MD5 prefix for bucketing)
+		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, item.Format)
+		contentType := getContentType(item.Format)
+
+		// Check if file already exists in storage
+		existsInStorage, err := s.storage.Exists(ctx, storageKey)
+		if err != nil {
+			return fmt.Errorf("failed to check storage existence: %w", err)
+		}
+
+		if !existsInStorage {
+			if err := s.storage.Upload(ctx, storageKey, bytes.NewReader(imageData), int64(len(imageData)), contentType); err != nil {
+				return fmt.Errorf("failed to upload to storage: %w", err)
+			}
+			uploaded = true
+		}
+
+		storageURL = s.storage.GetURL(storageKey)
+
+		// Create meme record
+		meme := &domain.Meme{
+			ID:             memeID,
+			SourceType:     sourceType,
+			SourceID:       item.SourceID,
+			StorageKey:     storageKey,
+			LocalPath:      item.LocalPath,
+			Width:          width,
+			Height:         height,
+			Format:         item.Format,
+			IsAnimated:     item.IsAnimated,
+			FileSize:       int64(len(imageData)),
+			MD5Hash:        md5Hash,
+			QdrantPointID:  memeID,
+			VLMDescription: vlmDescription,
+			VLMModel:       s.vlm.GetModel(),
+			EmbeddingModel: s.embedding.GetModel(),
+			Tags:           item.Tags,
+			Category:       item.Category,
+			Status:         domain.MemeStatusActive,
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}
+
+		// Save meme to database first
+		if err := s.memeRepo.Upsert(ctx, meme); err != nil {
+			// Rollback storage if we uploaded
+			if uploaded {
+				if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+					s.log(ctx).WithFields(logger.Fields{
+						"storage_key": storageKey,
+					}).WithError(delErr).Error("Failed to rollback storage upload")
+				}
+			}
+			return fmt.Errorf("failed to save meme to database: %w", err)
+		}
 	}
 
-	// Generate VLM description first - most likely to fail (external API)
-	// No rollback needed if this fails since nothing has been persisted yet
-	description, err := s.vlm.DescribeImage(ctx, imageData, item.Format)
-	if err != nil {
-		return fmt.Errorf("failed to generate VLM description: %w", err)
-	}
-
-	// Generate embedding - also external API, do before any persistence
-	embedding, err := s.embedding.Embed(ctx, description)
+	// Generate embedding for the current embedding model
+	embedding, err := s.embedding.Embed(ctx, vlmDescription)
 	if err != nil {
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
-	// Now start persistence operations (require rollback on failure)
-	// Upload to storage (use MD5 prefix for bucketing, hide source info)
-	storageKey := fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, item.Format)
-	contentType := getContentType(item.Format)
-	
-	// Check if file already exists in storage
-	existsInStorage, err := s.storage.Exists(ctx, storageKey)
-	if err != nil {
-		return fmt.Errorf("failed to check storage existence: %w", err)
-	}
-
-	uploaded := false
-	if !existsInStorage {
-		if err := s.storage.Upload(ctx, storageKey, bytes.NewReader(imageData), int64(len(imageData)), contentType); err != nil {
-			return fmt.Errorf("failed to upload to storage: %w", err)
-		}
-		uploaded = true
-	} else {
-		s.log(ctx).WithField("storage_key", storageKey).Debug("File already exists in storage, skipping upload")
-	}
-
-	// Get storage URL
-	storageURL := s.storage.GetURL(storageKey)
-
-	// Create meme record
-	meme := &domain.Meme{
-		ID:             memeID,
-		SourceType:     sourceType,
-		SourceID:       item.SourceID,
-		StorageKey:     storageKey,
-		LocalPath:      item.LocalPath,
-		Width:          width,
-		Height:         height,
-		Format:         item.Format,
-		IsAnimated:     item.IsAnimated,
-		FileSize:       int64(len(imageData)),
-		MD5Hash:        md5Hash,
-		QdrantPointID:  memeID, // Use same ID for Qdrant
-		VLMDescription: description,
-		VLMModel:       s.vlm.GetModel(),
-		EmbeddingModel: s.embedding.GetModel(),
-		Tags:           item.Tags,
-		Category:       item.Category,
-		Status:         domain.MemeStatusActive,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}
+	// Generate a new point ID for this vector (different from meme ID for multi-collection support)
+	pointID := uuid.New().String()
 
 	// Upsert to Qdrant
 	payload := &repository.MemePayload{
@@ -357,12 +376,12 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		Category:       item.Category,
 		IsAnimated:     item.IsAnimated,
 		Tags:           item.Tags,
-		VLMDescription: description,
+		VLMDescription: vlmDescription,
 		StorageURL:     storageURL,
 	}
 
-	if err := s.qdrantRepo.Upsert(ctx, memeID, embedding, payload); err != nil {
-		// Rollback: delete uploaded file ONLY if we uploaded it
+	if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
+		// Rollback: delete uploaded file ONLY if we uploaded it and this is a new meme
 		if uploaded {
 			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
 				s.log(ctx).WithFields(logger.Fields{
@@ -373,24 +392,37 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
 	}
 
-	// Save to database (Upsert)
-	if err := s.memeRepo.Upsert(ctx, meme); err != nil {
-		// Rollback: delete from Qdrant and storage
-		if delErr := s.qdrantRepo.Delete(ctx, memeID); delErr != nil {
-			s.log(ctx).WithFields(logger.Fields{
-				"meme_id": memeID,
-			}).WithError(delErr).Error("Failed to rollback Qdrant upsert")
+	// Create meme_vectors record to track this vector
+	if s.vectorRepo != nil {
+		vectorRecord := &domain.MemeVector{
+			ID:             uuid.New().String(),
+			MemeID:         memeID,
+			MD5Hash:        md5Hash,
+			Collection:     s.collection,
+			EmbeddingModel: s.embedding.GetModel(),
+			QdrantPointID:  pointID,
+			Status:         domain.MemeVectorStatusActive,
+			CreatedAt:      time.Now(),
 		}
-		// Rollback storage ONLY if we uploaded it
-		if uploaded {
-			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+
+		if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
+			// Rollback: delete from Qdrant
+			if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
 				s.log(ctx).WithFields(logger.Fields{
-					"storage_key": storageKey,
-				}).WithError(delErr).Error("Failed to rollback storage upload")
+					"point_id": pointID,
+				}).WithError(delErr).Error("Failed to rollback Qdrant upsert")
 			}
+			return fmt.Errorf("failed to save vector record: %w", err)
 		}
-		return fmt.Errorf("failed to save to database: %w", err)
 	}
+
+	s.log(ctx).WithFields(logger.Fields{
+		"meme_id":     memeID,
+		"point_id":    pointID,
+		"collection":  s.collection,
+		"model":       s.embedding.GetModel(),
+		"reused_meme": hasExistingMeme,
+	}).Debug("Successfully processed item")
 
 	return nil
 }

@@ -12,43 +12,80 @@ import (
 
 // SearchConfig holds configuration for search service
 type SearchConfig struct {
-	ScoreThreshold float32
+	ScoreThreshold    float32
+	DefaultCollection string // Default collection name for search
+}
+
+// CollectionConfig holds configuration for a single collection
+type CollectionConfig struct {
+	QdrantRepo *repository.QdrantRepository
+	Embedding  EmbeddingProvider
 }
 
 // SearchService handles meme search operations
 type SearchService struct {
-	memeRepo       *repository.MemeRepository
-	qdrantRepo     *repository.QdrantRepository
-	embedding      *EmbeddingService
-	queryExpansion *QueryExpansionService
-	storage        storage.ObjectStorage
-	logger         *logger.Logger
-	scoreThreshold float32
+	memeRepo          *repository.MemeRepository
+	defaultQdrantRepo *repository.QdrantRepository
+	defaultEmbedding  EmbeddingProvider
+	queryExpansion    *QueryExpansionService
+	storage           storage.ObjectStorage
+	logger            *logger.Logger
+	scoreThreshold    float32
+	defaultCollection string
+
+	// Multi-collection support: collection name -> config
+	collections map[string]*CollectionConfig
 }
 
 // NewSearchService creates a new search service
 func NewSearchService(
 	memeRepo *repository.MemeRepository,
 	qdrantRepo *repository.QdrantRepository,
-	embedding *EmbeddingService,
+	embedding EmbeddingProvider,
 	queryExpansion *QueryExpansionService,
 	objectStorage storage.ObjectStorage,
 	log *logger.Logger,
 	cfg *SearchConfig,
 ) *SearchService {
 	var threshold float32
+	var defaultCollection string
 	if cfg != nil {
 		threshold = cfg.ScoreThreshold
+		defaultCollection = cfg.DefaultCollection
 	}
 	return &SearchService{
-		memeRepo:       memeRepo,
-		qdrantRepo:     qdrantRepo,
-		embedding:      embedding,
-		queryExpansion: queryExpansion,
-		storage:        objectStorage,
-		logger:         log,
-		scoreThreshold: threshold,
+		memeRepo:          memeRepo,
+		defaultQdrantRepo: qdrantRepo,
+		defaultEmbedding:  embedding,
+		queryExpansion:    queryExpansion,
+		storage:           objectStorage,
+		logger:            log,
+		scoreThreshold:    threshold,
+		defaultCollection: defaultCollection,
+		collections:       make(map[string]*CollectionConfig),
 	}
+}
+
+// RegisterCollection registers a collection configuration for multi-collection search
+func (s *SearchService) RegisterCollection(name string, qdrantRepo *repository.QdrantRepository, embedding EmbeddingProvider) {
+	s.collections[name] = &CollectionConfig{
+		QdrantRepo: qdrantRepo,
+		Embedding:  embedding,
+	}
+}
+
+// GetAvailableCollections returns the list of available collection names
+func (s *SearchService) GetAvailableCollections() []string {
+	collections := make([]string, 0, len(s.collections)+1)
+	if s.defaultCollection != "" {
+		collections = append(collections, s.defaultCollection)
+	}
+	for name := range s.collections {
+		if name != s.defaultCollection {
+			collections = append(collections, name)
+		}
+	}
+	return collections
 }
 
 // log returns a logger from context if available, otherwise returns the default logger
@@ -66,6 +103,7 @@ type SearchRequest struct {
 	Category   *string `json:"category,omitempty"`
 	IsAnimated *bool   `json:"is_animated,omitempty"`
 	SourceType *string `json:"source_type,omitempty"`
+	Collection string  `json:"collection,omitempty"` // Optional: specify which collection to search
 }
 
 // SearchResult represents a single search result
@@ -87,6 +125,7 @@ type SearchResponse struct {
 	Total         int            `json:"total"`
 	Query         string         `json:"query"`
 	ExpandedQuery string         `json:"expanded_query,omitempty"`
+	Collection    string         `json:"collection,omitempty"` // Which collection was searched
 }
 
 // TextSearch performs a semantic text search
@@ -97,6 +136,27 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}
 	if req.TopK > 100 {
 		req.TopK = 100
+	}
+
+	// Determine which collection, embedding, and qdrant repo to use
+	var qdrantRepo *repository.QdrantRepository
+	var embedding EmbeddingProvider
+	var collectionName string
+
+	if req.Collection != "" {
+		// Use specified collection
+		if cfg, ok := s.collections[req.Collection]; ok {
+			qdrantRepo = cfg.QdrantRepo
+			embedding = cfg.Embedding
+			collectionName = req.Collection
+		} else {
+			return nil, fmt.Errorf("unknown collection: %s", req.Collection)
+		}
+	} else {
+		// Use default collection
+		qdrantRepo = s.defaultQdrantRepo
+		embedding = s.defaultEmbedding
+		collectionName = s.defaultCollection
 	}
 
 	originalQuery := req.Query
@@ -129,10 +189,11 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		"query_for_embedding": queryForEmbedding,
 		"top_k":               req.TopK,
 		"score_threshold":     s.scoreThreshold,
+		"collection":          collectionName,
 	}).Info("Performing text search")
 
-	// Generate query embedding
-	queryEmbedding, err := s.embedding.EmbedQuery(ctx, queryForEmbedding)
+	// Generate query embedding using the appropriate embedding provider
+	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
@@ -145,7 +206,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}
 
 	// Search in Qdrant
-	qdrantResults, err := s.qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
+	qdrantResults, err := qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
 	}
@@ -205,6 +266,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		Total:         len(results),
 		Query:         originalQuery,
 		ExpandedQuery: expandedQuery,
+		Collection:    collectionName,
 	}, nil
 }
 
@@ -289,8 +351,9 @@ func (s *SearchService) GetStats(ctx context.Context) (map[string]interface{}, e
 	}
 
 	return map[string]interface{}{
-		"total_active":     activeCount,
-		"total_pending":    pendingCount,
-		"total_categories": len(categories),
+		"total_active":          activeCount,
+		"total_pending":         pendingCount,
+		"total_categories":      len(categories),
+		"available_collections": s.GetAvailableCollections(),
 	}, nil
 }
