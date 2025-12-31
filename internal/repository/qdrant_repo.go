@@ -14,16 +14,17 @@ import (
 )
 
 const (
-	VectorDimension = 1024
+	defaultVectorDimension = 1024
 )
 
 // QdrantConnectionConfig holds configuration for Qdrant connection
 type QdrantConnectionConfig struct {
-	Host       string
-	Port       int
-	Collection string
-	APIKey     string // Qdrant Cloud API Key (enables TLS automatically)
-	UseTLS     bool   // Explicitly enable TLS without API Key
+	Host            string
+	Port            int
+	Collection      string
+	APIKey          string // Qdrant Cloud API Key (enables TLS automatically)
+	UseTLS          bool   // Explicitly enable TLS without API Key
+	VectorDimension int
 }
 
 // apiKeyInterceptor creates a unary interceptor that adds API key to metadata
@@ -36,16 +37,22 @@ func apiKeyInterceptor(apiKey string) grpc.UnaryClientInterceptor {
 
 // QdrantRepository handles vector operations with Qdrant
 type QdrantRepository struct {
-	conn           *grpc.ClientConn
-	pointsClient   pb.PointsClient
-	collectClient  pb.CollectionsClient
-	collectionName string
+	conn            *grpc.ClientConn
+	pointsClient    pb.PointsClient
+	collectClient   pb.CollectionsClient
+	collectionName  string
+	vectorDimension int
 }
 
 // NewQdrantRepository creates a new QdrantRepository
 // Supports both local Qdrant (insecure) and Qdrant Cloud (TLS + API Key)
 func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+
+	vectorDimension := cfg.VectorDimension
+	if vectorDimension <= 0 {
+		vectorDimension = defaultVectorDimension
+	}
 
 	// Build gRPC dial options
 	var opts []grpc.DialOption
@@ -77,10 +84,11 @@ func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error)
 	}
 
 	return &QdrantRepository{
-		conn:           conn,
-		pointsClient:   pb.NewPointsClient(conn),
-		collectClient:  pb.NewCollectionsClient(conn),
-		collectionName: cfg.Collection,
+		conn:            conn,
+		pointsClient:    pb.NewPointsClient(conn),
+		collectClient:   pb.NewCollectionsClient(conn),
+		collectionName:  cfg.Collection,
+		vectorDimension: vectorDimension,
 	}, nil
 }
 
@@ -92,10 +100,15 @@ func (r *QdrantRepository) Close() error {
 // EnsureCollection creates the collection if it doesn't exist
 func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 	// Check if collection exists
-	_, err := r.collectClient.Get(ctx, &pb.GetCollectionInfoRequest{
+	info, err := r.collectClient.Get(ctx, &pb.GetCollectionInfoRequest{
 		CollectionName: r.collectionName,
 	})
 	if err == nil {
+		if size, ok := collectionVectorSize(info.GetResult()); ok {
+			if size != uint64(r.vectorDimension) {
+				return fmt.Errorf("collection %s has vector size %d, expected %d", r.collectionName, size, r.vectorDimension)
+			}
+		}
 		return nil // Collection exists
 	}
 
@@ -105,7 +118,7 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 		VectorsConfig: &pb.VectorsConfig{
 			Config: &pb.VectorsConfig_Params{
 				Params: &pb.VectorParams{
-					Size:     VectorDimension,
+					Size:     uint64(r.vectorDimension),
 					Distance: pb.Distance_Cosine,
 				},
 			},
@@ -125,6 +138,46 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 
 func optionalUint64(v uint64) *uint64 {
 	return &v
+}
+
+func collectionVectorSize(info *pb.CollectionInfo) (uint64, bool) {
+	if info == nil {
+		return 0, false
+	}
+
+	config := info.GetConfig()
+	if config == nil {
+		return 0, false
+	}
+
+	params := config.GetParams()
+	if params == nil {
+		return 0, false
+	}
+
+	vectors := params.GetVectorsConfig()
+	if vectors == nil {
+		return 0, false
+	}
+
+	if single := vectors.GetParams(); single != nil {
+		if size := single.GetSize(); size > 0 {
+			return size, true
+		}
+	}
+
+	if paramsMap := vectors.GetParamsMap(); paramsMap != nil {
+		for _, vectorParams := range paramsMap.GetMap() {
+			if vectorParams == nil {
+				continue
+			}
+			if size := vectorParams.GetSize(); size > 0 {
+				return size, true
+			}
+		}
+	}
+
+	return 0, false
 }
 
 // MemePayload represents the payload stored with each vector

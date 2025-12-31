@@ -42,6 +42,8 @@ embedding:
   provider: jina
   # model: set via EMBEDDING_MODEL env var
   model: ""
+  # base_url: set via EMBEDDING_BASE_URL env var (for modelscope or OpenAI-compatible endpoints)
+  base_url: ""
   dimensions: 1024
 
 ingest:

@@ -45,11 +45,12 @@ func main() {
 	// Initialize repositories
 	memeRepo := repository.NewMemeRepository(db)
 	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
-		Host:       cfg.Qdrant.Host,
-		Port:       cfg.Qdrant.Port,
-		Collection: cfg.Qdrant.Collection,
-		APIKey:     cfg.Qdrant.APIKey,
-		UseTLS:     cfg.Qdrant.UseTLS,
+		Host:            cfg.Qdrant.Host,
+		Port:            cfg.Qdrant.Port,
+		Collection:      cfg.Qdrant.Collection,
+		APIKey:          cfg.Qdrant.APIKey,
+		UseTLS:          cfg.Qdrant.UseTLS,
+		VectorDimension: cfg.Embedding.Dimensions,
 	})
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
@@ -89,6 +90,7 @@ func main() {
 		Model:      cfg.Embedding.Model,
 		APIKey:     cfg.Embedding.APIKey,
 		Dimensions: cfg.Embedding.Dimensions,
+		BaseURL:    cfg.Embedding.BaseURL,
 	})
 
 	// Initialize query expansion service

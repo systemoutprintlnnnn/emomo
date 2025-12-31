@@ -34,17 +34,17 @@ type CORSConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver          string        `mapstructure:"driver"`          // Database driver: sqlite, postgres
-	URL             string        `mapstructure:"url"`             // PostgreSQL connection URL (takes priority)
-	Path            string        `mapstructure:"path"`            // SQLite path
-	Host            string        `mapstructure:"host"`            // PostgreSQL host
-	Port            int           `mapstructure:"port"`            // PostgreSQL port
-	User            string        `mapstructure:"user"`            // PostgreSQL user
-	Password        string        `mapstructure:"password"`        // PostgreSQL password
-	DBName          string        `mapstructure:"dbname"`          // PostgreSQL db name
-	SSLMode         string        `mapstructure:"sslmode"`         // PostgreSQL sslmode
-	MaxIdleConns    int           `mapstructure:"max_idle_conns"`  // Connection pool: max idle
-	MaxOpenConns    int           `mapstructure:"max_open_conns"`  // Connection pool: max open
+	Driver          string        `mapstructure:"driver"`            // Database driver: sqlite, postgres
+	URL             string        `mapstructure:"url"`               // PostgreSQL connection URL (takes priority)
+	Path            string        `mapstructure:"path"`              // SQLite path
+	Host            string        `mapstructure:"host"`              // PostgreSQL host
+	Port            int           `mapstructure:"port"`              // PostgreSQL port
+	User            string        `mapstructure:"user"`              // PostgreSQL user
+	Password        string        `mapstructure:"password"`          // PostgreSQL password
+	DBName          string        `mapstructure:"dbname"`            // PostgreSQL db name
+	SSLMode         string        `mapstructure:"sslmode"`           // PostgreSQL sslmode
+	MaxIdleConns    int           `mapstructure:"max_idle_conns"`    // Connection pool: max idle
+	MaxOpenConns    int           `mapstructure:"max_open_conns"`    // Connection pool: max open
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"` // Connection pool: max lifetime
 }
 
@@ -99,6 +99,7 @@ type EmbeddingConfig struct {
 	Model      string `mapstructure:"model"`
 	APIKey     string `mapstructure:"api_key"`
 	Dimensions int    `mapstructure:"dimensions"`
+	BaseURL    string `mapstructure:"base_url"`
 }
 
 type IngestConfig struct {
@@ -182,6 +183,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("embedding.provider", "jina")
 	v.SetDefault("embedding.model", "jina-embeddings-v3")
 	v.SetDefault("embedding.dimensions", 1024)
+	v.SetDefault("embedding.base_url", "")
 	v.SetDefault("ingest.workers", 5)
 	v.SetDefault("ingest.batch_size", 10)
 	v.SetDefault("ingest.retry_count", 3)
@@ -232,7 +234,7 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("vlm.api_key", "OPENAI_API_KEY")
 	v.BindEnv("vlm.base_url", "OPENAI_BASE_URL")
 	v.BindEnv("vlm.model", "VLM_MODEL")
-	v.BindEnv("embedding.api_key", "JINA_API_KEY")
+	v.BindEnv("embedding.api_key", "EMBEDDING_API_KEY", "JINA_API_KEY", "MODELSCOPE_API_KEY")
 	v.BindEnv("search.score_threshold", "SEARCH_SCORE_THRESHOLD")
 	v.BindEnv("search.query_expansion.model", "QUERY_EXPANSION_MODEL")
 

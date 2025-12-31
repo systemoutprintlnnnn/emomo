@@ -1,0 +1,22 @@
+# Example config for ModelScope Qwen/Qwen3-Embedding-8B (4096 dims).
+# Provide MODELSCOPE_API_KEY or EMBEDDING_API_KEY via environment variables.
+# Use a separate database and port to avoid touching existing data.
+
+server:
+  port: 8081
+  mode: debug
+
+database:
+  driver: sqlite
+  path: ./data/memes-qwen3.db
+
+qdrant:
+  host: localhost
+  port: 6334
+  collection: emomo-qwen3-embedding-8b
+
+embedding:
+  provider: modelscope
+  model: Qwen/Qwen3-Embedding-8B
+  base_url: https://api-inference.modelscope.cn/v1
+  dimensions: 4096

@@ -165,7 +165,7 @@ curl http://localhost:8080/api/v1/stats
 |--------|----------|------|
 | vlm.api_key | OPENAI_API_KEY | OpenAI-compatible API Key |
 | vlm.base_url | OPENAI_BASE_URL | OpenAI-compatible Base URL |
-| embedding.api_key | JINA_API_KEY | Jina API Key |
+| embedding.api_key | EMBEDDING_API_KEY / JINA_API_KEY / MODELSCOPE_API_KEY | Embedding API Key |
 | storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
 | storage.endpoint | STORAGE_ENDPOINT | 存储端点地址（不包含 bucket） |
 | storage.bucket | STORAGE_BUCKET | 存储桶名称 |
@@ -176,6 +176,17 @@ curl http://localhost:8080/api/v1/stats
 | qdrant.port | QDRANT_PORT | Qdrant gRPC 端口（默认 6334） |
 | qdrant.api_key | QDRANT_API_KEY | Qdrant Cloud API Key |
 | qdrant.use_tls | QDRANT_USE_TLS | Qdrant TLS（Cloud 建议 true） |
+
+### ModelScope / Qwen3 独立实例
+
+`configs/config.modelscope.yaml.example` 已预置独立端口、数据库与 collection（`emomo-qwen3-embedding-8b`，4096 维）。复制后即可运行：
+
+```bash
+cp configs/config.modelscope.yaml.example configs/config.qwen3.yaml
+export MODELSCOPE_API_KEY=your-modelscope-api-key
+CONFIG_PATH=./configs/config.qwen3.yaml go run ./cmd/api
+go run ./cmd/ingest --config ./configs/config.qwen3.yaml --source=chinesebqb --limit=100
+```
 
 ## 项目结构
 
