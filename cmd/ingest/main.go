@@ -33,6 +33,7 @@ func main() {
 	retryPending := flag.Bool("retry", false, "Retry pending items instead of ingesting new ones")
 	force := flag.Bool("force", false, "Force re-process items, skip duplicate checks")
 	configPath := flag.String("config", "", "Path to config file")
+	embeddingName := flag.String("embedding", "", "Embedding config name (e.g., 'jina', 'qwen3'). If empty, uses default embedding config")
 	flag.Parse()
 
 	// Load configuration
@@ -41,11 +42,32 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to load config")
 	}
 
+	// Determine embedding configuration and collection
+	var embeddingCfg *config.EmbeddingConfig
+	var collectionName string
+
+	if *embeddingName != "" {
+		// Use named embedding configuration
+		embeddingCfg = cfg.GetEmbeddingConfig(*embeddingName)
+		if embeddingCfg == nil {
+			appLogger.WithField("embedding", *embeddingName).Fatal("Unknown embedding configuration name")
+		}
+		collectionName = cfg.GetCollectionForEmbedding(*embeddingName)
+	} else {
+		// Use default embedding configuration
+		embeddingCfg = &cfg.Embedding
+		collectionName = cfg.GetCollectionForEmbedding("")
+	}
+
 	appLogger.WithFields(logger.Fields{
-		"source": *sourceType,
-		"limit":  *limit,
-		"retry":  *retryPending,
-		"force":  *force,
+		"source":           *sourceType,
+		"limit":            *limit,
+		"retry":            *retryPending,
+		"force":            *force,
+		"embedding":        *embeddingName,
+		"embedding_model":  embeddingCfg.Model,
+		"embedding_dim":    embeddingCfg.Dimensions,
+		"qdrant_collection": collectionName,
 	}).Info("Starting ingestion")
 
 	// Initialize database
@@ -56,12 +78,16 @@ func main() {
 
 	// Initialize repositories
 	memeRepo := repository.NewMemeRepository(db)
+	vectorRepo := repository.NewMemeVectorRepository(db)
+
+	// Initialize Qdrant repository with the selected collection and vector dimension
 	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
-		Host:       cfg.Qdrant.Host,
-		Port:       cfg.Qdrant.Port,
-		Collection: cfg.Qdrant.Collection,
-		APIKey:     cfg.Qdrant.APIKey,
-		UseTLS:     cfg.Qdrant.UseTLS,
+		Host:            cfg.Qdrant.Host,
+		Port:            cfg.Qdrant.Port,
+		Collection:      collectionName,
+		APIKey:          cfg.Qdrant.APIKey,
+		UseTLS:          cfg.Qdrant.UseTLS,
+		VectorDimension: embeddingCfg.Dimensions,
 	})
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
@@ -105,23 +131,30 @@ func main() {
 		BaseURL:  cfg.VLM.BaseURL,
 	})
 
-	embeddingService := service.NewEmbeddingService(&service.EmbeddingConfig{
-		Provider:   cfg.Embedding.Provider,
-		Model:      cfg.Embedding.Model,
-		APIKey:     cfg.Embedding.APIKey,
-		Dimensions: cfg.Embedding.Dimensions,
+	// Create embedding provider based on configuration
+	embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingConfig{
+		Provider:   embeddingCfg.Provider,
+		Model:      embeddingCfg.Model,
+		APIKey:     embeddingCfg.APIKey,
+		BaseURL:    embeddingCfg.BaseURL,
+		Dimensions: embeddingCfg.Dimensions,
 	})
+	if err != nil {
+		appLogger.WithError(err).Fatal("Failed to create embedding provider")
+	}
 
 	ingestService := service.NewIngestService(
 		memeRepo,
+		vectorRepo,
 		qdrantRepo,
 		objectStorage,
 		vlmService,
-		embeddingService,
+		embeddingProvider,
 		appLogger,
 		&service.IngestConfig{
-			Workers:   cfg.Ingest.Workers,
-			BatchSize: cfg.Ingest.BatchSize,
+			Workers:    cfg.Ingest.Workers,
+			BatchSize:  cfg.Ingest.BatchSize,
+			Collection: collectionName,
 		},
 	)
 
@@ -167,10 +200,12 @@ func main() {
 			appLogger.WithError(err).Fatal("Failed to ingest from source")
 		}
 		appLogger.WithFields(logger.Fields{
-			"total":     stats.TotalItems,
-			"processed": stats.ProcessedItems,
-			"skipped":   stats.SkippedItems,
-			"failed":    stats.FailedItems,
+			"total":      stats.TotalItems,
+			"processed":  stats.ProcessedItems,
+			"skipped":    stats.SkippedItems,
+			"failed":     stats.FailedItems,
+			"collection": collectionName,
+			"model":      embeddingProvider.GetModel(),
 		}).Info("Ingestion completed")
 	}
 }

@@ -8,7 +8,6 @@ server:
 database:
   driver: postgres
   path: ./data/memes.db
-  host: localhost
   port: 6543
   user: postgres
   dbname: emomo
@@ -18,7 +17,6 @@ database:
   conn_max_lifetime: 1h
 
 qdrant:
-  host: localhost
   port: 6334
   collection: emomo
 
@@ -39,10 +37,27 @@ vlm:
   base_url: https://openrouter.ai/api/v1
 
 embedding:
-  provider: jina
+  provider: modelscope
   # model: set via EMBEDDING_MODEL env var
-  model: ""
-  dimensions: 1024
+  model: Qwen/Qwen3-Embedding-8B
+  dimensions: 4096
+
+# Named embedding configurations for multi-model support
+embeddings:
+  jina:
+    provider: jina
+    model: jina-embeddings-v3
+    # api_key: set via JINA_API_KEY env var
+    dimensions: 1024
+    collection: emomo
+  qwen3:
+    provider: modelscope
+    model: Qwen/Qwen3-Embedding-8B
+    # api_key: set via MODELSCOPE_API_KEY env var
+    # base_url: set via MODELSCOPE_BASE_URL env var
+    base_url: ""
+    dimensions: 4096
+    collection: emomo-qwen3-embedding-8b
 
 ingest:
   workers: 5

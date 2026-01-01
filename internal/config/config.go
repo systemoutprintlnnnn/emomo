@@ -11,15 +11,16 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	Database  DatabaseConfig  `mapstructure:"database"`
-	Qdrant    QdrantConfig    `mapstructure:"qdrant"`
-	Storage   StorageConfig   `mapstructure:"storage"`
-	VLM       VLMConfig       `mapstructure:"vlm"`
-	Embedding EmbeddingConfig `mapstructure:"embedding"`
-	Ingest    IngestConfig    `mapstructure:"ingest"`
-	Sources   SourcesConfig   `mapstructure:"sources"`
-	Search    SearchConfig    `mapstructure:"search"`
+	Server     ServerConfig               `mapstructure:"server"`
+	Database   DatabaseConfig             `mapstructure:"database"`
+	Qdrant     QdrantConfig               `mapstructure:"qdrant"`
+	Storage    StorageConfig              `mapstructure:"storage"`
+	VLM        VLMConfig                  `mapstructure:"vlm"`
+	Embedding  EmbeddingConfig            `mapstructure:"embedding"`  // Default embedding config
+	Embeddings map[string]EmbeddingConfig `mapstructure:"embeddings"` // Named embedding configs
+	Ingest     IngestConfig               `mapstructure:"ingest"`
+	Sources    SourcesConfig              `mapstructure:"sources"`
+	Search     SearchConfig               `mapstructure:"search"`
 }
 
 type ServerConfig struct {
@@ -34,17 +35,17 @@ type CORSConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver          string        `mapstructure:"driver"`          // Database driver: sqlite, postgres
-	URL             string        `mapstructure:"url"`             // PostgreSQL connection URL (takes priority)
-	Path            string        `mapstructure:"path"`            // SQLite path
-	Host            string        `mapstructure:"host"`            // PostgreSQL host
-	Port            int           `mapstructure:"port"`            // PostgreSQL port
-	User            string        `mapstructure:"user"`            // PostgreSQL user
-	Password        string        `mapstructure:"password"`        // PostgreSQL password
-	DBName          string        `mapstructure:"dbname"`          // PostgreSQL db name
-	SSLMode         string        `mapstructure:"sslmode"`         // PostgreSQL sslmode
-	MaxIdleConns    int           `mapstructure:"max_idle_conns"`  // Connection pool: max idle
-	MaxOpenConns    int           `mapstructure:"max_open_conns"`  // Connection pool: max open
+	Driver          string        `mapstructure:"driver"`            // Database driver: sqlite, postgres
+	URL             string        `mapstructure:"url"`               // PostgreSQL connection URL (takes priority)
+	Path            string        `mapstructure:"path"`              // SQLite path
+	Host            string        `mapstructure:"host"`              // PostgreSQL host
+	Port            int           `mapstructure:"port"`              // PostgreSQL port
+	User            string        `mapstructure:"user"`              // PostgreSQL user
+	Password        string        `mapstructure:"password"`          // PostgreSQL password
+	DBName          string        `mapstructure:"dbname"`            // PostgreSQL db name
+	SSLMode         string        `mapstructure:"sslmode"`           // PostgreSQL sslmode
+	MaxIdleConns    int           `mapstructure:"max_idle_conns"`    // Connection pool: max idle
+	MaxOpenConns    int           `mapstructure:"max_open_conns"`    // Connection pool: max open
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"` // Connection pool: max lifetime
 }
 
@@ -95,10 +96,12 @@ type VLMConfig struct {
 }
 
 type EmbeddingConfig struct {
-	Provider   string `mapstructure:"provider"`
-	Model      string `mapstructure:"model"`
-	APIKey     string `mapstructure:"api_key"`
-	Dimensions int    `mapstructure:"dimensions"`
+	Provider   string `mapstructure:"provider"`   // "jina", "modelscope", "openai-compatible"
+	Model      string `mapstructure:"model"`      // Model name/ID
+	APIKey     string `mapstructure:"api_key"`    // API key for authentication
+	BaseURL    string `mapstructure:"base_url"`   // Base URL for OpenAI-compatible APIs
+	Dimensions int    `mapstructure:"dimensions"` // Embedding vector dimensions
+	Collection string `mapstructure:"collection"` // Qdrant collection name for this embedding
 }
 
 type IngestConfig struct {
@@ -232,13 +235,48 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("vlm.api_key", "OPENAI_API_KEY")
 	v.BindEnv("vlm.base_url", "OPENAI_BASE_URL")
 	v.BindEnv("vlm.model", "VLM_MODEL")
-	v.BindEnv("embedding.api_key", "JINA_API_KEY")
+
+	// Default embedding environment variables
+	v.BindEnv("embedding.provider", "EMBEDDING_PROVIDER")
+	v.BindEnv("embedding.model", "EMBEDDING_MODEL")
+	v.BindEnv("embedding.dimensions", "EMBEDDING_DIMENSIONS")
+	v.BindEnv("embedding.api_key", "EMBEDDING_API_KEY")
+	v.BindEnv("embedding.base_url", "EMBEDDING_BASE_URL")
+	v.BindEnv("embedding.collection", "EMBEDDING_COLLECTION")
+
+	// Named embeddings environment variables
+	v.BindEnv("embeddings.jina.api_key", "JINA_API_KEY")
+	v.BindEnv("embeddings.qwen3.api_key", "MODELSCOPE_API_KEY")
+	v.BindEnv("embeddings.qwen3.base_url", "MODELSCOPE_BASE_URL")
+
 	v.BindEnv("search.score_threshold", "SEARCH_SCORE_THRESHOLD")
 	v.BindEnv("search.query_expansion.model", "QUERY_EXPANSION_MODEL")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Manually apply environment variable overrides for map-based embedding configs
+	// (Viper's BindEnv doesn't work well with map keys)
+	if cfg.Embeddings != nil {
+		// Override qwen3 config from environment
+		if qwen3Cfg, ok := cfg.Embeddings["qwen3"]; ok {
+			if apiKey := os.Getenv("MODELSCOPE_API_KEY"); apiKey != "" {
+				qwen3Cfg.APIKey = apiKey
+			}
+			if baseURL := os.Getenv("MODELSCOPE_BASE_URL"); baseURL != "" {
+				qwen3Cfg.BaseURL = baseURL
+			}
+			cfg.Embeddings["qwen3"] = qwen3Cfg
+		}
+		// Override jina config from environment
+		if jinaCfg, ok := cfg.Embeddings["jina"]; ok {
+			if apiKey := os.Getenv("JINA_API_KEY"); apiKey != "" {
+				jinaCfg.APIKey = apiKey
+			}
+			cfg.Embeddings["jina"] = jinaCfg
+		}
 	}
 
 	// Log database driver for debugging
@@ -250,4 +288,38 @@ func Load(configPath string) (*Config, error) {
 // GetStorageConfig returns the storage configuration.
 func (c *Config) GetStorageConfig() *StorageConfig {
 	return &c.Storage
+}
+
+// GetEmbeddingConfig returns the embedding configuration by name.
+// If name is empty, returns the default embedding config.
+// If name is not found in the embeddings map, returns nil.
+func (c *Config) GetEmbeddingConfig(name string) *EmbeddingConfig {
+	if name == "" {
+		return &c.Embedding
+	}
+	if cfg, ok := c.Embeddings[name]; ok {
+		return &cfg
+	}
+	return nil
+}
+
+// GetCollectionForEmbedding returns the Qdrant collection name for a given embedding config.
+// If the embedding config has a collection specified, use it.
+// Otherwise, use the default Qdrant collection.
+func (c *Config) GetCollectionForEmbedding(embeddingName string) string {
+	if embeddingName == "" {
+		// Default embedding uses default collection
+		if c.Embedding.Collection != "" {
+			return c.Embedding.Collection
+		}
+		return c.Qdrant.Collection
+	}
+
+	if cfg, ok := c.Embeddings[embeddingName]; ok {
+		if cfg.Collection != "" {
+			return cfg.Collection
+		}
+	}
+
+	return c.Qdrant.Collection
 }

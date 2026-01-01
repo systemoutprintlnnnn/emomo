@@ -14,16 +14,18 @@ import (
 )
 
 const (
-	VectorDimension = 1024
+	// DefaultVectorDimension is the default embedding dimension (Jina)
+	DefaultVectorDimension = 1024
 )
 
 // QdrantConnectionConfig holds configuration for Qdrant connection
 type QdrantConnectionConfig struct {
-	Host       string
-	Port       int
-	Collection string
-	APIKey     string // Qdrant Cloud API Key (enables TLS automatically)
-	UseTLS     bool   // Explicitly enable TLS without API Key
+	Host            string
+	Port            int
+	Collection      string
+	APIKey          string // Qdrant Cloud API Key (enables TLS automatically)
+	UseTLS          bool   // Explicitly enable TLS without API Key
+	VectorDimension int    // Vector dimension for this collection (default: 1024)
 }
 
 // apiKeyInterceptor creates a unary interceptor that adds API key to metadata
@@ -36,10 +38,11 @@ func apiKeyInterceptor(apiKey string) grpc.UnaryClientInterceptor {
 
 // QdrantRepository handles vector operations with Qdrant
 type QdrantRepository struct {
-	conn           *grpc.ClientConn
-	pointsClient   pb.PointsClient
-	collectClient  pb.CollectionsClient
-	collectionName string
+	conn            *grpc.ClientConn
+	pointsClient    pb.PointsClient
+	collectClient   pb.CollectionsClient
+	collectionName  string
+	vectorDimension int
 }
 
 // NewQdrantRepository creates a new QdrantRepository
@@ -76,11 +79,18 @@ func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error)
 		return nil, fmt.Errorf("failed to connect to qdrant: %w", err)
 	}
 
+	// Use default dimension if not specified
+	vectorDim := cfg.VectorDimension
+	if vectorDim <= 0 {
+		vectorDim = DefaultVectorDimension
+	}
+
 	return &QdrantRepository{
-		conn:           conn,
-		pointsClient:   pb.NewPointsClient(conn),
-		collectClient:  pb.NewCollectionsClient(conn),
-		collectionName: cfg.Collection,
+		conn:            conn,
+		pointsClient:    pb.NewPointsClient(conn),
+		collectClient:   pb.NewCollectionsClient(conn),
+		collectionName:  cfg.Collection,
+		vectorDimension: vectorDim,
 	}, nil
 }
 
@@ -99,13 +109,13 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 		return nil // Collection exists
 	}
 
-	// Create collection
+	// Create collection with dynamic vector dimension
 	_, err = r.collectClient.Create(ctx, &pb.CreateCollection{
 		CollectionName: r.collectionName,
 		VectorsConfig: &pb.VectorsConfig{
 			Config: &pb.VectorsConfig_Params{
 				Params: &pb.VectorParams{
-					Size:     VectorDimension,
+					Size:     uint64(r.vectorDimension),
 					Distance: pb.Distance_Cosine,
 				},
 			},
@@ -121,6 +131,16 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// GetCollectionName returns the collection name
+func (r *QdrantRepository) GetCollectionName() string {
+	return r.collectionName
+}
+
+// GetVectorDimension returns the vector dimension for this collection
+func (r *QdrantRepository) GetVectorDimension() int {
+	return r.vectorDimension
 }
 
 func optionalUint64(v uint64) *uint64 {
@@ -326,6 +346,26 @@ func parsePayload(payload map[string]*pb.Value) *MemePayload {
 	}
 
 	return p
+}
+
+// PointExists checks if a point exists by ID
+func (r *QdrantRepository) PointExists(ctx context.Context, pointID string) (bool, error) {
+	uid, err := uuid.Parse(pointID)
+	if err != nil {
+		return false, fmt.Errorf("invalid point ID: %w", err)
+	}
+
+	resp, err := r.pointsClient.Get(ctx, &pb.GetPoints{
+		CollectionName: r.collectionName,
+		Ids: []*pb.PointId{
+			{PointIdOptions: &pb.PointId_Uuid{Uuid: uid.String()}},
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check point existence: %w", err)
+	}
+
+	return len(resp.Result) > 0, nil
 }
 
 // Delete deletes a point by ID
