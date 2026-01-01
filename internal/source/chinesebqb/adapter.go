@@ -13,40 +13,63 @@ import (
 )
 
 const (
-	SourceID   = "chinesebqb"
+	// SourceID is the identifier for the ChineseBQB source.
+	SourceID = "chinesebqb"
+	// SourceName is the display name for the ChineseBQB source.
 	SourceName = "ChineseBQB"
 )
 
-// Adapter implements the Source interface for ChineseBQB repository
+// Adapter implements the Source interface for the ChineseBQB repository.
 type Adapter struct {
 	repoPath string
 	items    []source.MemeItem // Cached items
 	loaded   bool
 }
 
-// NewAdapter creates a new ChineseBQB adapter
+// NewAdapter creates a new ChineseBQB adapter.
+// Parameters:
+//   - repoPath: filesystem path to the ChineseBQB repository.
+// Returns:
+//   - *Adapter: initialized adapter instance.
 func NewAdapter(repoPath string) *Adapter {
 	return &Adapter{
 		repoPath: repoPath,
 	}
 }
 
-// GetSourceID returns the unique identifier for this source
+// GetSourceID returns the unique identifier for this source.
+// Parameters: none.
+// Returns:
+//   - string: source identifier string.
 func (a *Adapter) GetSourceID() string {
 	return SourceID
 }
 
-// GetDisplayName returns a human-readable name for this source
+// GetDisplayName returns a human-readable name for this source.
+// Parameters: none.
+// Returns:
+//   - string: display name for the source.
 func (a *Adapter) GetDisplayName() string {
 	return SourceName
 }
 
-// SupportsIncremental returns true if this source supports incremental updates
+// SupportsIncremental returns true if this source supports incremental updates.
+// Parameters: none.
+// Returns:
+//   - bool: false for the static repository.
 func (a *Adapter) SupportsIncremental() bool {
 	return false // Static repository, no incremental updates
 }
 
-// FetchBatch fetches a batch of meme items
+// FetchBatch fetches a batch of meme items.
+// Parameters:
+//   - ctx: context for cancellation and deadlines (unused for local reads).
+//   - cursor: pagination cursor as an index string.
+//   - limit: maximum number of items to fetch.
+// Returns:
+//   - []source.MemeItem: batch of meme items.
+//   - string: next cursor or empty if no more items.
+//   - error: non-nil if loading or parsing fails.
 func (a *Adapter) FetchBatch(ctx context.Context, cursor string, limit int) ([]source.MemeItem, string, error) {
 	// Load all items on first call
 	if !a.loaded {
@@ -218,7 +241,11 @@ func uniqueStrings(strs []string) []string {
 	return result
 }
 
-// GetTotalCount returns the total number of items
+// GetTotalCount returns the total number of items.
+// Parameters: none.
+// Returns:
+//   - int: total item count.
+//   - error: non-nil if loading fails.
 func (a *Adapter) GetTotalCount() (int, error) {
 	if !a.loaded {
 		if err := a.loadItems(); err != nil {

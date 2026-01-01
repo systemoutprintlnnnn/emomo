@@ -10,12 +10,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Logger wraps logrus.Entry to provide structured logging with context support
+// Logger wraps logrus.Entry to provide structured logging with context support.
 type Logger struct {
 	*logrus.Entry
 }
 
-// Config holds logger configuration
+// Config holds logger configuration.
 type Config struct {
 	Level       string    // debug, info, warn, error
 	Format      string    // json, text
@@ -23,7 +23,10 @@ type Config struct {
 	ServiceName string    // service name for log tagging
 }
 
-// DefaultConfig returns sensible defaults
+// DefaultConfig returns sensible defaults.
+// Parameters: none.
+// Returns:
+//   - *Config: default logger configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Level:       "info",
@@ -33,7 +36,11 @@ func DefaultConfig() *Config {
 	}
 }
 
-// New creates a new Logger with the given configuration
+// New creates a new Logger with the given configuration.
+// Parameters:
+//   - cfg: logger configuration; nil uses DefaultConfig.
+// Returns:
+//   - *Logger: initialized logger instance.
 func New(cfg *Config) *Logger {
 	if cfg == nil {
 		cfg = DefaultConfig()
@@ -83,17 +90,30 @@ func New(cfg *Config) *Logger {
 	return &Logger{Entry: entry}
 }
 
-// WithFields returns a new Logger with additional fields
+// WithFields returns a new Logger with additional fields.
+// Parameters:
+//   - fields: structured fields to add.
+// Returns:
+//   - *Logger: derived logger with fields applied.
 func (l *Logger) WithFields(fields Fields) *Logger {
 	return &Logger{Entry: l.Entry.WithFields(logrus.Fields(fields))}
 }
 
-// WithField returns a new Logger with a single additional field
+// WithField returns a new Logger with a single additional field.
+// Parameters:
+//   - key: field key.
+//   - value: field value.
+// Returns:
+//   - *Logger: derived logger with field applied.
 func (l *Logger) WithField(key string, value interface{}) *Logger {
 	return &Logger{Entry: l.Entry.WithField(key, value)}
 }
 
-// WithError returns a new Logger with error field
+// WithError returns a new Logger with an error field.
+// Parameters:
+//   - err: error to attach.
+// Returns:
+//   - *Logger: derived logger with error field.
 func (l *Logger) WithError(err error) *Logger {
 	return &Logger{Entry: l.Entry.WithError(err)}
 }

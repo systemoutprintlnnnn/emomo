@@ -21,14 +21,29 @@ CRAWLERS = {
 
 
 def get_staging_manager(staging_path: str | None = None) -> StagingManager:
-    """Get staging manager with configured path."""
+    """Get a staging manager with a configured path.
+
+    Args:
+        staging_path: Optional custom staging path override.
+
+    Returns:
+        StagingManager initialized with the resolved path.
+    """
     config = get_default_config()
     path = Path(staging_path) if staging_path else config.staging.base_path
     return StagingManager(path)
 
 
 def get_crawler(source: str, **kwargs):
-    """Get crawler instance by source name."""
+    """Get a crawler instance by source name.
+
+    Args:
+        source: Source name matching a registered crawler.
+        **kwargs: Additional keyword args forwarded to the crawler constructor.
+
+    Returns:
+        Instantiated crawler for the requested source.
+    """
     if source not in CRAWLERS:
         raise click.BadParameter(
             f"Unknown source: {source}. Available: {', '.join(CRAWLERS.keys())}"
@@ -39,7 +54,11 @@ def get_crawler(source: str, **kwargs):
 @click.group()
 @click.version_option()
 def cli():
-    """Emomo Crawler - Meme crawler for emomo project."""
+    """Emomo Crawler CLI entrypoint.
+
+    Returns:
+        None.
+    """
     pass
 
 
@@ -90,7 +109,19 @@ def crawl(
     rate_limit: float,
     threads: int,
 ):
-    """Crawl memes from a source and save to staging area."""
+    """Crawl memes from a source and save to the staging area.
+
+    Args:
+        source: Source name to crawl.
+        limit: Maximum number of items to crawl.
+        cursor: Optional pagination cursor (e.g., page number).
+        staging_path: Optional custom staging directory path.
+        rate_limit: Requests per second.
+        threads: Number of download threads.
+
+    Returns:
+        None.
+    """
     staging = get_staging_manager(staging_path)
     crawler = get_crawler(source, rate_limit=rate_limit, threads=threads)
 
@@ -133,7 +164,11 @@ def crawl(
 
 @cli.group()
 def staging():
-    """Manage the staging area."""
+    """Manage the staging area.
+
+    Returns:
+        None.
+    """
     pass
 
 
@@ -144,7 +179,14 @@ def staging():
     help="Custom staging directory path.",
 )
 def staging_list(staging_path: str | None):
-    """List all sources in the staging area."""
+    """List all sources in the staging area.
+
+    Args:
+        staging_path: Optional custom staging directory path.
+
+    Returns:
+        None.
+    """
     staging = get_staging_manager(staging_path)
     sources = staging.list_sources()
 
@@ -176,7 +218,15 @@ def staging_list(staging_path: str | None):
     help="Custom staging directory path.",
 )
 def staging_stats(source: str, staging_path: str | None):
-    """Show statistics for a staging source."""
+    """Show statistics for a staging source.
+
+    Args:
+        source: Source identifier to inspect.
+        staging_path: Optional custom staging directory path.
+
+    Returns:
+        None.
+    """
     staging = get_staging_manager(staging_path)
 
     async def get_stats():
@@ -240,7 +290,16 @@ def staging_stats(source: str, staging_path: str | None):
     help="Skip confirmation.",
 )
 def staging_clean(source: str, staging_path: str | None, yes: bool):
-    """Clean the staging area for a source."""
+    """Clean the staging area for a source.
+
+    Args:
+        source: Source identifier to clean.
+        staging_path: Optional custom staging directory path.
+        yes: Whether to skip confirmation prompt.
+
+    Returns:
+        None.
+    """
     staging = get_staging_manager(staging_path)
 
     if source not in staging.list_sources():
@@ -269,7 +328,15 @@ def staging_clean(source: str, staging_path: str | None, yes: bool):
     help="Skip confirmation.",
 )
 def staging_clean_all(staging_path: str | None, yes: bool):
-    """Clean the entire staging area."""
+    """Clean the entire staging area.
+
+    Args:
+        staging_path: Optional custom staging directory path.
+        yes: Whether to skip confirmation prompt.
+
+    Returns:
+        None.
+    """
     staging = get_staging_manager(staging_path)
 
     if not yes:

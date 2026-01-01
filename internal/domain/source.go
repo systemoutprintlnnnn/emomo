@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// SourceType represents the type of data source
+// SourceType represents the type of data source.
+// Values include SourceTypeStatic, SourceTypeAPI, and SourceTypeCrawler.
 type SourceType string
 
 const (
@@ -16,9 +17,14 @@ const (
 	SourceTypeCrawler SourceType = "crawler"
 )
 
-// SourceConfig is a custom type for storing JSON config in SQLite
+// SourceConfig is a custom type for storing JSON config in the database.
 type SourceConfig map[string]interface{}
 
+// Value implements the driver.Valuer interface for database serialization.
+// Parameters: none.
+// Returns:
+//   - driver.Value: JSON-encoded string representation of the config.
+//   - error: non-nil if marshaling fails.
 func (c SourceConfig) Value() (driver.Value, error) {
 	if c == nil {
 		return "{}", nil
@@ -26,6 +32,11 @@ func (c SourceConfig) Value() (driver.Value, error) {
 	return json.Marshal(c)
 }
 
+// Scan implements the sql.Scanner interface for database deserialization.
+// Parameters:
+//   - value: raw database value to decode.
+// Returns:
+//   - error: non-nil if decoding fails or the type is unexpected.
 func (c *SourceConfig) Scan(value interface{}) error {
 	if value == nil {
 		*c = SourceConfig{}
@@ -42,7 +53,7 @@ func (c *SourceConfig) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, c)
 }
 
-// DataSource represents a meme data source configuration
+// DataSource represents a meme data source configuration record.
 type DataSource struct {
 	ID             string       `gorm:"type:text;primaryKey" json:"id"`
 	Name           string       `gorm:"type:text;not null" json:"name"`
@@ -56,6 +67,10 @@ type DataSource struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 }
 
+// TableName returns the database table name for DataSource.
+// Parameters: none.
+// Returns:
+//   - string: table name for GORM mapping.
 func (DataSource) TableName() string {
 	return "data_sources"
 }

@@ -8,19 +8,26 @@ import (
 	"github.com/timmy/emomo/internal/service"
 )
 
-// MemeHandler handles meme-related endpoints
+// MemeHandler handles meme-related endpoints.
 type MemeHandler struct {
 	searchService *service.SearchService
 }
 
-// NewMemeHandler creates a new meme handler
+// NewMemeHandler creates a new meme handler.
+// Parameters:
+//   - searchService: search service instance.
+// Returns:
+//   - *MemeHandler: initialized handler.
 func NewMemeHandler(searchService *service.SearchService) *MemeHandler {
 	return &MemeHandler{
 		searchService: searchService,
 	}
 }
 
-// ListMemes handles GET /api/v1/memes
+// ListMemes handles GET /api/v1/memes.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *MemeHandler) ListMemes(c *gin.Context) {
 	category := c.Query("category")
 
@@ -38,7 +45,10 @@ func (h *MemeHandler) ListMemes(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// GetMeme handles GET /api/v1/memes/:id
+// GetMeme handles GET /api/v1/memes/:id.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *MemeHandler) GetMeme(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {

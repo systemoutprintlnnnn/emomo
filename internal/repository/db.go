@@ -14,7 +14,12 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// InitDB initializes the database connection based on configuration and runs migrations
+// InitDB initializes the database connection based on configuration and runs migrations.
+// Parameters:
+//   - cfg: database configuration including driver and connection settings.
+// Returns:
+//   - *gorm.DB: initialized database handle.
+//   - error: non-nil if connection or migration fails.
 func InitDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 	gormConfig := &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),

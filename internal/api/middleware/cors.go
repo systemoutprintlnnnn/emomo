@@ -6,13 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CORSConfig holds CORS configuration
+// CORSConfig holds CORS configuration.
 type CORSConfig struct {
 	AllowedOrigins  []string
 	AllowAllOrigins bool
 }
 
-// CORS returns a middleware that handles Cross-Origin Resource Sharing
+// CORS returns middleware that handles Cross-Origin Resource Sharing.
+// Parameters:
+//   - config: CORS configuration values.
+// Returns:
+//   - gin.HandlerFunc: middleware handler.
 func CORS(config CORSConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
@@ -62,7 +66,12 @@ func CORS(config CORSConfig) gin.HandlerFunc {
 	}
 }
 
-// IsOriginAllowed checks if an origin is allowed based on the configuration
+// IsOriginAllowed checks if an origin is allowed based on the configuration.
+// Parameters:
+//   - origin: origin header value to check.
+//   - config: CORS configuration values.
+// Returns:
+//   - bool: true if the origin is allowed.
 func IsOriginAllowed(origin string, config CORSConfig) bool {
 	if config.AllowAllOrigins {
 		return true

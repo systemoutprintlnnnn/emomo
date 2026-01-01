@@ -10,19 +10,19 @@ import (
 	"github.com/timmy/emomo/internal/storage"
 )
 
-// SearchConfig holds configuration for search service
+// SearchConfig holds configuration for search service.
 type SearchConfig struct {
 	ScoreThreshold    float32
 	DefaultCollection string // Default collection name for search
 }
 
-// CollectionConfig holds configuration for a single collection
+// CollectionConfig holds configuration for a single collection.
 type CollectionConfig struct {
 	QdrantRepo *repository.QdrantRepository
 	Embedding  EmbeddingProvider
 }
 
-// SearchService handles meme search operations
+// SearchService handles meme search operations.
 type SearchService struct {
 	memeRepo          *repository.MemeRepository
 	defaultQdrantRepo *repository.QdrantRepository
@@ -37,7 +37,17 @@ type SearchService struct {
 	collections map[string]*CollectionConfig
 }
 
-// NewSearchService creates a new search service
+// NewSearchService creates a new search service.
+// Parameters:
+//   - memeRepo: repository for meme records.
+//   - qdrantRepo: default Qdrant repository.
+//   - embedding: default embedding provider.
+//   - queryExpansion: optional query expansion service.
+//   - objectStorage: object storage client for URL generation.
+//   - log: logger instance.
+//   - cfg: search configuration settings.
+// Returns:
+//   - *SearchService: initialized search service.
 func NewSearchService(
 	memeRepo *repository.MemeRepository,
 	qdrantRepo *repository.QdrantRepository,
@@ -66,7 +76,12 @@ func NewSearchService(
 	}
 }
 
-// RegisterCollection registers a collection configuration for multi-collection search
+// RegisterCollection registers a collection configuration for multi-collection search.
+// Parameters:
+//   - name: collection name key.
+//   - qdrantRepo: Qdrant repository for the collection.
+//   - embedding: embedding provider for the collection.
+// Returns: none.
 func (s *SearchService) RegisterCollection(name string, qdrantRepo *repository.QdrantRepository, embedding EmbeddingProvider) {
 	s.collections[name] = &CollectionConfig{
 		QdrantRepo: qdrantRepo,
@@ -74,7 +89,10 @@ func (s *SearchService) RegisterCollection(name string, qdrantRepo *repository.Q
 	}
 }
 
-// GetAvailableCollections returns the list of available collection names
+// GetAvailableCollections returns the list of available collection names.
+// Parameters: none.
+// Returns:
+//   - []string: collection names including default and registered ones.
 func (s *SearchService) GetAvailableCollections() []string {
 	collections := make([]string, 0, len(s.collections)+1)
 	if s.defaultCollection != "" {
@@ -96,7 +114,7 @@ func (s *SearchService) log(ctx context.Context) *logger.Logger {
 	return s.logger
 }
 
-// SearchRequest represents a text search request
+// SearchRequest represents a text search request.
 type SearchRequest struct {
 	Query      string  `json:"query" binding:"required"`
 	TopK       int     `json:"top_k"`
@@ -106,7 +124,7 @@ type SearchRequest struct {
 	Collection string  `json:"collection,omitempty"` // Optional: specify which collection to search
 }
 
-// SearchResult represents a single search result
+// SearchResult represents a single search result.
 type SearchResult struct {
 	ID          string   `json:"id"`
 	URL         string   `json:"url"`
@@ -119,7 +137,7 @@ type SearchResult struct {
 	Height      int      `json:"height,omitempty"`
 }
 
-// SearchResponse represents the search response
+// SearchResponse represents the search response.
 type SearchResponse struct {
 	Results       []SearchResult `json:"results"`
 	Total         int            `json:"total"`
@@ -128,7 +146,13 @@ type SearchResponse struct {
 	Collection    string         `json:"collection,omitempty"` // Which collection was searched
 }
 
-// TextSearch performs a semantic text search
+// TextSearch performs a semantic text search.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - req: search request parameters.
+// Returns:
+//   - *SearchResponse: search results and metadata.
+//   - error: non-nil if search fails.
 func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
 	// Set defaults
 	if req.TopK <= 0 {
@@ -270,17 +294,28 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}, nil
 }
 
-// GetCategories returns all available categories
+// GetCategories returns all available categories.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+// Returns:
+//   - []string: distinct category names.
+//   - error: non-nil if lookup fails.
 func (s *SearchService) GetCategories(ctx context.Context) ([]string, error) {
 	return s.memeRepo.GetCategories(ctx)
 }
 
-// GetMemeByID retrieves a meme by its ID
+// GetMemeByID retrieves a meme by its ID.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - id: meme ID.
+// Returns:
+//   - *domain.Meme: meme record if found.
+//   - error: non-nil if lookup fails.
 func (s *SearchService) GetMemeByID(ctx context.Context, id string) (*domain.Meme, error) {
 	return s.memeRepo.GetByID(ctx, id)
 }
 
-// MemeListResponse represents the response for listing memes
+// MemeListResponse represents the response for listing memes.
 type MemeListResponse struct {
 	Results []SearchResult `json:"results"`
 	Total   int            `json:"total"`
@@ -288,8 +323,16 @@ type MemeListResponse struct {
 	Offset  int            `json:"offset"`
 }
 
-// ListMemes retrieves memes with optional category filter
-// Returns results in the same format as search results for API consistency
+// ListMemes retrieves memes with optional category filter.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - category: category name to filter by; empty means all.
+//   - limit: maximum number of records to return.
+//   - offset: number of records to skip.
+// Returns:
+//   - *MemeListResponse: list results in search-compatible format.
+//   - error: non-nil if retrieval fails.
+// Returns results in the same format as search results for API consistency.
 func (s *SearchService) ListMemes(ctx context.Context, category string, limit, offset int) (*MemeListResponse, error) {
 	if limit <= 0 {
 		limit = 20
@@ -333,7 +376,12 @@ func (s *SearchService) ListMemes(ctx context.Context, category string, limit, o
 	}, nil
 }
 
-// GetStats returns search-related statistics
+// GetStats returns search-related statistics.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+// Returns:
+//   - map[string]interface{}: aggregated stats for search and ingest.
+//   - error: non-nil if statistics cannot be computed.
 func (s *SearchService) GetStats(ctx context.Context) (map[string]interface{}, error) {
 	activeCount, err := s.memeRepo.CountByStatus(ctx, domain.MemeStatusActive)
 	if err != nil {

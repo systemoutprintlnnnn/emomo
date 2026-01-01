@@ -43,7 +43,7 @@ const (
 输出: 疲惫、emo、摆烂、放弃挣扎，累到不想动想要毁灭世界，瘫倒无力眼神空洞，彻底破防不想努力了`
 )
 
-// QueryExpansionService handles query expansion using LLM
+// QueryExpansionService handles query expansion using an LLM.
 type QueryExpansionService struct {
 	client   *resty.Client
 	model    string
@@ -51,7 +51,7 @@ type QueryExpansionService struct {
 	enabled  bool
 }
 
-// QueryExpansionConfig holds configuration for query expansion service
+// QueryExpansionConfig holds configuration for query expansion service.
 type QueryExpansionConfig struct {
 	Enabled bool
 	Model   string
@@ -59,7 +59,11 @@ type QueryExpansionConfig struct {
 	BaseURL string
 }
 
-// NewQueryExpansionService creates a new query expansion service
+// NewQueryExpansionService creates a new query expansion service.
+// Parameters:
+//   - cfg: query expansion configuration (nil disables expansion).
+// Returns:
+//   - *QueryExpansionService: initialized service instance.
 func NewQueryExpansionService(cfg *QueryExpansionConfig) *QueryExpansionService {
 	if cfg == nil || !cfg.Enabled {
 		return &QueryExpansionService{enabled: false}
@@ -84,7 +88,10 @@ func NewQueryExpansionService(cfg *QueryExpansionConfig) *QueryExpansionService 
 	}
 }
 
-// IsEnabled returns whether query expansion is enabled
+// IsEnabled returns whether query expansion is enabled.
+// Parameters: none.
+// Returns:
+//   - bool: true when expansion is enabled.
 func (s *QueryExpansionService) IsEnabled() bool {
 	return s.enabled
 }
@@ -113,7 +120,13 @@ type queryExpansionResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// Expand expands a short query into a richer semantic description
+// Expand expands a short query into a richer semantic description.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: original query string.
+// Returns:
+//   - string: expanded query text (or original on fallback).
+//   - error: non-nil if the expansion request fails.
 func (s *QueryExpansionService) Expand(ctx context.Context, query string) (string, error) {
 	if !s.enabled {
 		return query, nil
@@ -173,7 +186,12 @@ func (s *QueryExpansionService) Expand(ctx context.Context, query string) (strin
 	return expanded, nil
 }
 
-// ExpandWithFallback expands query and returns original on any error
+// ExpandWithFallback expands a query and returns the original on any error.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: original query string.
+// Returns:
+//   - string: expanded query or original when expansion fails.
 func (s *QueryExpansionService) ExpandWithFallback(ctx context.Context, query string) string {
 	expanded, err := s.Expand(ctx, query)
 	if err != nil {

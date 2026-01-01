@@ -9,7 +9,16 @@ from .staging import StagingManager
 
 @dataclass
 class MemeItem:
-    """Represents a meme item to be crawled."""
+    """Represents a meme item to be crawled.
+
+    Attributes:
+        id: Unique identifier for the meme item.
+        image_url: Source URL for the image.
+        category: Category or collection name.
+        tags: Tags describing the meme.
+        is_animated: Whether the image is animated.
+        format: Image format (jpg, png, gif, webp).
+    """
 
     id: str
     image_url: str
@@ -64,7 +73,13 @@ def detect_format(url: str, content_type: str | None = None) -> str:
 
 
 class BaseCrawler(ABC):
-    """Abstract base class for meme crawlers."""
+    """Abstract base class for meme crawlers.
+
+    Attributes:
+        rate_limit: Maximum requests per second.
+        max_retries: Maximum retry attempts for a request.
+        timeout: Request timeout in seconds.
+    """
 
     def __init__(
         self,
@@ -78,6 +93,9 @@ class BaseCrawler(ABC):
             rate_limit: Requests per second.
             max_retries: Maximum retry attempts.
             timeout: Request timeout in seconds.
+
+        Returns:
+            None.
         """
         self.rate_limit = rate_limit
         self.max_retries = max_retries
@@ -86,13 +104,21 @@ class BaseCrawler(ABC):
     @property
     @abstractmethod
     def source_id(self) -> str:
-        """Return the unique source identifier."""
+        """Return the unique source identifier.
+
+        Returns:
+            Unique source identifier string.
+        """
         pass
 
     @property
     @abstractmethod
     def display_name(self) -> str:
-        """Return a human-readable name for this source."""
+        """Return a human-readable name for this source.
+
+        Returns:
+            Display name for the source.
+        """
         pass
 
     @abstractmethod

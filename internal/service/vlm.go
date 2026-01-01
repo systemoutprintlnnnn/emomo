@@ -9,15 +9,16 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
-// EmotionWords 共享情绪词汇表 - 与 query_expansion.go 保持同步
-// 可用于验证或扩展prompt中的情绪词
+// EmotionWords is the shared emotion lexicon used by VLM and query expansion.
+// Keep this list in sync with query_expansion.go.
 var EmotionWords = []string{
 	"无语", "尴尬", "开心", "暴怒", "委屈", "嫌弃", "震惊", "疑惑", "得意", "摆烂",
 	"emo", "社死", "破防", "裂开", "绝望", "狂喜", "阴阳怪气", "幸灾乐祸", "无奈", "崩溃",
 	"感动", "害怕", "可爱", "呆萌", "嘲讽", "鄙视", "期待", "失望", "愤怒", "悲伤",
 }
 
-// InternetMemes 共享网络梗词汇表 - 与 query_expansion.go 保持同步
+// InternetMemes is the shared meme-slang lexicon used by VLM and query expansion.
+// Keep this list in sync with query_expansion.go.
 var InternetMemes = []string{
 	"芭比Q了(完蛋了)", "绝绝子(太绝了)", "yyds(永远的神)", "真的栓Q(真的谢谢)",
 	"CPU(被PUA)", "一整个xx住", "xx子", "我不理解", "好耶", "啊这", "6",
@@ -56,7 +57,7 @@ const (
 现在请分析图片并生成描述：`
 )
 
-// VLMService handles image description generation using Vision Language Models
+// VLMService handles image description generation using Vision Language Models.
 type VLMService struct {
 	client   *resty.Client
 	model    string
@@ -64,7 +65,7 @@ type VLMService struct {
 	endpoint string
 }
 
-// VLMConfig holds configuration for VLM service
+// VLMConfig holds configuration for VLM service.
 type VLMConfig struct {
 	Provider string
 	Model    string
@@ -72,7 +73,11 @@ type VLMConfig struct {
 	BaseURL  string
 }
 
-// NewVLMService creates a new VLM service
+// NewVLMService creates a new VLM service.
+// Parameters:
+//   - cfg: VLM configuration including provider, model, and API key.
+// Returns:
+//   - *VLMService: initialized VLM client wrapper.
 func NewVLMService(cfg *VLMConfig) *VLMService {
 	client := resty.New()
 	client.SetHeader("Authorization", "Bearer "+cfg.APIKey)
@@ -95,7 +100,10 @@ func NewVLMService(cfg *VLMConfig) *VLMService {
 	}
 }
 
-// GetModel returns the model name being used
+// GetModel returns the model name being used.
+// Parameters: none.
+// Returns:
+//   - string: model identifier.
 func (s *VLMService) GetModel() string {
 	return s.model
 }
@@ -139,7 +147,14 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// DescribeImage generates a description for an image
+// DescribeImage generates a description for an image.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - imageData: raw image bytes.
+//   - format: image format extension (jpg, png, gif, webp).
+// Returns:
+//   - string: generated description text.
+//   - error: non-nil if the API request fails.
 func (s *VLMService) DescribeImage(ctx context.Context, imageData []byte, format string) (string, error) {
 	// Determine MIME type
 	mimeType := getMIMEType(format)
@@ -217,7 +232,13 @@ func (s *VLMService) DescribeImage(ctx context.Context, imageData []byte, format
 	return resp.Choices[0].Message.Content, nil
 }
 
-// DescribeImageFromURL generates a description for an image from URL
+// DescribeImageFromURL generates a description for an image from URL.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - imageURL: publicly accessible image URL.
+// Returns:
+//   - string: generated description text.
+//   - error: non-nil if the API request fails.
 func (s *VLMService) DescribeImageFromURL(ctx context.Context, imageURL string) (string, error) {
 	// Build request with system/user separation
 	req := openAIRequest{
