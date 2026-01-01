@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -12,16 +11,15 @@ import (
 
 // Config aggregates application configuration loaded from files and environment.
 type Config struct {
-	Server     ServerConfig               `mapstructure:"server"`
-	Database   DatabaseConfig             `mapstructure:"database"`
-	Qdrant     QdrantConfig               `mapstructure:"qdrant"`
-	Storage    StorageConfig              `mapstructure:"storage"`
-	VLM        VLMConfig                  `mapstructure:"vlm"`
-	Embedding  EmbeddingConfig            `mapstructure:"embedding"`  // Default embedding config
-	Embeddings map[string]EmbeddingConfig `mapstructure:"embeddings"` // Named embedding configs
-	Ingest     IngestConfig               `mapstructure:"ingest"`
-	Sources    SourcesConfig              `mapstructure:"sources"`
-	Search     SearchConfig               `mapstructure:"search"`
+	Server     ServerConfig      `mapstructure:"server"`
+	Database   DatabaseConfig    `mapstructure:"database"`
+	Qdrant     QdrantConfig      `mapstructure:"qdrant"`
+	Storage    StorageConfig     `mapstructure:"storage"`
+	VLM        VLMConfig         `mapstructure:"vlm"`
+	Embeddings []EmbeddingConfig `mapstructure:"embeddings"` // List of embedding configurations
+	Ingest     IngestConfig      `mapstructure:"ingest"`
+	Sources    SourcesConfig     `mapstructure:"sources"`
+	Search     SearchConfig      `mapstructure:"search"`
 }
 
 // ServerConfig defines HTTP server settings.
@@ -54,9 +52,6 @@ type DatabaseConfig struct {
 }
 
 // DSN builds the Data Source Name for the configured database.
-// Parameters: none.
-// Returns:
-//   - string: DSN string suitable for GORM drivers.
 func (c *DatabaseConfig) DSN() string {
 	if c.Driver == "sqlite" {
 		return c.Path
@@ -79,9 +74,9 @@ func (c *DatabaseConfig) DSN() string {
 type QdrantConfig struct {
 	Host       string `mapstructure:"host"`
 	Port       int    `mapstructure:"port"`
-	Collection string `mapstructure:"collection"`
-	APIKey     string `mapstructure:"api_key"` // Qdrant Cloud API Key
-	UseTLS     bool   `mapstructure:"use_tls"` // Enable TLS (auto-enabled when APIKey is set)
+	Collection string `mapstructure:"collection"` // Default collection name (fallback)
+	APIKey     string `mapstructure:"api_key"`    // Qdrant Cloud API Key
+	UseTLS     bool   `mapstructure:"use_tls"`    // Enable TLS (auto-enabled when APIKey is set)
 }
 
 // StorageConfig holds configuration for S3-compatible storage (R2, S3, etc.).
@@ -102,16 +97,6 @@ type VLMConfig struct {
 	Model    string `mapstructure:"model"`
 	APIKey   string `mapstructure:"api_key"`
 	BaseURL  string `mapstructure:"base_url"`
-}
-
-// EmbeddingConfig defines configuration for a text embedding provider.
-type EmbeddingConfig struct {
-	Provider   string `mapstructure:"provider"`   // "jina", "modelscope", "openai-compatible"
-	Model      string `mapstructure:"model"`      // Model name/ID
-	APIKey     string `mapstructure:"api_key"`    // API key for authentication
-	BaseURL    string `mapstructure:"base_url"`   // Base URL for OpenAI-compatible APIs
-	Dimensions int    `mapstructure:"dimensions"` // Embedding vector dimensions
-	Collection string `mapstructure:"collection"` // Qdrant collection name for this embedding
 }
 
 // IngestConfig defines ingestion concurrency and batching settings.
@@ -153,6 +138,7 @@ type StagingConfig struct {
 // Load reads configuration from file/environment and returns a Config.
 // Parameters:
 //   - configPath: optional explicit path to a config file.
+//
 // Returns:
 //   - *Config: loaded configuration with defaults applied.
 //   - error: non-nil if loading or unmarshalling fails.
@@ -177,10 +163,40 @@ func Load(configPath string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Set defaults
+	setDefaults(v)
+
+	// Read config file
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+	}
+
+	// Bind environment variables for sensitive/override data
+	bindEnvVars(v)
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Resolve environment variables for all embedding configurations
+	for i := range cfg.Embeddings {
+		cfg.Embeddings[i].ResolveEnvVars()
+	}
+
+	return &cfg, nil
+}
+
+// setDefaults sets all default configuration values.
+func setDefaults(v *viper.Viper) {
+	// Server defaults
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "debug")
 	v.SetDefault("server.cors.allow_all_origins", true)
 	v.SetDefault("server.cors.allowed_origins", []string{})
+
+	// Database defaults
 	v.SetDefault("database.driver", "sqlite")
 	v.SetDefault("database.path", "./data/memes.db")
 	v.SetDefault("database.host", "localhost")
@@ -192,44 +208,48 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("database.max_idle_conns", 10)
 	v.SetDefault("database.max_open_conns", 100)
 	v.SetDefault("database.conn_max_lifetime", "1h")
+
+	// Qdrant defaults
 	v.SetDefault("qdrant.host", "localhost")
 	v.SetDefault("qdrant.port", 6334)
 	v.SetDefault("qdrant.collection", "emomo")
 	v.SetDefault("qdrant.api_key", "")
 	v.SetDefault("qdrant.use_tls", false)
+
+	// Storage defaults
 	v.SetDefault("storage.endpoint", "localhost:9000")
 	v.SetDefault("storage.use_ssl", false)
 	v.SetDefault("storage.bucket", "memes")
-	// VLM Configuration (OpenAI Compatible)
+
+	// VLM defaults
 	v.SetDefault("vlm.provider", "openai")
-	v.SetDefault("vlm.model", "gpt-4o-mini") // Can be any compatible model
+	v.SetDefault("vlm.model", "gpt-4o-mini")
 	v.SetDefault("vlm.base_url", "https://api.openai.com/v1")
-	v.SetDefault("embedding.provider", "jina")
-	v.SetDefault("embedding.model", "jina-embeddings-v3")
-	v.SetDefault("embedding.dimensions", 1024)
+
+	// Ingest defaults
 	v.SetDefault("ingest.workers", 5)
 	v.SetDefault("ingest.batch_size", 10)
 	v.SetDefault("ingest.retry_count", 3)
+
+	// Sources defaults
 	v.SetDefault("sources.chinesebqb.enabled", true)
 	v.SetDefault("sources.chinesebqb.repo_path", "./data/ChineseBQB")
 	v.SetDefault("sources.staging.path", "./data/staging")
+
+	// Search defaults
 	v.SetDefault("search.score_threshold", 0.0)
 	v.SetDefault("search.query_expansion.enabled", true)
 	v.SetDefault("search.query_expansion.model", "gpt-4o-mini")
+}
 
-	// Read config file
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
-	}
+// bindEnvVars binds environment variables to configuration keys.
+func bindEnvVars(v *viper.Viper) {
+	// Server
+	v.BindEnv("server.port", "PORT")
 
-	// Bind environment variables explicitly for sensitive data
-	v.BindEnv("server.port", "PORT") // Hugging Face Spaces uses PORT env var (default: 7860)
-
-	// Database environment variables
+	// Database
 	v.BindEnv("database.driver", "DATABASE_DRIVER")
-	v.BindEnv("database.url", "DATABASE_URL") // PostgreSQL connection URL (takes priority)
+	v.BindEnv("database.url", "DATABASE_URL")
 	v.BindEnv("database.path", "DATABASE_PATH")
 	v.BindEnv("database.host", "DATABASE_HOST")
 	v.BindEnv("database.port", "DATABASE_PORT")
@@ -237,15 +257,15 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("database.password", "DATABASE_PASSWORD")
 	v.BindEnv("database.dbname", "DATABASE_DBNAME")
 	v.BindEnv("database.sslmode", "DATABASE_SSLMODE")
-	v.BindEnv("database.sslrootcert", "DATABASE_SSLROOTCERT")
 
+	// Qdrant
 	v.BindEnv("qdrant.host", "QDRANT_HOST")
 	v.BindEnv("qdrant.port", "QDRANT_PORT")
 	v.BindEnv("qdrant.collection", "QDRANT_COLLECTION")
 	v.BindEnv("qdrant.api_key", "QDRANT_API_KEY")
 	v.BindEnv("qdrant.use_tls", "QDRANT_USE_TLS")
 
-	// Storage environment variables
+	// Storage
 	v.BindEnv("storage.type", "STORAGE_TYPE")
 	v.BindEnv("storage.endpoint", "STORAGE_ENDPOINT")
 	v.BindEnv("storage.access_key", "STORAGE_ACCESS_KEY")
@@ -254,101 +274,58 @@ func Load(configPath string) (*Config, error) {
 	v.BindEnv("storage.bucket", "STORAGE_BUCKET")
 	v.BindEnv("storage.region", "STORAGE_REGION")
 	v.BindEnv("storage.public_url", "STORAGE_PUBLIC_URL")
+
+	// VLM
 	v.BindEnv("vlm.api_key", "OPENAI_API_KEY")
 	v.BindEnv("vlm.base_url", "OPENAI_BASE_URL")
 	v.BindEnv("vlm.model", "VLM_MODEL")
 
-	// Default embedding environment variables
-	v.BindEnv("embedding.provider", "EMBEDDING_PROVIDER")
-	v.BindEnv("embedding.model", "EMBEDDING_MODEL")
-	v.BindEnv("embedding.dimensions", "EMBEDDING_DIMENSIONS")
-	v.BindEnv("embedding.api_key", "EMBEDDING_API_KEY")
-	v.BindEnv("embedding.base_url", "EMBEDDING_BASE_URL")
-	v.BindEnv("embedding.collection", "EMBEDDING_COLLECTION")
-
-	// Named embeddings environment variables
-	v.BindEnv("embeddings.jina.api_key", "JINA_API_KEY")
-	v.BindEnv("embeddings.qwen3.api_key", "MODELSCOPE_API_KEY")
-	v.BindEnv("embeddings.qwen3.base_url", "MODELSCOPE_BASE_URL")
-
+	// Search
 	v.BindEnv("search.score_threshold", "SEARCH_SCORE_THRESHOLD")
 	v.BindEnv("search.query_expansion.model", "QUERY_EXPANSION_MODEL")
-
-	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// Manually apply environment variable overrides for map-based embedding configs
-	// (Viper's BindEnv doesn't work well with map keys)
-	if cfg.Embeddings != nil {
-		// Override qwen3 config from environment
-		if qwen3Cfg, ok := cfg.Embeddings["qwen3"]; ok {
-			if apiKey := os.Getenv("MODELSCOPE_API_KEY"); apiKey != "" {
-				qwen3Cfg.APIKey = apiKey
-			}
-			if baseURL := os.Getenv("MODELSCOPE_BASE_URL"); baseURL != "" {
-				qwen3Cfg.BaseURL = baseURL
-			}
-			cfg.Embeddings["qwen3"] = qwen3Cfg
-		}
-		// Override jina config from environment
-		if jinaCfg, ok := cfg.Embeddings["jina"]; ok {
-			if apiKey := os.Getenv("JINA_API_KEY"); apiKey != "" {
-				jinaCfg.APIKey = apiKey
-			}
-			cfg.Embeddings["jina"] = jinaCfg
-		}
-	}
-
-	// Log database driver for debugging
-	fmt.Printf("[Config] Database driver: %q (env DATABASE_DRIVER=%q)\n", cfg.Database.Driver, os.Getenv("DATABASE_DRIVER"))
-
-	return &cfg, nil
 }
 
 // GetStorageConfig returns the storage configuration.
-// Parameters: none.
-// Returns:
-//   - *StorageConfig: pointer to the storage config section.
 func (c *Config) GetStorageConfig() *StorageConfig {
 	return &c.Storage
 }
 
-// GetEmbeddingConfig returns the embedding configuration by name.
-// Parameters:
-//   - name: embedding config name; empty uses the default embedding.
-// Returns:
-//   - *EmbeddingConfig: config for the named embedding, or nil if missing.
-func (c *Config) GetEmbeddingConfig(name string) *EmbeddingConfig {
-	if name == "" {
-		return &c.Embedding
+// GetDefaultEmbedding returns the default embedding configuration.
+// Returns nil if no embeddings are configured or no default is set.
+func (c *Config) GetDefaultEmbedding() *EmbeddingConfig {
+	// First, look for explicitly marked default
+	for i := range c.Embeddings {
+		if c.Embeddings[i].IsDefault {
+			return &c.Embeddings[i]
+		}
 	}
-	if cfg, ok := c.Embeddings[name]; ok {
-		return &cfg
+
+	// Fall back to first embedding if available
+	if len(c.Embeddings) > 0 {
+		return &c.Embeddings[0]
+	}
+
+	return nil
+}
+
+// GetEmbeddingByName returns the embedding configuration with the given name.
+// Returns nil if not found.
+func (c *Config) GetEmbeddingByName(name string) *EmbeddingConfig {
+	for i := range c.Embeddings {
+		if c.Embeddings[i].Name == name {
+			return &c.Embeddings[i]
+		}
 	}
 	return nil
 }
 
-// GetCollectionForEmbedding returns the Qdrant collection name for an embedding.
-// Parameters:
-//   - embeddingName: embedding config name; empty uses the default embedding.
-// Returns:
-//   - string: collection name to use for the embedding.
-func (c *Config) GetCollectionForEmbedding(embeddingName string) string {
-	if embeddingName == "" {
-		// Default embedding uses default collection
-		if c.Embedding.Collection != "" {
-			return c.Embedding.Collection
-		}
-		return c.Qdrant.Collection
-	}
-
-	if cfg, ok := c.Embeddings[embeddingName]; ok {
-		if cfg.Collection != "" {
-			return cfg.Collection
+// GetDefaultCollection returns the default Qdrant collection name.
+// It uses the default embedding's collection, or falls back to Qdrant.Collection.
+func (c *Config) GetDefaultCollection() string {
+	if defaultEmb := c.GetDefaultEmbedding(); defaultEmb != nil {
+		if defaultEmb.Collection != "" {
+			return defaultEmb.Collection
 		}
 	}
-
 	return c.Qdrant.Collection
 }

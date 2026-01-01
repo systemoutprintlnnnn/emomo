@@ -2,8 +2,8 @@ server:
   port: 8080
   mode: release  # Use release mode in production
   cors:
-    allow_all_origins: false # Set to false for better security in production
-    allowed_origins: []      # Add your domains here
+    allow_all_origins: false  # Set to false for better security in production
+    allowed_origins: []       # Add your domains here
 
 database:
   driver: postgres
@@ -21,7 +21,7 @@ qdrant:
   # host: set via QDRANT_HOST env var
   host: ""
   port: 6334
-  collection: emomo
+  collection: emomo  # Default collection name (fallback)
 
 storage:
   type: r2
@@ -39,11 +39,15 @@ vlm:
   model: ""
   base_url: https://openrouter.ai/api/v1
 
-embedding:
-  provider: jina
-  # model: set via EMBEDDING_MODEL env var
-  model: ""
-  dimensions: 1024
+# Embedding configurations (list format)
+embeddings:
+  - name: jina
+    provider: jina
+    model: jina-embeddings-v3
+    api_key_env: JINA_API_KEY
+    dimensions: 1024
+    collection: emomo
+    is_default: true
 
 ingest:
   workers: 5
@@ -51,7 +55,7 @@ ingest:
   retry_count: 3
 
 search:
-  score_threshold: 0.1 # Slightly higher threshold for production
+  score_threshold: 0.1  # Slightly higher threshold for production
   query_expansion:
     enabled: true
     # model: set via QUERY_EXPANSION_MODEL env var
@@ -61,3 +65,5 @@ sources:
   chinesebqb:
     enabled: true
     repo_path: ./data/ChineseBQB
+  staging:
+    path: ./data/staging

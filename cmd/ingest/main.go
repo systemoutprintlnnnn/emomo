@@ -33,7 +33,7 @@ func main() {
 	retryPending := flag.Bool("retry", false, "Retry pending items instead of ingesting new ones")
 	force := flag.Bool("force", false, "Force re-process items, skip duplicate checks")
 	configPath := flag.String("config", "", "Path to config file")
-	embeddingName := flag.String("embedding", "", "Embedding config name (e.g., 'jina', 'qwen3'). If empty, uses default embedding config")
+	embeddingName := flag.String("embedding", "", "Embedding config name (e.g., 'jina', 'qwen3'). If empty, uses default")
 	flag.Parse()
 
 	// Load configuration
@@ -42,31 +42,39 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to load config")
 	}
 
-	// Determine embedding configuration and collection
+	// Determine embedding configuration
 	var embeddingCfg *config.EmbeddingConfig
-	var collectionName string
-
 	if *embeddingName != "" {
-		// Use named embedding configuration
-		embeddingCfg = cfg.GetEmbeddingConfig(*embeddingName)
+		embeddingCfg = cfg.GetEmbeddingByName(*embeddingName)
 		if embeddingCfg == nil {
 			appLogger.WithField("embedding", *embeddingName).Fatal("Unknown embedding configuration name")
 		}
-		collectionName = cfg.GetCollectionForEmbedding(*embeddingName)
 	} else {
-		// Use default embedding configuration
-		embeddingCfg = &cfg.Embedding
-		collectionName = cfg.GetCollectionForEmbedding("")
+		embeddingCfg = cfg.GetDefaultEmbedding()
+		if embeddingCfg == nil {
+			appLogger.Fatal("No embedding configuration found")
+		}
 	}
 
+	// Resolve environment variables for the selected embedding
+	embeddingCfg.ResolveEnvVars()
+
+	// Validate embedding configuration
+	if err := embeddingCfg.ValidateWithAPIKey(); err != nil {
+		appLogger.WithError(err).Fatal("Invalid embedding configuration")
+	}
+
+	// Get collection name
+	collectionName := embeddingCfg.GetCollection(cfg.Qdrant.Collection)
+
 	appLogger.WithFields(logger.Fields{
-		"source":           *sourceType,
-		"limit":            *limit,
-		"retry":            *retryPending,
-		"force":            *force,
-		"embedding":        *embeddingName,
-		"embedding_model":  embeddingCfg.Model,
-		"embedding_dim":    embeddingCfg.Dimensions,
+		"source":            *sourceType,
+		"limit":             *limit,
+		"retry":             *retryPending,
+		"force":             *force,
+		"embedding":         embeddingCfg.Name,
+		"embedding_model":   embeddingCfg.Model,
+		"embedding_dim":     embeddingCfg.Dimensions,
 		"qdrant_collection": collectionName,
 	}).Info("Starting ingestion")
 
@@ -80,7 +88,7 @@ func main() {
 	memeRepo := repository.NewMemeRepository(db)
 	vectorRepo := repository.NewMemeVectorRepository(db)
 
-	// Initialize Qdrant repository with the selected collection and vector dimension
+	// Initialize Qdrant repository
 	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
 		Host:            cfg.Qdrant.Host,
 		Port:            cfg.Qdrant.Port,
@@ -102,7 +110,7 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
 	}
 
-	// Initialize S3-compatible storage (supports R2, S3, etc.)
+	// Initialize S3-compatible storage
 	storageCfg := cfg.GetStorageConfig()
 	objectStorage, err := storage.NewStorage(&storage.S3Config{
 		Type:      storage.StorageType(storageCfg.Type),
@@ -118,12 +126,11 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to initialize storage")
 	}
 
-	// Ensure bucket exists
 	if err := objectStorage.EnsureBucket(ctx); err != nil {
 		appLogger.WithError(err).Fatal("Failed to ensure storage bucket")
 	}
 
-	// Initialize services
+	// Initialize VLM service
 	vlmService := service.NewVLMService(&service.VLMConfig{
 		Provider: cfg.VLM.Provider,
 		Model:    cfg.VLM.Model,
@@ -131,8 +138,8 @@ func main() {
 		BaseURL:  cfg.VLM.BaseURL,
 	})
 
-	// Create embedding provider based on configuration
-	embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingConfig{
+	// Create embedding provider
+	embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingProviderConfig{
 		Provider:   embeddingCfg.Provider,
 		Model:      embeddingCfg.Model,
 		APIKey:     embeddingCfg.APIKey,
@@ -143,6 +150,7 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to create embedding provider")
 	}
 
+	// Initialize ingest service
 	ingestService := service.NewIngestService(
 		memeRepo,
 		vectorRepo,
@@ -185,7 +193,6 @@ func main() {
 		case *sourceType == "chinesebqb":
 			src = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
 		case strings.HasPrefix(*sourceType, "staging:"):
-			// Format: staging:<source_id>, e.g., staging:fabiaoqing
 			sourceID := strings.TrimPrefix(*sourceType, "staging:")
 			src = staging.NewAdapter(cfg.Sources.Staging.Path, sourceID)
 			appLogger.WithField("staging_source", sourceID).Info("Using staging source")
