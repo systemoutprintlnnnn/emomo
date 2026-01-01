@@ -187,7 +187,7 @@ curl http://localhost:8080/api/v1/stats
 |--------|----------|------|
 | vlm.api_key | OPENAI_API_KEY | OpenAI-compatible API Key |
 | vlm.base_url | OPENAI_BASE_URL | OpenAI-compatible Base URL |
-| embedding.api_key | EMBEDDING_API_KEY / JINA_API_KEY | Embedding API Key |
+| embedding.api_key | EMBEDDING_API_KEY | Embedding API Key |
 | storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
 | storage.endpoint | STORAGE_ENDPOINT | 存储端点（不含 bucket） |
 | storage.bucket | STORAGE_BUCKET | 存储桶名称 |
