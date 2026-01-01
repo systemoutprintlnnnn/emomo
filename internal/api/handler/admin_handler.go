@@ -12,7 +12,7 @@ import (
 	"github.com/timmy/emomo/internal/source"
 )
 
-// AdminHandler handles admin operations
+// AdminHandler handles admin operations.
 type AdminHandler struct {
 	ingestService *service.IngestService
 	sources       map[string]source.Source
@@ -26,7 +26,13 @@ type AdminHandler struct {
 	lastRunStatus string
 }
 
-// NewAdminHandler creates a new admin handler
+// NewAdminHandler creates a new admin handler.
+// Parameters:
+//   - ingestService: ingest service instance.
+//   - sources: map of source adapters keyed by name.
+//   - log: logger instance.
+// Returns:
+//   - *AdminHandler: initialized handler.
 func NewAdminHandler(ingestService *service.IngestService, sources map[string]source.Source, log *logger.Logger) *AdminHandler {
 	return &AdminHandler{
 		ingestService: ingestService,
@@ -43,20 +49,20 @@ func (h *AdminHandler) log(c *gin.Context) *logger.Logger {
 	return h.logger
 }
 
-// IngestRequest represents the ingest API request
+// IngestRequest represents the ingest API request.
 type IngestRequest struct {
 	Source string `json:"source" binding:"required"`
 	Limit  int    `json:"limit" binding:"required,min=1,max=10000"`
 	Force  bool   `json:"force"`
 }
 
-// IngestResponse represents the ingest API response
+// IngestResponse represents the ingest API response.
 type IngestResponse struct {
 	Message string               `json:"message"`
 	Stats   *service.IngestStats `json:"stats,omitempty"`
 }
 
-// IngestStatusResponse represents the ingest status
+// IngestStatusResponse represents the ingest status.
 type IngestStatusResponse struct {
 	IsRunning     bool                 `json:"is_running"`
 	LastRunTime   string               `json:"last_run_time,omitempty"`
@@ -64,7 +70,10 @@ type IngestStatusResponse struct {
 	CurrentStats  *service.IngestStats `json:"current_stats,omitempty"`
 }
 
-// AdminPage serves the admin dashboard HTML page
+// AdminPage serves the admin dashboard HTML page.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes HTML response).
 func (h *AdminHandler) AdminPage(c *gin.Context) {
 	html := `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -326,7 +335,10 @@ func (h *AdminHandler) AdminPage(c *gin.Context) {
 	c.String(http.StatusOK, html)
 }
 
-// TriggerIngest handles the ingest API endpoint
+// TriggerIngest handles the ingest API endpoint.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	var req IngestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -428,7 +440,10 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	})
 }
 
-// GetIngestStatus returns the current ingest status
+// GetIngestStatus returns the current ingest status.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *AdminHandler) GetIngestStatus(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

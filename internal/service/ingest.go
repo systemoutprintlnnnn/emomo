@@ -25,7 +25,7 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-// IngestService handles the data ingestion pipeline
+// IngestService handles the data ingestion pipeline.
 type IngestService struct {
 	memeRepo   *repository.MemeRepository
 	vectorRepo *repository.MemeVectorRepository
@@ -39,14 +39,25 @@ type IngestService struct {
 	collection string // Target Qdrant collection name
 }
 
-// IngestConfig holds configuration for the ingest service
+// IngestConfig holds configuration for the ingest service.
 type IngestConfig struct {
 	Workers    int
 	BatchSize  int
 	Collection string // Target Qdrant collection name
 }
 
-// NewIngestService creates a new ingest service
+// NewIngestService creates a new ingest service.
+// Parameters:
+//   - memeRepo: repository for meme records.
+//   - vectorRepo: repository for meme vectors.
+//   - qdrantRepo: Qdrant repository for vector storage.
+//   - objectStorage: object storage client for image files.
+//   - vlm: vision-language model service for descriptions.
+//   - embedding: embedding provider for vector generation.
+//   - log: logger instance.
+//   - cfg: ingest configuration settings.
+// Returns:
+//   - *IngestService: initialized ingest service.
 func NewIngestService(
 	memeRepo *repository.MemeRepository,
 	vectorRepo *repository.MemeVectorRepository,
@@ -79,7 +90,7 @@ func (s *IngestService) log(ctx context.Context) *logger.Logger {
 	return s.logger
 }
 
-// IngestStats holds statistics for an ingestion run
+// IngestStats holds statistics for an ingestion run.
 type IngestStats struct {
 	TotalItems     int64
 	ProcessedItems int64
@@ -89,12 +100,20 @@ type IngestStats struct {
 	EndTime        time.Time
 }
 
-// IngestOptions holds options for ingestion
+// IngestOptions holds options for ingestion.
 type IngestOptions struct {
 	Force bool // If true, skip existence checks and force re-process
 }
 
-// IngestFromSource ingests memes from a data source
+// IngestFromSource ingests memes from a data source.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - src: data source implementation.
+//   - limit: maximum number of items to ingest.
+//   - opts: ingestion options (nil uses defaults).
+// Returns:
+//   - *IngestStats: statistics for the ingest run.
+//   - error: non-nil if ingestion fails.
 func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source, limit int, opts *IngestOptions) (*IngestStats, error) {
 	if opts == nil {
 		opts = &IngestOptions{}
@@ -490,7 +509,13 @@ func getContentType(format string) string {
 	}
 }
 
-// RetryPending retries processing for memes with pending status
+// RetryPending retries processing for memes with pending status.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - limit: maximum number of pending memes to retry.
+// Returns:
+//   - *IngestStats: statistics for the retry run.
+//   - error: non-nil if the retry processing fails.
 func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestStats, error) {
 	stats := &IngestStats{
 		StartTime: time.Now(),

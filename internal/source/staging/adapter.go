@@ -15,11 +15,13 @@ import (
 )
 
 const (
+	// ManifestFileName is the JSONL manifest file name in staging sources.
 	ManifestFileName = "manifest.jsonl"
-	ImagesDir        = "images"
+	// ImagesDir is the directory name for staged images.
+	ImagesDir = "images"
 )
 
-// ManifestItem represents an item in the manifest.jsonl file
+// ManifestItem represents an item in the manifest.jsonl file.
 type ManifestItem struct {
 	ID         string   `json:"id"`
 	Filename   string   `json:"filename"`
@@ -31,7 +33,7 @@ type ManifestItem struct {
 	CrawledAt  string   `json:"crawled_at"`
 }
 
-// Adapter implements the Source interface for staging directory
+// Adapter implements the Source interface for the staging directory.
 type Adapter struct {
 	basePath string
 	sourceID string
@@ -39,7 +41,12 @@ type Adapter struct {
 	loaded   bool
 }
 
-// NewAdapter creates a new staging adapter
+// NewAdapter creates a new staging adapter.
+// Parameters:
+//   - basePath: base path to the staging directory.
+//   - sourceID: identifier for the staging source.
+// Returns:
+//   - *Adapter: initialized staging adapter.
 func NewAdapter(basePath, sourceID string) *Adapter {
 	return &Adapter{
 		basePath: basePath,
@@ -47,22 +54,39 @@ func NewAdapter(basePath, sourceID string) *Adapter {
 	}
 }
 
-// GetSourceID returns the unique identifier for this source
+// GetSourceID returns the unique identifier for this source.
+// Parameters: none.
+// Returns:
+//   - string: source identifier with "staging:" prefix.
 func (a *Adapter) GetSourceID() string {
 	return "staging:" + a.sourceID
 }
 
-// GetDisplayName returns a human-readable name for this source
+// GetDisplayName returns a human-readable name for this source.
+// Parameters: none.
+// Returns:
+//   - string: display name for the staging source.
 func (a *Adapter) GetDisplayName() string {
 	return fmt.Sprintf("Staging (%s)", a.sourceID)
 }
 
-// SupportsIncremental returns true if this source supports incremental updates
+// SupportsIncremental returns true if this source supports incremental updates.
+// Parameters: none.
+// Returns:
+//   - bool: false for staging sources.
 func (a *Adapter) SupportsIncremental() bool {
 	return false
 }
 
-// FetchBatch fetches a batch of meme items from the staging directory
+// FetchBatch fetches a batch of meme items from the staging directory.
+// Parameters:
+//   - ctx: context for cancellation and deadlines (unused for local reads).
+//   - cursor: pagination cursor as an index string.
+//   - limit: maximum number of items to fetch.
+// Returns:
+//   - []source.MemeItem: batch of meme items.
+//   - string: next cursor or empty if no more items.
+//   - error: non-nil if loading or parsing fails.
 func (a *Adapter) FetchBatch(ctx context.Context, cursor string, limit int) ([]source.MemeItem, string, error) {
 	// Load all items on first call
 	if !a.loaded {
@@ -174,7 +198,11 @@ func (a *Adapter) loadItems() error {
 	return nil
 }
 
-// GetTotalCount returns the total number of items in staging
+// GetTotalCount returns the total number of items in staging.
+// Parameters: none.
+// Returns:
+//   - int: total item count.
+//   - error: non-nil if loading fails.
 func (a *Adapter) GetTotalCount() (int, error) {
 	if !a.loaded {
 		if err := a.loadItems(); err != nil {
@@ -185,7 +213,12 @@ func (a *Adapter) GetTotalCount() (int, error) {
 	return len(a.items), nil
 }
 
-// ListStagingSources lists all available staging sources
+// ListStagingSources lists all available staging sources.
+// Parameters:
+//   - basePath: base path to the staging directory.
+// Returns:
+//   - []string: list of staging source IDs.
+//   - error: non-nil if reading the directory fails.
 func ListStagingSources(basePath string) ([]string, error) {
 	entries, err := os.ReadDir(basePath)
 	if err != nil {

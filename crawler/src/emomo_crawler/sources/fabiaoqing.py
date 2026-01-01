@@ -27,9 +27,21 @@ HEADERS = {
 
 
 class TLSAdapter(HTTPAdapter):
-    """Custom adapter for TLS configuration."""
+    """Custom adapter for TLS configuration.
+
+    This adapter relaxes TLS settings to support legacy endpoints.
+    """
 
     def init_poolmanager(self, *args, **kwargs):
+        """Initialize the pool manager with custom TLS settings.
+
+        Args:
+            *args: Positional arguments passed to the base implementation.
+            **kwargs: Keyword arguments passed to the base implementation.
+
+        Returns:
+            Pool manager created by the base HTTPAdapter.
+        """
         context = ssl.create_default_context()
         context.set_ciphers("DEFAULT@SECLEVEL=1")
         context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -40,6 +52,15 @@ class TLSAdapter(HTTPAdapter):
         return super().init_poolmanager(*args, **kwargs)
 
     def proxy_manager_for(self, *args, **kwargs):
+        """Initialize the proxy manager with custom TLS settings.
+
+        Args:
+            *args: Positional arguments passed to the base implementation.
+            **kwargs: Keyword arguments passed to the base implementation.
+
+        Returns:
+            Proxy manager created by the base HTTPAdapter.
+        """
         context = ssl.create_default_context()
         context.set_ciphers("DEFAULT@SECLEVEL=1")
         context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -51,7 +72,12 @@ class TLSAdapter(HTTPAdapter):
 
 
 class FabiaoqingCrawler(BaseCrawler):
-    """Crawler for fabiaoqing.com meme website."""
+    """Crawler for the fabiaoqing.com meme website.
+
+    Attributes:
+        threads: Number of download threads.
+        session: Requests session configured for the site.
+    """
 
     BASE_URL = "https://fabiaoqing.com"
     LIST_URL = "https://fabiaoqing.com/biaoqing/lists/page/{page}.html"
@@ -63,16 +89,37 @@ class FabiaoqingCrawler(BaseCrawler):
         timeout: int = 15,
         threads: int = 5,
     ):
+        """Initialize the fabiaoqing crawler.
+
+        Args:
+            rate_limit: Requests per second.
+            max_retries: Maximum retry attempts.
+            timeout: Request timeout in seconds.
+            threads: Number of parallel download threads.
+
+        Returns:
+            None.
+        """
         super().__init__(rate_limit, max_retries, timeout)
         self.threads = threads
         self.session = self._create_session()
 
     @property
     def source_id(self) -> str:
+        """Return the unique source identifier.
+
+        Returns:
+            Source identifier string.
+        """
         return "fabiaoqing"
 
     @property
     def display_name(self) -> str:
+        """Return a human-readable name for this source.
+
+        Returns:
+            Display name for the crawler source.
+        """
         return "发表情 (fabiaoqing.com)"
 
     def _create_session(self) -> requests.Session:

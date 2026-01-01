@@ -12,16 +12,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// StorageType defines the type of S3-compatible storage
+// StorageType defines the type of S3-compatible storage.
 type StorageType string
 
 const (
-	StorageTypeR2  StorageType = "r2"
-	StorageTypeS3  StorageType = "s3"
+	// StorageTypeR2 identifies Cloudflare R2 storage.
+	StorageTypeR2 StorageType = "r2"
+	// StorageTypeS3 identifies AWS S3 storage.
+	StorageTypeS3 StorageType = "s3"
+	// StorageTypeS3Compatible identifies other S3-compatible storage providers.
 	StorageTypeS3Compatible StorageType = "s3compatible"
 )
 
-// S3Config holds configuration for S3-compatible storage
+// S3Config holds configuration for S3-compatible storage.
 type S3Config struct {
 	Type      StorageType
 	Endpoint  string
@@ -33,7 +36,7 @@ type S3Config struct {
 	PublicURL string // Public URL prefix for R2.dev or custom CDN
 }
 
-// S3Storage implements ObjectStorage for S3-compatible services
+// S3Storage implements ObjectStorage for S3-compatible services.
 type S3Storage struct {
 	client    *s3.Client
 	bucket    string
@@ -44,7 +47,12 @@ type S3Storage struct {
 	region    string
 }
 
-// NewS3Storage creates a new S3-compatible storage client
+// NewS3Storage creates a new S3-compatible storage client.
+// Parameters:
+//   - cfg: storage configuration including endpoint, credentials, and bucket.
+// Returns:
+//   - *S3Storage: initialized storage client.
+//   - error: non-nil if configuration or client initialization fails.
 func NewS3Storage(cfg *S3Config) (*S3Storage, error) {
 	// Normalize endpoint: remove protocol prefix and trailing slashes/paths
 	endpoint := normalizeEndpoint(cfg.Endpoint)
@@ -116,7 +124,11 @@ func normalizeEndpoint(endpoint string) string {
 	return endpoint
 }
 
-// EnsureBucket creates the bucket if it doesn't exist
+// EnsureBucket ensures the configured bucket exists.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+// Returns:
+//   - error: non-nil if the bucket check/create fails.
 func (s *S3Storage) EnsureBucket(ctx context.Context) error {
 	// Check if bucket exists
 	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
@@ -142,7 +154,15 @@ func (s *S3Storage) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
-// Upload uploads an object to storage
+// Upload stores an object at the given key.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - key: storage key (path) for the object.
+//   - reader: stream providing the object content.
+//   - size: content length in bytes.
+//   - contentType: MIME type for the object.
+// Returns:
+//   - error: non-nil if the upload fails.
 func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
@@ -158,7 +178,13 @@ func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, si
 	return nil
 }
 
-// Download downloads an object from storage
+// Download retrieves an object by key.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - key: storage key (path) for the object.
+// Returns:
+//   - io.ReadCloser: reader for the object contents.
+//   - error: non-nil if the download fails.
 func (s *S3Storage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
@@ -171,7 +197,11 @@ func (s *S3Storage) Download(ctx context.Context, key string) (io.ReadCloser, er
 	return result.Body, nil
 }
 
-// GetURL returns the public URL for accessing an object
+// GetURL returns a public or signed URL for accessing an object.
+// Parameters:
+//   - key: storage key (path) for the object.
+// Returns:
+//   - string: URL that can be used to access the object.
 func (s *S3Storage) GetURL(key string) string {
 	// If public URL is configured (R2.dev or custom CDN), use it
 	if s.publicURL != "" {
@@ -201,7 +231,12 @@ func (s *S3Storage) GetURL(key string) string {
 	}
 }
 
-// Delete deletes an object from storage
+// Delete removes an object by key.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - key: storage key (path) for the object.
+// Returns:
+//   - error: non-nil if the delete fails.
 func (s *S3Storage) Delete(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
@@ -213,7 +248,13 @@ func (s *S3Storage) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// Exists checks if an object exists in storage
+// Exists checks if an object exists by key.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - key: storage key (path) for the object.
+// Returns:
+//   - bool: true if the object exists.
+//   - error: non-nil if the check fails.
 func (s *S3Storage) Exists(ctx context.Context, key string) (bool, error) {
 	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),

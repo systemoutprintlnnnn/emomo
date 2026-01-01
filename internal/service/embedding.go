@@ -12,21 +12,45 @@ const (
 	jinaEndpoint = "https://api.jina.ai/v1/embeddings"
 )
 
-// EmbeddingProvider defines the interface for embedding services
+// EmbeddingProvider defines the interface for embedding services.
 type EmbeddingProvider interface {
-	// Embed generates an embedding for a single text
+	// Embed generates an embedding for a single text.
+	// Parameters:
+	//   - ctx: context for cancellation and deadlines.
+	//   - text: input text to embed.
+	// Returns:
+	//   - []float32: embedding vector.
+	//   - error: non-nil if embedding fails.
 	Embed(ctx context.Context, text string) ([]float32, error)
-	// EmbedBatch generates embeddings for multiple texts
+	// EmbedBatch generates embeddings for multiple texts.
+	// Parameters:
+	//   - ctx: context for cancellation and deadlines.
+	//   - texts: input texts to embed.
+	// Returns:
+	//   - [][]float32: embeddings aligned with input order.
+	//   - error: non-nil if embedding fails.
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
-	// EmbedQuery generates an embedding optimized for query/search
+	// EmbedQuery generates an embedding optimized for query/search.
+	// Parameters:
+	//   - ctx: context for cancellation and deadlines.
+	//   - query: query text to embed.
+	// Returns:
+	//   - []float32: embedding vector for the query.
+	//   - error: non-nil if embedding fails.
 	EmbedQuery(ctx context.Context, query string) ([]float32, error)
-	// GetModel returns the model name being used
+	// GetModel returns the model name being used.
+	// Parameters: none.
+	// Returns:
+	//   - string: model identifier.
 	GetModel() string
-	// GetDimensions returns the embedding dimensions
+	// GetDimensions returns the embedding dimensions.
+	// Parameters: none.
+	// Returns:
+	//   - int: embedding vector size.
 	GetDimensions() int
 }
 
-// EmbeddingConfig holds configuration for embedding service
+// EmbeddingConfig holds configuration for embedding service.
 type EmbeddingConfig struct {
 	Provider   string
 	Model      string
@@ -35,7 +59,12 @@ type EmbeddingConfig struct {
 	Dimensions int
 }
 
-// NewEmbeddingProvider creates a new embedding provider based on the configuration
+// NewEmbeddingProvider creates a new embedding provider based on the configuration.
+// Parameters:
+//   - cfg: embedding configuration including provider, model, and API key.
+// Returns:
+//   - EmbeddingProvider: initialized embedding provider implementation.
+//   - error: non-nil if the provider is unknown or cannot be created.
 func NewEmbeddingProvider(cfg *EmbeddingConfig) (EmbeddingProvider, error) {
 	switch cfg.Provider {
 	case "jina":
@@ -51,7 +80,7 @@ func NewEmbeddingProvider(cfg *EmbeddingConfig) (EmbeddingProvider, error) {
 // Jina Embedding Provider
 // =============================================================================
 
-// JinaEmbeddingProvider handles text embedding generation using Jina AI
+// JinaEmbeddingProvider handles text embedding generation using Jina AI.
 type JinaEmbeddingProvider struct {
 	client     *resty.Client
 	model      string
@@ -78,7 +107,11 @@ type jinaResponse struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// NewJinaEmbeddingProvider creates a new Jina embedding provider
+// NewJinaEmbeddingProvider creates a new Jina embedding provider.
+// Parameters:
+//   - cfg: embedding configuration including model and API key.
+// Returns:
+//   - *JinaEmbeddingProvider: initialized Jina provider.
 func NewJinaEmbeddingProvider(cfg *EmbeddingConfig) *JinaEmbeddingProvider {
 	client := resty.New()
 	client.SetHeader("Authorization", "Bearer "+cfg.APIKey)
@@ -91,17 +124,29 @@ func NewJinaEmbeddingProvider(cfg *EmbeddingConfig) *JinaEmbeddingProvider {
 	}
 }
 
-// GetModel returns the model name being used
+// GetModel returns the model name being used.
+// Parameters: none.
+// Returns:
+//   - string: model identifier.
 func (p *JinaEmbeddingProvider) GetModel() string {
 	return p.model
 }
 
-// GetDimensions returns the embedding dimensions
+// GetDimensions returns the embedding dimensions.
+// Parameters: none.
+// Returns:
+//   - int: embedding vector size.
 func (p *JinaEmbeddingProvider) GetDimensions() int {
 	return p.dimensions
 }
 
-// Embed generates an embedding for a single text
+// Embed generates an embedding for a single text.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - text: input text to embed.
+// Returns:
+//   - []float32: embedding vector.
+//   - error: non-nil if embedding fails.
 func (p *JinaEmbeddingProvider) Embed(ctx context.Context, text string) ([]float32, error) {
 	embeddings, err := p.EmbedBatch(ctx, []string{text})
 	if err != nil {
@@ -113,7 +158,13 @@ func (p *JinaEmbeddingProvider) Embed(ctx context.Context, text string) ([]float
 	return embeddings[0], nil
 }
 
-// EmbedBatch generates embeddings for multiple texts
+// EmbedBatch generates embeddings for multiple texts.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - texts: input texts to embed.
+// Returns:
+//   - [][]float32: embeddings aligned with input order.
+//   - error: non-nil if embedding fails.
 func (p *JinaEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return [][]float32{}, nil
@@ -160,7 +211,13 @@ func (p *JinaEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) 
 	return embeddings, nil
 }
 
-// EmbedQuery generates an embedding optimized for query/search
+// EmbedQuery generates an embedding optimized for query/search.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: query text to embed.
+// Returns:
+//   - []float32: embedding vector for the query.
+//   - error: non-nil if embedding fails.
 func (p *JinaEmbeddingProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	req := jinaRequest{
 		Model:         p.model,
@@ -199,8 +256,8 @@ func (p *JinaEmbeddingProvider) EmbedQuery(ctx context.Context, query string) ([
 // OpenAI-Compatible Embedding Provider (ModelScope, etc.)
 // =============================================================================
 
-// OpenAICompatibleEmbeddingProvider handles text embedding generation using OpenAI-compatible APIs
-// This supports ModelScope, OpenAI, and other compatible providers
+// OpenAICompatibleEmbeddingProvider handles text embedding generation using OpenAI-compatible APIs.
+// This supports ModelScope, OpenAI, and other compatible providers.
 type OpenAICompatibleEmbeddingProvider struct {
 	client     *resty.Client
 	model      string
@@ -237,7 +294,11 @@ type openAIEmbeddingResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// NewOpenAICompatibleEmbeddingProvider creates a new OpenAI-compatible embedding provider
+// NewOpenAICompatibleEmbeddingProvider creates a new OpenAI-compatible embedding provider.
+// Parameters:
+//   - cfg: embedding configuration including model, API key, and base URL.
+// Returns:
+//   - *OpenAICompatibleEmbeddingProvider: initialized provider instance.
 func NewOpenAICompatibleEmbeddingProvider(cfg *EmbeddingConfig) *OpenAICompatibleEmbeddingProvider {
 	client := resty.New()
 	client.SetHeader("Authorization", "Bearer "+cfg.APIKey)
@@ -256,17 +317,29 @@ func NewOpenAICompatibleEmbeddingProvider(cfg *EmbeddingConfig) *OpenAICompatibl
 	}
 }
 
-// GetModel returns the model name being used
+// GetModel returns the model name being used.
+// Parameters: none.
+// Returns:
+//   - string: model identifier.
 func (p *OpenAICompatibleEmbeddingProvider) GetModel() string {
 	return p.model
 }
 
-// GetDimensions returns the embedding dimensions
+// GetDimensions returns the embedding dimensions.
+// Parameters: none.
+// Returns:
+//   - int: embedding vector size.
 func (p *OpenAICompatibleEmbeddingProvider) GetDimensions() int {
 	return p.dimensions
 }
 
-// Embed generates an embedding for a single text
+// Embed generates an embedding for a single text.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - text: input text to embed.
+// Returns:
+//   - []float32: embedding vector.
+//   - error: non-nil if embedding fails.
 func (p *OpenAICompatibleEmbeddingProvider) Embed(ctx context.Context, text string) ([]float32, error) {
 	embeddings, err := p.EmbedBatch(ctx, []string{text})
 	if err != nil {
@@ -278,7 +351,13 @@ func (p *OpenAICompatibleEmbeddingProvider) Embed(ctx context.Context, text stri
 	return embeddings[0], nil
 }
 
-// EmbedBatch generates embeddings for multiple texts
+// EmbedBatch generates embeddings for multiple texts.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - texts: input texts to embed.
+// Returns:
+//   - [][]float32: embeddings aligned with input order.
+//   - error: non-nil if embedding fails.
 func (p *OpenAICompatibleEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return [][]float32{}, nil
@@ -340,9 +419,15 @@ func (p *OpenAICompatibleEmbeddingProvider) EmbedBatch(ctx context.Context, text
 	return embeddings, nil
 }
 
-// EmbedQuery generates an embedding optimized for query/search
-// Note: OpenAI-compatible APIs don't have a separate query mode,
-// so this just calls the regular embedding endpoint
+// EmbedQuery generates an embedding optimized for query/search.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: query text to embed.
+// Returns:
+//   - []float32: embedding vector for the query.
+//   - error: non-nil if embedding fails.
+// Note: OpenAI-compatible APIs don't have a separate query mode, so this
+// calls the regular embedding endpoint.
 func (p *OpenAICompatibleEmbeddingProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	return p.Embed(ctx, query)
 }
@@ -351,13 +436,17 @@ func (p *OpenAICompatibleEmbeddingProvider) EmbedQuery(ctx context.Context, quer
 // Legacy Compatibility - EmbeddingService wrapper
 // =============================================================================
 
-// EmbeddingService is a wrapper for backward compatibility
-// It wraps an EmbeddingProvider and provides the same interface as before
+// EmbeddingService is a wrapper for backward compatibility.
+// It wraps an EmbeddingProvider and provides the same interface as before.
 type EmbeddingService struct {
 	provider EmbeddingProvider
 }
 
-// NewEmbeddingService creates a new embedding service (backward compatible)
+// NewEmbeddingService creates a new embedding service (backward compatible).
+// Parameters:
+//   - cfg: embedding configuration including provider settings.
+// Returns:
+//   - *EmbeddingService: wrapper around the selected provider.
 func NewEmbeddingService(cfg *EmbeddingConfig) *EmbeddingService {
 	// Default to Jina if provider is not specified
 	if cfg.Provider == "" {
@@ -375,32 +464,59 @@ func NewEmbeddingService(cfg *EmbeddingConfig) *EmbeddingService {
 	}
 }
 
-// GetModel returns the model name being used
+// GetModel returns the model name being used.
+// Parameters: none.
+// Returns:
+//   - string: model identifier.
 func (s *EmbeddingService) GetModel() string {
 	return s.provider.GetModel()
 }
 
-// GetDimensions returns the embedding dimensions
+// GetDimensions returns the embedding dimensions.
+// Parameters: none.
+// Returns:
+//   - int: embedding vector size.
 func (s *EmbeddingService) GetDimensions() int {
 	return s.provider.GetDimensions()
 }
 
-// Embed generates an embedding for a single text
+// Embed generates an embedding for a single text.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - text: input text to embed.
+// Returns:
+//   - []float32: embedding vector.
+//   - error: non-nil if embedding fails.
 func (s *EmbeddingService) Embed(ctx context.Context, text string) ([]float32, error) {
 	return s.provider.Embed(ctx, text)
 }
 
-// EmbedBatch generates embeddings for multiple texts
+// EmbedBatch generates embeddings for multiple texts.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - texts: input texts to embed.
+// Returns:
+//   - [][]float32: embeddings aligned with input order.
+//   - error: non-nil if embedding fails.
 func (s *EmbeddingService) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	return s.provider.EmbedBatch(ctx, texts)
 }
 
-// EmbedQuery generates an embedding optimized for query/search
+// EmbedQuery generates an embedding optimized for query/search.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: query text to embed.
+// Returns:
+//   - []float32: embedding vector for the query.
+//   - error: non-nil if embedding fails.
 func (s *EmbeddingService) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	return s.provider.EmbedQuery(ctx, query)
 }
 
-// GetProvider returns the underlying embedding provider
+// GetProvider returns the underlying embedding provider.
+// Parameters: none.
+// Returns:
+//   - EmbeddingProvider: wrapped provider instance.
 func (s *EmbeddingService) GetProvider() EmbeddingProvider {
 	return s.provider
 }

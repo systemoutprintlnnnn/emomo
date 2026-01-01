@@ -18,7 +18,7 @@ const (
 	DefaultVectorDimension = 1024
 )
 
-// QdrantConnectionConfig holds configuration for Qdrant connection
+// QdrantConnectionConfig holds configuration for Qdrant connection.
 type QdrantConnectionConfig struct {
 	Host            string
 	Port            int
@@ -36,7 +36,7 @@ func apiKeyInterceptor(apiKey string) grpc.UnaryClientInterceptor {
 	}
 }
 
-// QdrantRepository handles vector operations with Qdrant
+// QdrantRepository handles vector operations with Qdrant.
 type QdrantRepository struct {
 	conn            *grpc.ClientConn
 	pointsClient    pb.PointsClient
@@ -45,8 +45,13 @@ type QdrantRepository struct {
 	vectorDimension int
 }
 
-// NewQdrantRepository creates a new QdrantRepository
-// Supports both local Qdrant (insecure) and Qdrant Cloud (TLS + API Key)
+// NewQdrantRepository creates a new QdrantRepository.
+// Parameters:
+//   - cfg: Qdrant connection settings including host, port, and collection.
+// Returns:
+//   - *QdrantRepository: initialized repository instance.
+//   - error: non-nil if the connection cannot be established.
+// Supports both local Qdrant (insecure) and Qdrant Cloud (TLS + API Key).
 func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
@@ -94,12 +99,19 @@ func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error)
 	}, nil
 }
 
-// Close closes the gRPC connection
+// Close closes the gRPC connection.
+// Parameters: none.
+// Returns:
+//   - error: non-nil if closing the connection fails.
 func (r *QdrantRepository) Close() error {
 	return r.conn.Close()
 }
 
-// EnsureCollection creates the collection if it doesn't exist
+// EnsureCollection creates the collection if it doesn't exist.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+// Returns:
+//   - error: non-nil if the collection check/create fails.
 func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 	// Check if collection exists
 	_, err := r.collectClient.Get(ctx, &pb.GetCollectionInfoRequest{
@@ -133,12 +145,18 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 	return nil
 }
 
-// GetCollectionName returns the collection name
+// GetCollectionName returns the collection name.
+// Parameters: none.
+// Returns:
+//   - string: configured collection name.
 func (r *QdrantRepository) GetCollectionName() string {
 	return r.collectionName
 }
 
-// GetVectorDimension returns the vector dimension for this collection
+// GetVectorDimension returns the vector dimension for this collection.
+// Parameters: none.
+// Returns:
+//   - int: embedding vector size for the collection.
 func (r *QdrantRepository) GetVectorDimension() int {
 	return r.vectorDimension
 }
@@ -147,7 +165,7 @@ func optionalUint64(v uint64) *uint64 {
 	return &v
 }
 
-// MemePayload represents the payload stored with each vector
+// MemePayload represents the payload stored with each vector.
 type MemePayload struct {
 	MemeID         string   `json:"meme_id"`
 	SourceType     string   `json:"source_type"`
@@ -158,7 +176,14 @@ type MemePayload struct {
 	StorageURL     string   `json:"storage_url"`
 }
 
-// Upsert inserts or updates a vector with payload
+// Upsert inserts or updates a vector with payload.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - pointID: UUID string for the vector point.
+//   - vector: embedding vector values.
+//   - payload: metadata payload stored with the vector.
+// Returns:
+//   - error: non-nil if the upsert fails.
 func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []float32, payload *MemePayload) error {
 	// Parse UUID
 	uid, err := uuid.Parse(pointID)
@@ -215,14 +240,22 @@ func tagsToValue(tags []string) *pb.Value {
 	}
 }
 
-// SearchResult represents a search result from Qdrant
+// SearchResult represents a search result from Qdrant.
 type SearchResult struct {
 	ID      string
 	Score   float32
 	Payload *MemePayload
 }
 
-// Search performs a vector similarity search
+// Search performs a vector similarity search.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - vector: query embedding vector.
+//   - topK: maximum number of results to return.
+//   - filters: optional filter criteria for the search.
+// Returns:
+//   - []SearchResult: ranked search results.
+//   - error: non-nil if the search fails.
 func (r *QdrantRepository) Search(ctx context.Context, vector []float32, topK int, filters *SearchFilters) ([]SearchResult, error) {
 	req := &pb.SearchPoints{
 		CollectionName: r.collectionName,
@@ -255,7 +288,7 @@ func (r *QdrantRepository) Search(ctx context.Context, vector []float32, topK in
 	return results, nil
 }
 
-// SearchFilters defines optional filters for search
+// SearchFilters defines optional filters for search.
 type SearchFilters struct {
 	Category   *string
 	IsAnimated *bool
@@ -348,7 +381,13 @@ func parsePayload(payload map[string]*pb.Value) *MemePayload {
 	return p
 }
 
-// PointExists checks if a point exists by ID
+// PointExists checks if a point exists by ID.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - pointID: UUID string for the vector point.
+// Returns:
+//   - bool: true if the point exists.
+//   - error: non-nil if the check fails.
 func (r *QdrantRepository) PointExists(ctx context.Context, pointID string) (bool, error) {
 	uid, err := uuid.Parse(pointID)
 	if err != nil {
@@ -368,7 +407,12 @@ func (r *QdrantRepository) PointExists(ctx context.Context, pointID string) (boo
 	return len(resp.Result) > 0, nil
 }
 
-// Delete deletes a point by ID
+// Delete removes a point by ID.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - pointID: UUID string for the vector point.
+// Returns:
+//   - error: non-nil if the delete fails.
 func (r *QdrantRepository) Delete(ctx context.Context, pointID string) error {
 	uid, err := uuid.Parse(pointID)
 	if err != nil {

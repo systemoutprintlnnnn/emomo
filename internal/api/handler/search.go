@@ -8,19 +8,26 @@ import (
 	"github.com/timmy/emomo/internal/service"
 )
 
-// SearchHandler handles search-related endpoints
+// SearchHandler handles search-related endpoints.
 type SearchHandler struct {
 	searchService *service.SearchService
 }
 
-// NewSearchHandler creates a new search handler
+// NewSearchHandler creates a new search handler.
+// Parameters:
+//   - searchService: search service instance.
+// Returns:
+//   - *SearchHandler: initialized handler.
 func NewSearchHandler(searchService *service.SearchService) *SearchHandler {
 	return &SearchHandler{
 		searchService: searchService,
 	}
 }
 
-// TextSearch handles POST /api/v1/search
+// TextSearch handles POST /api/v1/search.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *SearchHandler) TextSearch(c *gin.Context) {
 	var req service.SearchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,7 +53,10 @@ func (h *SearchHandler) TextSearch(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// TextSearchGet handles GET /api/v1/search for simple search queries
+// TextSearchGet handles GET /api/v1/search for simple search queries.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *SearchHandler) TextSearchGet(c *gin.Context) {
 	query := c.Query("q")
 	if query == "" {
@@ -88,7 +98,10 @@ func (h *SearchHandler) TextSearchGet(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// GetCategories handles GET /api/v1/categories
+// GetCategories handles GET /api/v1/categories.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *SearchHandler) GetCategories(c *gin.Context) {
 	categories, err := h.searchService.GetCategories(c.Request.Context())
 	if err != nil {
@@ -104,7 +117,10 @@ func (h *SearchHandler) GetCategories(c *gin.Context) {
 	})
 }
 
-// GetStats handles GET /api/v1/stats
+// GetStats handles GET /api/v1/stats.
+// Parameters:
+//   - c: Gin request context.
+// Returns: none (writes JSON response).
 func (h *SearchHandler) GetStats(c *gin.Context) {
 	stats, err := h.searchService.GetStats(c.Request.Context())
 	if err != nil {

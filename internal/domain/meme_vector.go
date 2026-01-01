@@ -3,8 +3,7 @@ package domain
 import "time"
 
 // MemeVector represents the relationship between a meme and its vector in a specific collection.
-// This allows the same meme to be embedded using different embedding models,
-// with each vector stored in its own Qdrant collection.
+// This allows the same meme to be embedded using different models and stored per collection.
 type MemeVector struct {
 	ID             string    `gorm:"type:text;primaryKey" json:"id"`
 	MemeID         string    `gorm:"type:text;not null;index:idx_meme_vectors_meme" json:"meme_id"`
@@ -16,11 +15,15 @@ type MemeVector struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// TableName returns the database table name for MemeVector.
+// Parameters: none.
+// Returns:
+//   - string: table name for GORM mapping.
 func (MemeVector) TableName() string {
 	return "meme_vectors"
 }
 
-// MemeVectorStatus constants
+// MemeVectorStatus constants for tracking vector lifecycle.
 const (
 	MemeVectorStatusActive  = "active"
 	MemeVectorStatusDeleted = "deleted"

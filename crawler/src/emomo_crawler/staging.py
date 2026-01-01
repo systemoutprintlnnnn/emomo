@@ -9,7 +9,18 @@ from pathlib import Path
 
 @dataclass
 class StagingItem:
-    """A staged meme item."""
+    """A staged meme item.
+
+    Attributes:
+        id: Unique identifier for the item.
+        filename: Filename of the stored image.
+        category: Category name.
+        tags: List of tag strings.
+        source_url: Original image URL.
+        is_animated: Whether the image is animated.
+        format: Image format (jpg, png, gif, webp).
+        crawled_at: ISO timestamp of when the item was crawled.
+    """
 
     id: str
     filename: str
@@ -21,18 +32,37 @@ class StagingItem:
     crawled_at: str
 
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
+        """Convert the staging item to a dictionary.
+
+        Returns:
+            Dictionary representation of the staging item.
+        """
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "StagingItem":
-        """Create from dictionary."""
+        """Create a StagingItem from a dictionary.
+
+        Args:
+            data: Dictionary containing staging item fields.
+
+        Returns:
+            StagingItem instance built from the dictionary.
+        """
         return cls(**data)
 
 
 @dataclass
 class StagingStats:
-    """Statistics for a staging source."""
+    """Statistics for a staging source.
+
+    Attributes:
+        source_id: Source identifier.
+        total_images: Total number of staged images.
+        total_size_bytes: Total size of staged images in bytes.
+        categories: Count of items per category.
+        formats: Count of items per image format.
+    """
 
     source_id: str
     total_images: int
@@ -42,30 +72,65 @@ class StagingStats:
 
 
 class StagingManager:
-    """Manages the staging area for crawled memes."""
+    """Manages the staging area for crawled memes.
+
+    Attributes:
+        base_path: Base path for the staging directory.
+    """
 
     def __init__(self, base_path: Path | str):
         """Initialize the staging manager.
 
         Args:
             base_path: Base path for the staging directory.
+
+        Returns:
+            None.
         """
         self.base_path = Path(base_path)
 
     def _get_source_path(self, source_id: str) -> Path:
-        """Get the path for a specific source."""
+        """Get the path for a specific source.
+
+        Args:
+            source_id: The source identifier.
+
+        Returns:
+            Path to the source directory.
+        """
         return self.base_path / source_id
 
     def _get_images_path(self, source_id: str) -> Path:
-        """Get the images directory for a specific source."""
+        """Get the images directory for a specific source.
+
+        Args:
+            source_id: The source identifier.
+
+        Returns:
+            Path to the images directory.
+        """
         return self._get_source_path(source_id) / "images"
 
     def _get_manifest_path(self, source_id: str) -> Path:
-        """Get the manifest file path for a specific source."""
+        """Get the manifest file path for a specific source.
+
+        Args:
+            source_id: The source identifier.
+
+        Returns:
+            Path to the manifest.jsonl file.
+        """
         return self._get_source_path(source_id) / "manifest.jsonl"
 
     def ensure_directories(self, source_id: str) -> None:
-        """Ensure the staging directories exist for a source."""
+        """Ensure the staging directories exist for a source.
+
+        Args:
+            source_id: The source identifier.
+
+        Returns:
+            None.
+        """
         images_path = self._get_images_path(source_id)
         images_path.mkdir(parents=True, exist_ok=True)
 
@@ -103,6 +168,9 @@ class StagingManager:
         Args:
             source_id: The source identifier.
             item: The staging item to append.
+
+        Returns:
+            None.
         """
         self.ensure_directories(source_id)
 
@@ -204,13 +272,20 @@ class StagingManager:
 
         Args:
             source_id: The source identifier.
+
+        Returns:
+            None.
         """
         source_path = self._get_source_path(source_id)
         if source_path.exists():
             shutil.rmtree(source_path)
 
     def clean_all(self) -> None:
-        """Clean all staging sources."""
+        """Clean all staging sources.
+
+        Returns:
+            None.
+        """
         if self.base_path.exists():
             shutil.rmtree(self.base_path)
 

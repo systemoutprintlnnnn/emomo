@@ -7,22 +7,38 @@ import (
 	"gorm.io/gorm"
 )
 
-// MemeVectorRepository handles meme vector data operations
+// MemeVectorRepository handles meme vector data operations.
 type MemeVectorRepository struct {
 	db *gorm.DB
 }
 
-// NewMemeVectorRepository creates a new MemeVectorRepository
+// NewMemeVectorRepository creates a new MemeVectorRepository.
+// Parameters:
+//   - db: GORM database handle used for queries.
+// Returns:
+//   - *MemeVectorRepository: repository instance bound to db.
 func NewMemeVectorRepository(db *gorm.DB) *MemeVectorRepository {
 	return &MemeVectorRepository{db: db}
 }
 
-// Create creates a new meme vector record
+// Create inserts a new meme vector record.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - vector: meme vector record to persist.
+// Returns:
+//   - error: non-nil if the insert fails.
 func (r *MemeVectorRepository) Create(ctx context.Context, vector *domain.MemeVector) error {
 	return r.db.WithContext(ctx).Create(vector).Error
 }
 
-// ExistsByMD5AndCollection checks if a vector record exists for the given MD5 hash and collection
+// ExistsByMD5AndCollection checks if a vector record exists for the MD5 hash and collection.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - md5Hash: MD5 hash of the meme content.
+//   - collection: Qdrant collection name.
+// Returns:
+//   - bool: true if a record exists.
+//   - error: non-nil if the lookup fails.
 func (r *MemeVectorRepository) ExistsByMD5AndCollection(ctx context.Context, md5Hash, collection string) (bool, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&domain.MemeVector{}).
@@ -33,7 +49,14 @@ func (r *MemeVectorRepository) ExistsByMD5AndCollection(ctx context.Context, md5
 	return count > 0, nil
 }
 
-// GetByMD5AndCollection retrieves a vector record by MD5 hash and collection
+// GetByMD5AndCollection retrieves a vector record by MD5 hash and collection.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - md5Hash: MD5 hash of the meme content.
+//   - collection: Qdrant collection name.
+// Returns:
+//   - *domain.MemeVector: matching vector record if found.
+//   - error: non-nil if the lookup fails.
 func (r *MemeVectorRepository) GetByMD5AndCollection(ctx context.Context, md5Hash, collection string) (*domain.MemeVector, error) {
 	var vector domain.MemeVector
 	if err := r.db.WithContext(ctx).
@@ -44,7 +67,13 @@ func (r *MemeVectorRepository) GetByMD5AndCollection(ctx context.Context, md5Has
 	return &vector, nil
 }
 
-// GetByMemeID retrieves all vector records for a given meme ID
+// GetByMemeID retrieves all vector records for a given meme ID.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - memeID: meme identifier.
+// Returns:
+//   - []domain.MemeVector: matching vector records.
+//   - error: non-nil if the query fails.
 func (r *MemeVectorRepository) GetByMemeID(ctx context.Context, memeID string) ([]domain.MemeVector, error) {
 	var vectors []domain.MemeVector
 	if err := r.db.WithContext(ctx).
@@ -55,7 +84,15 @@ func (r *MemeVectorRepository) GetByMemeID(ctx context.Context, memeID string) (
 	return vectors, nil
 }
 
-// GetByCollection retrieves all vector records for a given collection
+// GetByCollection retrieves vector records for a given collection.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - collection: Qdrant collection name.
+//   - limit: maximum number of records to return.
+//   - offset: number of records to skip.
+// Returns:
+//   - []domain.MemeVector: matching vector records.
+//   - error: non-nil if the query fails.
 func (r *MemeVectorRepository) GetByCollection(ctx context.Context, collection string, limit, offset int) ([]domain.MemeVector, error) {
 	var vectors []domain.MemeVector
 	query := r.db.WithContext(ctx).Where("collection = ?", collection)
@@ -71,7 +108,13 @@ func (r *MemeVectorRepository) GetByCollection(ctx context.Context, collection s
 	return vectors, nil
 }
 
-// CountByCollection counts the number of vectors in a collection
+// CountByCollection counts the number of vectors in a collection.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - collection: Qdrant collection name.
+// Returns:
+//   - int64: number of vector records in the collection.
+//   - error: non-nil if the query fails.
 func (r *MemeVectorRepository) CountByCollection(ctx context.Context, collection string) (int64, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&domain.MemeVector{}).
@@ -82,15 +125,25 @@ func (r *MemeVectorRepository) CountByCollection(ctx context.Context, collection
 	return count, nil
 }
 
-// Delete deletes a meme vector by ID
+// Delete removes a meme vector by ID.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - id: vector record ID.
+// Returns:
+//   - error: non-nil if the delete fails.
 func (r *MemeVectorRepository) Delete(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Delete(&domain.MemeVector{}, "id = ?", id).Error
 }
 
-// DeleteByMemeIDAndCollection deletes a vector record by meme ID and collection
+// DeleteByMemeIDAndCollection deletes a vector record by meme ID and collection.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - memeID: meme identifier.
+//   - collection: Qdrant collection name.
+// Returns:
+//   - error: non-nil if the delete fails.
 func (r *MemeVectorRepository) DeleteByMemeIDAndCollection(ctx context.Context, memeID, collection string) error {
 	return r.db.WithContext(ctx).
 		Where("meme_id = ? AND collection = ?", memeID, collection).
 		Delete(&domain.MemeVector{}).Error
 }
-

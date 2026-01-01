@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// MemeStatus represents the processing status of a meme
+// MemeStatus represents the processing status of a meme record.
+// Values include MemeStatusPending, MemeStatusActive, and MemeStatusFailed.
 type MemeStatus string
 
 const (
@@ -16,9 +17,14 @@ const (
 	MemeStatusFailed  MemeStatus = "failed"
 )
 
-// StringArray is a custom type for storing string arrays as JSON in SQLite
+// StringArray is a custom type for storing string arrays as JSON in the database.
 type StringArray []string
 
+// Value implements the driver.Valuer interface for database serialization.
+// Parameters: none.
+// Returns:
+//   - driver.Value: JSON-encoded string representation of the slice.
+//   - error: non-nil if marshaling fails.
 func (a StringArray) Value() (driver.Value, error) {
 	if a == nil {
 		return "[]", nil
@@ -30,6 +36,11 @@ func (a StringArray) Value() (driver.Value, error) {
 	return string(b), nil
 }
 
+// Scan implements the sql.Scanner interface for database deserialization.
+// Parameters:
+//   - value: raw database value to decode.
+// Returns:
+//   - error: non-nil if decoding fails or the type is unexpected.
 func (a *StringArray) Scan(value interface{}) error {
 	if value == nil {
 		*a = StringArray{}
@@ -46,7 +57,8 @@ func (a *StringArray) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, a)
 }
 
-// Meme represents a meme/sticker in the system
+// Meme represents a meme/sticker in the system.
+// Fields include identifiers, storage metadata, content metadata, and processing status.
 type Meme struct {
 	ID             string      `gorm:"type:text;primaryKey" json:"id"`
 	SourceType     string      `gorm:"type:text;not null;index:idx_memes_source,unique" json:"source_type"`
@@ -71,11 +83,15 @@ type Meme struct {
 	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
+// TableName returns the database table name for Meme.
+// Parameters: none.
+// Returns:
+//   - string: table name for GORM mapping.
 func (Meme) TableName() string {
 	return "memes"
 }
 
-// MemeSearchResult represents a search result with similarity score
+// MemeSearchResult represents a search result with a similarity score.
 type MemeSearchResult struct {
 	Meme
 	Score float32 `json:"score"`

@@ -10,7 +10,15 @@ import (
 	"github.com/timmy/emomo/internal/source"
 )
 
-// SetupRouter configures the Gin router with all routes
+// SetupRouter configures the Gin router with all routes and middleware.
+// Parameters:
+//   - searchService: search service used by API handlers.
+//   - ingestService: ingest service used by admin handlers.
+//   - sources: map of source adapters keyed by name.
+//   - cfg: application configuration for server settings.
+//   - log: logger instance for middleware.
+// Returns:
+//   - *gin.Engine: configured Gin router.
 func SetupRouter(
 	searchService *service.SearchService,
 	ingestService *service.IngestService,

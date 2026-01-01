@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config aggregates application configuration loaded from files and environment.
 type Config struct {
 	Server     ServerConfig               `mapstructure:"server"`
 	Database   DatabaseConfig             `mapstructure:"database"`
@@ -23,17 +24,20 @@ type Config struct {
 	Search     SearchConfig               `mapstructure:"search"`
 }
 
+// ServerConfig defines HTTP server settings.
 type ServerConfig struct {
 	Port int        `mapstructure:"port"`
 	Mode string     `mapstructure:"mode"`
 	CORS CORSConfig `mapstructure:"cors"`
 }
 
+// CORSConfig defines Cross-Origin Resource Sharing settings.
 type CORSConfig struct {
 	AllowedOrigins  []string `mapstructure:"allowed_origins"`
 	AllowAllOrigins bool     `mapstructure:"allow_all_origins"`
 }
 
+// DatabaseConfig defines database connection and pool settings.
 type DatabaseConfig struct {
 	Driver          string        `mapstructure:"driver"`            // Database driver: sqlite, postgres
 	URL             string        `mapstructure:"url"`               // PostgreSQL connection URL (takes priority)
@@ -49,7 +53,10 @@ type DatabaseConfig struct {
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"` // Connection pool: max lifetime
 }
 
-// DSN returns the Data Source Name for the database connection
+// DSN builds the Data Source Name for the configured database.
+// Parameters: none.
+// Returns:
+//   - string: DSN string suitable for GORM drivers.
 func (c *DatabaseConfig) DSN() string {
 	if c.Driver == "sqlite" {
 		return c.Path
@@ -68,6 +75,7 @@ func (c *DatabaseConfig) DSN() string {
 	return dsn
 }
 
+// QdrantConfig defines Qdrant connection settings.
 type QdrantConfig struct {
 	Host       string `mapstructure:"host"`
 	Port       int    `mapstructure:"port"`
@@ -76,7 +84,7 @@ type QdrantConfig struct {
 	UseTLS     bool   `mapstructure:"use_tls"` // Enable TLS (auto-enabled when APIKey is set)
 }
 
-// StorageConfig holds configuration for S3-compatible storage (R2, S3, etc.)
+// StorageConfig holds configuration for S3-compatible storage (R2, S3, etc.).
 type StorageConfig struct {
 	Type      string `mapstructure:"type"`       // "r2", "s3", "s3compatible"
 	Endpoint  string `mapstructure:"endpoint"`   // S3 API endpoint
@@ -88,6 +96,7 @@ type StorageConfig struct {
 	PublicURL string `mapstructure:"public_url"` // Public URL prefix (e.g., R2.dev domain)
 }
 
+// VLMConfig defines configuration for the Vision Language Model provider.
 type VLMConfig struct {
 	Provider string `mapstructure:"provider"`
 	Model    string `mapstructure:"model"`
@@ -95,6 +104,7 @@ type VLMConfig struct {
 	BaseURL  string `mapstructure:"base_url"`
 }
 
+// EmbeddingConfig defines configuration for a text embedding provider.
 type EmbeddingConfig struct {
 	Provider   string `mapstructure:"provider"`   // "jina", "modelscope", "openai-compatible"
 	Model      string `mapstructure:"model"`      // Model name/ID
@@ -104,36 +114,48 @@ type EmbeddingConfig struct {
 	Collection string `mapstructure:"collection"` // Qdrant collection name for this embedding
 }
 
+// IngestConfig defines ingestion concurrency and batching settings.
 type IngestConfig struct {
 	Workers    int `mapstructure:"workers"`
 	BatchSize  int `mapstructure:"batch_size"`
 	RetryCount int `mapstructure:"retry_count"`
 }
 
+// SearchConfig defines search runtime settings.
 type SearchConfig struct {
 	ScoreThreshold float32              `mapstructure:"score_threshold"`
 	QueryExpansion QueryExpansionConfig `mapstructure:"query_expansion"`
 }
 
+// QueryExpansionConfig configures optional LLM-based query expansion.
 type QueryExpansionConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	Model   string `mapstructure:"model"`
 }
 
+// SourcesConfig defines configuration for available data sources.
 type SourcesConfig struct {
 	ChineseBQB ChineseBQBConfig `mapstructure:"chinesebqb"`
 	Staging    StagingConfig    `mapstructure:"staging"`
 }
 
+// ChineseBQBConfig defines configuration for the ChineseBQB source.
 type ChineseBQBConfig struct {
 	Enabled  bool   `mapstructure:"enabled"`
 	RepoPath string `mapstructure:"repo_path"`
 }
 
+// StagingConfig defines configuration for the staging source.
 type StagingConfig struct {
 	Path string `mapstructure:"path"` // Base path for staging directory
 }
 
+// Load reads configuration from file/environment and returns a Config.
+// Parameters:
+//   - configPath: optional explicit path to a config file.
+// Returns:
+//   - *Config: loaded configuration with defaults applied.
+//   - error: non-nil if loading or unmarshalling fails.
 func Load(configPath string) (*Config, error) {
 	// Load .env file if exists
 	_ = godotenv.Load()
@@ -286,13 +308,18 @@ func Load(configPath string) (*Config, error) {
 }
 
 // GetStorageConfig returns the storage configuration.
+// Parameters: none.
+// Returns:
+//   - *StorageConfig: pointer to the storage config section.
 func (c *Config) GetStorageConfig() *StorageConfig {
 	return &c.Storage
 }
 
 // GetEmbeddingConfig returns the embedding configuration by name.
-// If name is empty, returns the default embedding config.
-// If name is not found in the embeddings map, returns nil.
+// Parameters:
+//   - name: embedding config name; empty uses the default embedding.
+// Returns:
+//   - *EmbeddingConfig: config for the named embedding, or nil if missing.
 func (c *Config) GetEmbeddingConfig(name string) *EmbeddingConfig {
 	if name == "" {
 		return &c.Embedding
@@ -303,9 +330,11 @@ func (c *Config) GetEmbeddingConfig(name string) *EmbeddingConfig {
 	return nil
 }
 
-// GetCollectionForEmbedding returns the Qdrant collection name for a given embedding config.
-// If the embedding config has a collection specified, use it.
-// Otherwise, use the default Qdrant collection.
+// GetCollectionForEmbedding returns the Qdrant collection name for an embedding.
+// Parameters:
+//   - embeddingName: embedding config name; empty uses the default embedding.
+// Returns:
+//   - string: collection name to use for the embedding.
 func (c *Config) GetCollectionForEmbedding(embeddingName string) string {
 	if embeddingName == "" {
 		// Default embedding uses default collection

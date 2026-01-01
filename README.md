@@ -7,36 +7,46 @@ sdk: docker
 pinned: false
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
-
 # Emomo - AI 表情包语义搜索
 
-基于 Golang + Qdrant + VLM + Text Embedding 的表情包语义搜索系统。
+Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，支持多数据源采集、自动描述生成与向量检索。
+
+## 功能概览
+
+- 语义搜索：输入文字描述即可检索相似表情包。
+- 多源摄入：支持本地仓库、Python 爬虫、分批摄入。
+- 向量管理：支持多 Embedding 模型/多集合管理。
+- 存储抽象：兼容 Cloudflare R2、AWS S3 与其他 S3 兼容服务。
+- 可扩展：查询扩展、VLM 描述与多模型配置均可开关。
 
 ## 技术栈
 
 - **后端**: Go + Gin + GORM
-- **向量数据库**: Qdrant
-- **元数据存储**: SQLite (MVP) / PostgreSQL (生产)
+- **向量数据库**: Qdrant (gRPC)
+- **元数据存储**: SQLite (本地) / PostgreSQL (生产)
 - **对象存储**: S3 兼容存储（Cloudflare R2、AWS S3 等）
-- **VLM**: OpenAI-compatible API (e.g., GPT-4o mini, Claude via OpenRouter) (图片描述生成)
-- **Text Embedding**: Jina Embeddings v3 (向量化)
+- **VLM**: OpenAI-compatible API (图片描述生成)
+- **Text Embedding**: Jina Embeddings / OpenAI-compatible Embeddings
 
-## 快速开始
+## 环境要求
 
-### 1. 环境准备
+- Go 1.24.6（见 `go.mod`）
+- Python >= 3.10（用于 crawler）
+- uv（crawler 依赖管理）
+- Docker（可选，用于本地 Qdrant/MinIO 或日志采集）
+
+## 快速开始（本地开发）
+
+### 1) 准备环境变量
 
 ```bash
-# 复制环境变量配置
 cp .env.example .env
-
 # 编辑 .env 填入 API Keys 和服务地址
-vim .env
 ```
 
-### 2. 配置基础服务（Qdrant + 对象存储）
+### 2) 准备依赖服务
 
-本项目不会自动启动 Qdrant 或对象存储，请选择云服务或本地服务。
+本项目不会自动启动 Qdrant 或对象存储，你可以选择云服务或本地服务。
 
 **推荐：云服务（Qdrant Cloud + Cloudflare R2）**
 
@@ -58,7 +68,7 @@ STORAGE_USE_SSL=true
 STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
 ```
 
-**本地体验：Docker 启动 Qdrant + MinIO（S3 兼容）**
+**本地体验：Qdrant + MinIO（S3 兼容）**
 
 ```bash
 # Qdrant
@@ -83,45 +93,55 @@ STORAGE_BUCKET=memes
 STORAGE_USE_SSL=false
 ```
 
-### 3. 可选：启动日志采集（Grafana Alloy）
+**可选：启动日志采集（Grafana Alloy）**
 
 ```bash
 docker-compose -f deployments/docker-compose.yml up -d
 ```
 
-### 4. 准备数据源
+### 3) 准备数据源
+
+**方式 A：使用 ChineseBQB 本地仓库**
 
 ```bash
-# Clone ChineseBQB 表情包仓库
 git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
 ```
 
-### 5. 数据摄入
+**方式 B：使用 Python 爬虫（写入 data/staging）**
+
+```bash
+cd crawler
+uv sync
+uv run emomo-crawler crawl --source fabiaoqing --limit 100
+```
+
+### 4) 摄入数据
 
 ```bash
 # 构建摄入工具
 go build -o ingest ./cmd/ingest
 
-# 摄入 100 张表情包（测试）
+# 摄入 ChineseBQB
 ./ingest --source=chinesebqb --limit=100
 
-# 摄入全部表情包
-./ingest --source=chinesebqb --limit=10000
+# 摄入 crawler staging 数据
+./ingest --source=staging:fabiaoqing --limit=50
 ```
 
-### 6. 启动 API 服务
+### 5) 启动 API 服务
 
 ```bash
-# 构建 API 服务
-go build -o api ./cmd/api
+# 直接运行
+go run ./cmd/api
 
-# 启动服务
+# 或构建二进制
+go build -o api ./cmd/api
 ./api
 ```
 
 服务默认运行在 `http://localhost:8080`，健康检查 `http://localhost:8080/health`。
 
-## API 接口
+## API 示例
 
 ### 文本搜索
 
@@ -157,47 +177,65 @@ curl http://localhost:8080/api/v1/stats
 
 ## 配置说明
 
-配置文件: `configs/config.yaml`（可用 `CONFIG_PATH` 指定）
+- 默认配置文件：`configs/config.yaml`
+- 生产可通过 `CONFIG_PATH` 指定配置文件路径
+- `.env` 用于注入 API keys 与运行时环境变量
 
-主要配置项:
+常用环境变量：
 
 | 配置项 | 环境变量 | 说明 |
 |--------|----------|------|
 | vlm.api_key | OPENAI_API_KEY | OpenAI-compatible API Key |
 | vlm.base_url | OPENAI_BASE_URL | OpenAI-compatible Base URL |
-| embedding.api_key | JINA_API_KEY | Jina API Key |
+| embedding.api_key | EMBEDDING_API_KEY / JINA_API_KEY | Embedding API Key |
 | storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
-| storage.endpoint | STORAGE_ENDPOINT | 存储端点地址（不包含 bucket） |
+| storage.endpoint | STORAGE_ENDPOINT | 存储端点（不含 bucket） |
 | storage.bucket | STORAGE_BUCKET | 存储桶名称 |
 | storage.region | STORAGE_REGION | 存储区域（R2 使用 `auto`） |
 | storage.use_ssl | STORAGE_USE_SSL | 是否使用 HTTPS |
-| storage.public_url | STORAGE_PUBLIC_URL | 公开访问 URL（R2 推荐配置） |
+| storage.public_url | STORAGE_PUBLIC_URL | 公开访问 URL（R2 推荐） |
 | qdrant.host | QDRANT_HOST | Qdrant 地址 |
 | qdrant.port | QDRANT_PORT | Qdrant gRPC 端口（默认 6334） |
 | qdrant.api_key | QDRANT_API_KEY | Qdrant Cloud API Key |
 | qdrant.use_tls | QDRANT_USE_TLS | Qdrant TLS（Cloud 建议 true） |
 
+## 开发与测试
+
+```bash
+# 运行 Go 测试
+go test ./...
+
+# 启动 API（热更新自行使用 air/其他工具）
+go run ./cmd/api
+```
+
 ## 项目结构
 
 ```
 emomo/
-├── cmd/
-│   ├── api/          # API 服务入口
-│   └── ingest/       # 摄入 CLI 工具
-├── crawler/          # Python 爬虫
-├── internal/
-│   ├── api/          # API 层
-│   ├── config/       # 配置管理
-│   ├── domain/       # 领域模型
-│   ├── repository/   # 数据访问层
-│   ├── service/      # 业务逻辑层
-│   ├── source/       # 数据源适配器
-│   └── storage/      # 对象存储
-├── configs/          # 配置文件
-├── deployments/      # 部署配置
-├── data/             # 本地数据目录
-└── scripts/          # 脚本
+├── cmd/                 # Go 入口（api/ingest）
+├── crawler/             # Python 爬虫（uv 管理）
+├── internal/            # Go 应用核心逻辑
+│   ├── api/             # API 层
+│   ├── config/          # 配置管理
+│   ├── domain/          # 领域模型
+│   ├── repository/      # 数据访问层
+│   ├── service/         # 业务逻辑层
+│   ├── source/          # 数据源适配器
+│   └── storage/         # 对象存储
+├── configs/             # 配置文件
+├── deployments/         # 部署配置
+├── data/                # 本地数据目录
+├── docs/                # 设计与使用文档
+└── scripts/             # 辅助脚本
 ```
+
+## 更多文档
+
+- `docs/QUICK_START.md`
+- `docs/DEPLOYMENT.md`
+- `docs/MULTI_EMBEDDING.md`
+- `docs/DATABASE_SCHEMA.md`
 
 ## License
 
