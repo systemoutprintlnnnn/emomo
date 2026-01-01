@@ -270,6 +270,37 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var vlmDescription string
 	var width, height int
 	uploaded := false
+	createdNewMeme := false // Track if we created a new meme record for rollback
+
+	// rollbackMeme cleans up the meme record if we created one
+	rollbackMeme := func() {
+		if createdNewMeme && memeID != "" {
+			if delErr := s.memeRepo.Delete(ctx, memeID); delErr != nil {
+				s.log(ctx).WithFields(logger.Fields{
+					"meme_id": memeID,
+				}).WithError(delErr).Error("Failed to rollback meme record")
+			} else {
+				s.log(ctx).WithFields(logger.Fields{
+					"meme_id": memeID,
+				}).Debug("Rolled back meme record")
+			}
+		}
+	}
+
+	// rollbackStorage cleans up the storage upload if we uploaded
+	rollbackStorage := func() {
+		if uploaded {
+			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+				s.log(ctx).WithFields(logger.Fields{
+					"storage_key": storageKey,
+				}).WithError(delErr).Error("Failed to rollback storage upload")
+			} else {
+				s.log(ctx).WithFields(logger.Fields{
+					"storage_key": storageKey,
+				}).Debug("Rolled back storage upload")
+			}
+		}
+	}
 
 	if hasExistingMeme {
 		// REUSE existing resources: S3 path and VLM description
@@ -349,20 +380,18 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		// Save meme to database first
 		if err := s.memeRepo.Upsert(ctx, meme); err != nil {
 			// Rollback storage if we uploaded
-			if uploaded {
-				if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
-					s.log(ctx).WithFields(logger.Fields{
-						"storage_key": storageKey,
-					}).WithError(delErr).Error("Failed to rollback storage upload")
-				}
-			}
+			rollbackStorage()
 			return fmt.Errorf("failed to save meme to database: %w", err)
 		}
+		createdNewMeme = true // Mark that we created a new meme record
 	}
 
 	// Generate embedding for the current embedding model
 	embedding, err := s.embedding.Embed(ctx, vlmDescription)
 	if err != nil {
+		// Rollback: clean up meme record and storage if we created them
+		rollbackMeme()
+		rollbackStorage()
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
@@ -381,14 +410,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
-		// Rollback: delete uploaded file ONLY if we uploaded it and this is a new meme
-		if uploaded {
-			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
-				s.log(ctx).WithFields(logger.Fields{
-					"storage_key": storageKey,
-				}).WithError(delErr).Error("Failed to rollback storage upload")
-			}
-		}
+		// Rollback: clean up meme record and storage if we created them
+		rollbackMeme()
+		rollbackStorage()
 		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
 	}
 
@@ -406,12 +430,15 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 
 		if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
-			// Rollback: delete from Qdrant
+			// Rollback: delete from Qdrant first
 			if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
 				s.log(ctx).WithFields(logger.Fields{
 					"point_id": pointID,
 				}).WithError(delErr).Error("Failed to rollback Qdrant upsert")
 			}
+			// Then rollback meme and storage
+			rollbackMeme()
+			rollbackStorage()
 			return fmt.Errorf("failed to save vector record: %w", err)
 		}
 	}
