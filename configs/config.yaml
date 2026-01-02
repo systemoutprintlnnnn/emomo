@@ -18,7 +18,7 @@ database:
 
 qdrant:
   port: 6334
-  collection: emomo
+  collection: emomo  # Default collection name (fallback)
 
 storage:
   type: r2
@@ -36,26 +36,22 @@ vlm:
   model: ""
   base_url: https://openrouter.ai/api/v1
 
-embedding:
-  provider: modelscope
-  # model: set via EMBEDDING_MODEL env var
-  model: Qwen/Qwen3-Embedding-8B
-  dimensions: 4096
-
-# Named embedding configurations for multi-model support
+# Embedding configurations (list format)
+# Each embedding can have its own provider, model, and Qdrant collection
 embeddings:
-  jina:
+  - name: jina
     provider: jina
     model: jina-embeddings-v3
-    # api_key: set via JINA_API_KEY env var
+    api_key_env: JINA_API_KEY
     dimensions: 1024
     collection: emomo
-  qwen3:
+    is_default: true
+
+  - name: qwen3
     provider: modelscope
     model: Qwen/Qwen3-Embedding-8B
-    # api_key: set via MODELSCOPE_API_KEY env var
-    # base_url: set via MODELSCOPE_BASE_URL env var
-    base_url: ""
+    api_key_env: MODELSCOPE_API_KEY
+    base_url_env: MODELSCOPE_BASE_URL
     dimensions: 4096
     collection: emomo-qwen3-embedding-8b
 
@@ -75,6 +71,5 @@ sources:
   chinesebqb:
     enabled: true
     repo_path: ./data/ChineseBQB
-  fabiaoqing:
-    enabled: true
-    request_delay_ms: 500  # 请求间隔（毫秒），避免被封
+  staging:
+    path: ./data/staging
