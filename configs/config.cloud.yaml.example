@@ -4,6 +4,7 @@ server:
 
 database:
   driver: postgres  # 使用 PostgreSQL 数据库
+  auto_migrate: true
   # 方式1: 使用连接字符串 URL（推荐，支持 Transaction Pooler）
   # 适用于 Supabase Transaction Pooler (端口 6543) 或 Session Pooler (端口 5432)
   # url: postgresql://postgres.juyjvbdplgwsravreplc:[YOUR-PASSWORD]@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
@@ -74,4 +75,3 @@ sources:
   chinesebqb:
     enabled: true
     repo_path: ./data/ChineseBQB
-

@@ -32,6 +32,7 @@ func main() {
 	limit := flag.Int("limit", 100, "Maximum number of items to ingest")
 	retryPending := flag.Bool("retry", false, "Retry pending items instead of ingesting new ones")
 	force := flag.Bool("force", false, "Force re-process items, skip duplicate checks")
+	autoMigrate := flag.Bool("auto-migrate", false, "Run database auto-migrations before ingest")
 	configPath := flag.String("config", "", "Path to config file")
 	embeddingName := flag.String("embedding", "", "Embedding config name (e.g., 'jina', 'qwen3'). If empty, uses default")
 	flag.Parse()
@@ -40,6 +41,12 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to load config")
+	}
+
+	if *autoMigrate {
+		cfg.Database.AutoMigrate = true
+	} else {
+		cfg.Database.AutoMigrate = false
 	}
 
 	// Determine embedding configuration

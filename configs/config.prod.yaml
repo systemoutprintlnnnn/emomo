@@ -13,6 +13,7 @@ database:
   user: postgres
   dbname: emomo
   sslmode: disable
+  auto_migrate: true
   max_idle_conns: 10
   max_open_conns: 100
   conn_max_lifetime: 1h
