@@ -11,9 +11,8 @@ Emomo is an AI-powered meme/sticker semantic search system. Users can search for
 ## Build & Run Commands
 
 ```bash
-# Build binaries
+# Build binaries (optional, can use go run instead)
 go build -o api ./cmd/api
-go build -o ingest ./cmd/ingest
 
 # Start infrastructure - Development (Grafana Alloy only, Qdrant/S3 use cloud services)
 docker-compose -f deployments/docker-compose.yml up -d
@@ -21,16 +20,17 @@ docker-compose -f deployments/docker-compose.yml up -d
 # Start infrastructure - Production (API + Alloy; Qdrant/S3 are external)
 docker-compose -f deployments/docker-compose.prod.yml up -d
 
-# Data ingestion (static sources)
-./ingest --source=chinesebqb --limit=100    # Ingest memes
-./ingest --retry --limit=100                # Retry pending items
-./ingest --force --source=chinesebqb        # Force re-process
+# Data ingestion using script (recommended, no build required)
+./scripts/import-data.sh -s chinesebqb -l 100       # Ingest memes
+./scripts/import-data.sh -r -l 100                  # Retry pending items
+./scripts/import-data.sh -s chinesebqb -f           # Force re-process
+./scripts/import-data.sh -s staging:fabiaoqing -l 50  # From staging
 
-# Data ingestion (from staging, after crawler)
-./ingest --source=staging:fabiaoqing --limit=50
+# Or use go run directly
+go run ./cmd/ingest --source=chinesebqb --limit=100
 
 # Run API server (port 8080)
-./api
+go run ./cmd/api
 
 # Full stack (backend + frontend)
 ./scripts/start.sh
@@ -57,7 +57,7 @@ uv run emomo-crawler staging stats --source fabiaoqing
 
 # Import from staging to main system
 cd ..
-./ingest --source=staging:fabiaoqing --limit=50
+./scripts/import-data.sh -s staging:fabiaoqing -l 50
 ```
 
 ## Architecture

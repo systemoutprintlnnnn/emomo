@@ -117,21 +117,32 @@ uv run emomo-crawler staging clean-all
 - Qdrant 向量数据库
 - S3/R2 对象存储已配置
 
-### 4.2 构建导入工具
+### 4.2 执行导入
 
-```bash
-# 在项目根目录
-go build -o ingest ./cmd/ingest
-```
-
-### 4.3 执行导入
+使用导入脚本（推荐，无需预先编译）:
 
 ```bash
 # 导入 50 张表情包
-./ingest --source=staging:fabiaoqing --limit=50
+./scripts/import-data.sh -s staging:fabiaoqing -l 50
+
+# 或使用 go run 直接运行
+go run ./cmd/ingest --source=staging:fabiaoqing --limit=50
 ```
 
-### 4.4 导入参数说明
+### 4.3 导入参数说明
+
+**脚本参数 (`import-data.sh`):**
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-s, --source` | 数据源 (`staging:fabiaoqing`, `chinesebqb`) | - |
+| `-l, --limit` | 最大导入数量 | 100 |
+| `-e, --embedding` | 使用的 embedding 配置名称 | 默认配置 |
+| `-f, --force` | 强制重新处理 (跳过去重检查) | false |
+| `-r, --retry` | 重试 pending 状态的项目 | false |
+| `-h, --help` | 显示帮助信息 | - |
+
+**go run 参数:**
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -140,7 +151,7 @@ go build -o ingest ./cmd/ingest
 | `--force` | 强制重新处理 (跳过去重检查) | false |
 | `--retry` | 重试失败的项目 | false |
 
-### 4.5 导入流程详解
+### 4.4 导入流程详解
 
 每张图片的处理流程:
 
@@ -175,9 +186,9 @@ uv run emomo-crawler crawl -s fabiaoqing -l 200
 # Step 2: 查看爬取结果
 uv run emomo-crawler staging stats -s fabiaoqing
 
-# Step 3: 导入到系统
+# Step 3: 导入到系统（使用脚本，推荐）
 cd ..
-./ingest --source=staging:fabiaoqing --limit=200
+./scripts/import-data.sh -s staging:fabiaoqing -l 200
 ```
 
 ### 5.2 增量爬取
@@ -192,14 +203,14 @@ uv run emomo-crawler crawl -s fabiaoqing -l 100 -c 5
 
 # 导入新数据 (自动跳过已存在的)
 cd ..
-./ingest --source=staging:fabiaoqing --limit=100
+./scripts/import-data.sh -s staging:fabiaoqing -l 100
 ```
 
 ### 5.3 重试失败的导入
 
 ```bash
 # 重试状态为 pending 的项目
-./ingest --retry --limit=50
+./scripts/import-data.sh -r -l 50
 ```
 
 ## 6. Staging 目录结构

@@ -85,10 +85,11 @@ graph LR
 
 4.  **Run Ingestion:**
     ```bash
-    # Build tool
-    go build -o ingest ./cmd/ingest
-    # Run ingest
-    ./ingest --source=staging:fabiaoqing --limit=50
+    # Use import script (recommended, no build required)
+    ./scripts/import-data.sh -s staging:fabiaoqing -l 50
+
+    # Or use go run directly
+    go run ./cmd/ingest --source=staging:fabiaoqing --limit=50
     ```
 
 5.  **Run API Server:**

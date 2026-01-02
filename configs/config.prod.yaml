@@ -47,6 +47,14 @@ embeddings:
     api_key_env: JINA_API_KEY
     dimensions: 1024
     collection: emomo
+
+  - name: qwen3
+    provider: modelscope
+    model: Qwen/Qwen3-Embedding-8B
+    api_key_env: MODELSCOPE_API_KEY
+    base_url_env: MODELSCOPE_BASE_URL
+    dimensions: 4096
+    collection: emomo-qwen3-embedding-8b
     is_default: true
 
 ingest:

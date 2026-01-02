@@ -12,8 +12,8 @@
 ## Build, Test, and Development Commands
 - `docker-compose -f deployments/docker-compose.yml up -d`: start local infra (Qdrant + storage).
 - `go run ./cmd/api`: run the API server locally.
-- `go build -o ingest ./cmd/ingest`: build the ingestion CLI.
-- `./ingest --source=staging:fabiaoqing --limit=50`: ingest staged memes.
+- `./scripts/import-data.sh -s staging:fabiaoqing -l 50`: ingest staged memes (recommended).
+- `go run ./cmd/ingest --source=staging:fabiaoqing --limit=50`: ingest staged memes (alternative).
 - `cd crawler && uv sync`: install crawler dependencies.
 - `cd crawler && uv run emomo-crawler crawl --source fabiaoqing --limit 100`: crawl into `data/staging/`.
 

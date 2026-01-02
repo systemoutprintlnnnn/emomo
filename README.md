@@ -118,14 +118,14 @@ uv run emomo-crawler crawl --source fabiaoqing --limit 100
 ### 4) 摄入数据
 
 ```bash
-# 构建摄入工具
-go build -o ingest ./cmd/ingest
-
-# 摄入 ChineseBQB
-./ingest --source=chinesebqb --limit=100
+# 使用导入脚本（推荐，无需预先编译）
+./scripts/import-data.sh -s chinesebqb -l 100
 
 # 摄入 crawler staging 数据
-./ingest --source=staging:fabiaoqing --limit=50
+./scripts/import-data.sh -s staging:fabiaoqing -l 50
+
+# 或使用 go run 直接运行
+go run ./cmd/ingest --source=chinesebqb --limit=100
 ```
 
 ### 5) 启动 API 服务
