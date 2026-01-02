@@ -217,30 +217,6 @@ embeddings:
 
 ## Search API 使用
 
-### GET /api/v1/search
-
-简单查询接口，支持 URL 参数。
-
-**请求参数：**
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `q` | string | 是 | 搜索关键词 |
-| `top_k` | int | 否 | 返回结果数量，默认 20，最大 100 |
-| `collection` | string | 否 | 指定搜索的 collection |
-| `category` | string | 否 | 按分类过滤 |
-| `source_type` | string | 否 | 按来源过滤 |
-
-**示例请求：**
-
-```bash
-# 默认 collection 搜索
-curl "http://localhost:8080/api/v1/search?q=开心&top_k=10"
-
-# 指定 collection 搜索
-curl "http://localhost:8080/api/v1/search?q=开心&top_k=10&collection=qwen3"
-```
-
 ### POST /api/v1/search
 
 完整查询接口，支持 JSON body。
@@ -320,8 +296,6 @@ curl "http://localhost:8080/api/v1/search?q=开心&top_k=10&collection=qwen3"
 | `internal/service/ingest.go` | 新去重逻辑、资源复用、支持 EmbeddingProvider 接口 |
 | `cmd/ingest/main.go` | 添加 `--embedding` 参数 |
 | `internal/service/search.go` | 支持多 Collection、`RegisterCollection` 方法 |
-| `internal/api/handler/search.go` | 添加 `TextSearchGet`、支持 collection 参数 |
-| `internal/api/router.go` | 添加 GET `/search` 路由 |
 | `cmd/api/main.go` | 初始化多个 embedding provider |
 
 ### 接口变更
@@ -464,4 +438,3 @@ WHERE meme_id = 'xxx';
 
 1. 删除 Qdrant collection：`curl -X DELETE "http://localhost:6333/collections/emomo-qwen3-embedding-8b"`
 2. 删除数据库记录：`DELETE FROM meme_vectors WHERE collection = 'emomo-qwen3-embedding-8b'`
-
