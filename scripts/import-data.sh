@@ -59,6 +59,7 @@ usage() {
                                 留空则使用默认配置
     -c, --config PATH           配置文件路径（默认: ${DEFAULT_CONFIG}）
     -f, --force                 强制重新处理，跳过重复检查
+    -m, --auto-migrate          启用数据库 AutoMigrate（默认: 否）
     -r, --retry                 重试 pending 状态的数据
     -h, --help                  显示此帮助信息
 
@@ -177,6 +178,7 @@ main() {
     local embedding=""
     local config_path="$DEFAULT_CONFIG"
     local force=false
+    local auto_migrate=false
     local retry=false
 
     # 解析命令行参数
@@ -200,6 +202,10 @@ main() {
                 ;;
             -f|--force)
                 force=true
+                shift
+                ;;
+            -m|--auto-migrate)
+                auto_migrate=true
                 shift
                 ;;
             -r|--retry)
@@ -237,9 +243,14 @@ main() {
         if [ -n "$embedding" ]; then
             cmd="$cmd --embedding=$embedding"
         fi
+        if [ "$auto_migrate" = true ]; then
+            cmd="$cmd --auto-migrate"
+        fi
 
         info "执行命令: $cmd"
-        run_ingest --retry --limit="$limit" --config="$config_path" $([ -n "$embedding" ] && echo "--embedding=$embedding")
+        run_ingest --retry --limit="$limit" --config="$config_path" \
+            $([ -n "$embedding" ] && echo "--embedding=$embedding") \
+            $([ "$auto_migrate" = true ] && echo "--auto-migrate")
         exit 0
     fi
 
@@ -284,6 +295,9 @@ main() {
     if [ "$force" = true ]; then
         info "强制模式: 是（跳过重复检查）"
     fi
+    if [ "$auto_migrate" = true ]; then
+        info "AutoMigrate: 启用"
+    fi
     info "=========================================="
     echo ""
 
@@ -292,6 +306,9 @@ main() {
 
     if [ -n "$embedding" ]; then
         args="$args --embedding=$embedding"
+    fi
+    if [ "$auto_migrate" = true ]; then
+        args="$args --auto-migrate"
     fi
 
     if [ "$force" = true ]; then
@@ -304,7 +321,8 @@ main() {
     # 执行导入
     run_ingest --source="$source_type" --limit="$limit" --config="$config_path" \
         $([ -n "$embedding" ] && echo "--embedding=$embedding") \
-        $([ "$force" = true ] && echo "--force")
+        $([ "$force" = true ] && echo "--force") \
+        $([ "$auto_migrate" = true ] && echo "--auto-migrate")
 }
 
 # 运行主函数

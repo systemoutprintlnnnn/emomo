@@ -58,14 +58,18 @@ func InitDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
 	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 
-	// Auto migrate schemas
-	if err := db.AutoMigrate(
-		&domain.Meme{},
-		&domain.MemeVector{},
-		&domain.DataSource{},
-		&domain.IngestJob{},
-	); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	if cfg.AutoMigrate {
+		log.Printf("[DB] AutoMigrate enabled")
+		if err := db.AutoMigrate(
+			&domain.Meme{},
+			&domain.MemeVector{},
+			&domain.DataSource{},
+			&domain.IngestJob{},
+		); err != nil {
+			return nil, fmt.Errorf("failed to migrate database: %w", err)
+		}
+	} else {
+		log.Printf("[DB] AutoMigrate disabled")
 	}
 
 	return db, nil

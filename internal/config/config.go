@@ -46,6 +46,7 @@ type DatabaseConfig struct {
 	Password        string        `mapstructure:"password"`          // PostgreSQL password
 	DBName          string        `mapstructure:"dbname"`            // PostgreSQL db name
 	SSLMode         string        `mapstructure:"sslmode"`           // PostgreSQL sslmode
+	AutoMigrate     bool          `mapstructure:"auto_migrate"`      // Auto migrate schemas on startup
 	MaxIdleConns    int           `mapstructure:"max_idle_conns"`    // Connection pool: max idle
 	MaxOpenConns    int           `mapstructure:"max_open_conns"`    // Connection pool: max open
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"` // Connection pool: max lifetime
@@ -205,6 +206,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.password", "")
 	v.SetDefault("database.dbname", "emomo")
 	v.SetDefault("database.sslmode", "disable")
+	v.SetDefault("database.auto_migrate", true)
 	v.SetDefault("database.max_idle_conns", 10)
 	v.SetDefault("database.max_open_conns", 100)
 	v.SetDefault("database.conn_max_lifetime", "1h")
@@ -257,6 +259,7 @@ func bindEnvVars(v *viper.Viper) {
 	v.BindEnv("database.password", "DATABASE_PASSWORD")
 	v.BindEnv("database.dbname", "DATABASE_DBNAME")
 	v.BindEnv("database.sslmode", "DATABASE_SSLMODE")
+	v.BindEnv("database.auto_migrate", "DATABASE_AUTO_MIGRATE")
 
 	// Qdrant
 	v.BindEnv("qdrant.host", "QDRANT_HOST")
