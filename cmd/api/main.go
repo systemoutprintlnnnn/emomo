@@ -104,8 +104,8 @@ func main() {
 		}).Info("Query expansion enabled")
 	}
 
-	// Get default collection name
-	defaultCollection := cfg.GetDefaultCollection()
+	// Get default collection name from registry default
+	defaultCollection := defaultQdrantRepo.GetCollectionName()
 
 	// Create search service
 	searchService := service.NewSearchService(
