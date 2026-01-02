@@ -49,14 +49,17 @@ uv run emomo-crawler staging clean-all
 
 ## Import to Emomo
 
-After crawling, import from staging using the Go ingest tool:
+After crawling, import from staging using the import script:
 
 ```bash
-# Build the ingest tool
-go build -o ingest ./cmd/ingest
+# Go back to project root
+cd ..
 
-# Import from staging
-./ingest --source=staging:fabiaoqing --limit=50
+# Use import script (recommended, no build required)
+./scripts/import-data.sh -s staging:fabiaoqing -l 50
+
+# Or use go run directly
+go run ./cmd/ingest --source=staging:fabiaoqing --limit=50
 ```
 
 ## Project Structure

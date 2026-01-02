@@ -45,7 +45,6 @@ embeddings:
     api_key_env: JINA_API_KEY
     dimensions: 1024
     collection: emomo
-    is_default: true
 
   - name: qwen3
     provider: modelscope
@@ -54,6 +53,7 @@ embeddings:
     base_url_env: MODELSCOPE_BASE_URL
     dimensions: 4096
     collection: emomo-qwen3-embedding-8b
+    is_default: true
 
 ingest:
   workers: 5

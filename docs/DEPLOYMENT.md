@@ -495,14 +495,14 @@ cd emomo
 # 确保数据目录存在
 # git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
 
-# 构建摄入工具
-go build -o ingest ./cmd/ingest
-
-# 摄入数据（先测试少量）
-./ingest --source=chinesebqb --limit=100
+# 使用导入脚本（推荐，无需预先编译）
+./scripts/import-data.sh -s chinesebqb -l 100
 
 # 如果成功，摄入全部
-./ingest --source=chinesebqb --limit=10000
+./scripts/import-data.sh -s chinesebqb -l 10000
+
+# 或使用 go run 直接运行
+go run ./cmd/ingest --source=chinesebqb --limit=100
 ```
 
 ### 方式三：在 Docker 容器内摄入

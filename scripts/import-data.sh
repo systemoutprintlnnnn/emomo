@@ -1,8 +1,14 @@
 #!/bin/sh
 # 数据导入脚本
 # 用于从 staging 目录或 chinesebqb 导入数据到数据库和向量库
+# 使用 go run 直接运行，无需预先编译
 
 set -e
+
+# 切换到项目根目录（脚本所在目录的上级）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 # 加载 .env 文件（如果存在）
 if [ -f .env ]; then
@@ -13,8 +19,6 @@ fi
 DEFAULT_CONFIG="${CONFIG_PATH:-./configs/config.yaml}"
 DEFAULT_STAGING_PATH="${STAGING_PATH:-./data/staging}"
 DEFAULT_LIMIT=100
-DEFAULT_WORKERS=5
-DEFAULT_BATCH_SIZE=10
 
 # 颜色输出
 RED='\033[0;31m'
@@ -152,17 +156,18 @@ interactive_select_staging() {
     done
 }
 
-# 检查 ingest 二进制文件是否存在
-check_ingest_binary() {
-    if [ -f "./ingest" ]; then
-        echo "./ingest"
-    elif command -v ingest >/dev/null 2>&1; then
-        echo "ingest"
-    else
-        error "未找到 ingest 二进制文件"
-        error "请先构建: go build -o ingest ./cmd/ingest"
+# 检查 Go 环境
+check_go() {
+    if ! command -v go >/dev/null 2>&1; then
+        error "未找到 Go 环境"
+        error "请先安装 Go: https://go.dev/doc/install"
         exit 1
     fi
+}
+
+# 运行 ingest 命令（使用 go run）
+run_ingest() {
+    go run ./cmd/ingest "$@"
 }
 
 # 主函数
@@ -219,22 +224,22 @@ main() {
         exit 1
     fi
 
-    # 检查 ingest 二进制文件
-    local ingest_binary=$(check_ingest_binary)
+    # 检查 Go 环境
+    check_go
 
     # 如果是重试模式
     if [ "$retry" = true ]; then
         info "重试 pending 状态的数据..."
         info "配置文件: $config_path"
         info "限制数量: $limit"
-        
-        local cmd="$ingest_binary --retry --limit=$limit --config=$config_path"
+
+        local cmd="go run ./cmd/ingest --retry --limit=$limit --config=$config_path"
         if [ -n "$embedding" ]; then
             cmd="$cmd --embedding=$embedding"
         fi
-        
+
         info "执行命令: $cmd"
-        exec $cmd
+        run_ingest --retry --limit="$limit" --config="$config_path" $([ -n "$embedding" ] && echo "--embedding=$embedding")
         exit 0
     fi
 
@@ -282,24 +287,25 @@ main() {
     info "=========================================="
     echo ""
 
-    # 构建命令
-    local cmd="$ingest_binary --source=$source_type --limit=$limit --config=$config_path"
-    
+    # 构建参数
+    local args="--source=$source_type --limit=$limit --config=$config_path"
+
     if [ -n "$embedding" ]; then
-        cmd="$cmd --embedding=$embedding"
-    fi
-    
-    if [ "$force" = true ]; then
-        cmd="$cmd --force"
+        args="$args --embedding=$embedding"
     fi
 
-    info "执行命令: $cmd"
+    if [ "$force" = true ]; then
+        args="$args --force"
+    fi
+
+    info "执行命令: go run ./cmd/ingest $args"
     echo ""
 
     # 执行导入
-    exec $cmd
+    run_ingest --source="$source_type" --limit="$limit" --config="$config_path" \
+        $([ -n "$embedding" ] && echo "--embedding=$embedding") \
+        $([ "$force" = true ] && echo "--force")
 }
 
 # 运行主函数
 main "$@"
-
