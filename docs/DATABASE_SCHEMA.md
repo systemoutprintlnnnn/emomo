@@ -701,7 +701,6 @@ func (s *SearchService) RegisterCollection(name string,
 |------|------|-----------|
 | `GET /health` | - | 无数据库操作 |
 | `POST /api/v1/search` | `SearchService.TextSearch` | Qdrant 搜索 + memes 表查询 |
-| `GET /api/v1/search` | `SearchService.TextSearch` | Qdrant 搜索 + memes 表查询 |
 | `GET /api/v1/categories` | `MemeRepository.GetCategories` | memes 表查询 |
 | `GET /api/v1/memes` | `MemeRepository.ListByCategory` | memes 表分页查询 |
 | `GET /api/v1/memes/:id` | `MemeRepository.GetByID` | memes 表单条查询 |
@@ -753,4 +752,3 @@ Emomo 项目的数据库架构设计具有以下特点：
 ---
 
 *文档更新时间: 2025-12-31*
-

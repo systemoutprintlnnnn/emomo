@@ -63,7 +63,6 @@ func SetupRouter(
 	{
 		// Search
 		v1.POST("/search", searchHandler.TextSearch)
-		v1.GET("/search", searchHandler.TextSearchGet) // GET method for simple queries
 
 		// Categories
 		v1.GET("/categories", searchHandler.GetCategories)
