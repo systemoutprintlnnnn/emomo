@@ -96,7 +96,7 @@ STORAGE_BUCKET=memes
 STORAGE_USE_SSL=false
 ```
 
-**可选：启动日志采集（Grafana Alloy）**
+**可选：使用 Docker Compose 启动 API + 日志采集（Grafana Alloy）**
 
 ```bash
 docker-compose -f deployments/docker-compose.yml up -d
@@ -181,7 +181,7 @@ curl http://localhost:8080/api/v1/stats
 ## 配置说明
 
 - 默认配置文件：`configs/config.yaml`
-- 生产可通过 `CONFIG_PATH` 指定配置文件路径
+- 可通过 `CONFIG_PATH` 指定配置文件路径（默认 `configs/config.yaml`）
 - `.env` 用于注入 API keys 与运行时环境变量
 
 常用环境变量：

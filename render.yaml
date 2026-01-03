@@ -6,7 +6,7 @@ services:
     startCommand: ./api
     envVars:
       - key: CONFIG_PATH
-        value: ./configs/config.prod.yaml
+        value: ./configs/config.yaml
       - key: MINIO_ACCESS_KEY
         sync: false
       - key: MINIO_SECRET_KEY
@@ -23,4 +23,3 @@ services:
         sync: false
       - key: MINIO_USE_SSL
         value: "false"
-

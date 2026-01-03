@@ -5,8 +5,7 @@ Qdrant 与对象存储需外部提供（云服务或本地容器）。
 
 ## 文件说明
 
-- `docker-compose.yml` - 仅启动 Grafana Alloy（开发/本地日志采集）
-- `docker-compose.prod.yml` - 启动 API + Grafana Alloy（生产/部署）
+- `docker-compose.yml` - 启动 API + Grafana Alloy（日志采集）
 
 ## 快速开始
 
@@ -14,7 +13,7 @@ Qdrant 与对象存储需外部提供（云服务或本地容器）。
 2. 配置环境变量（`.env` 或系统环境变量）
 3. 启动服务：
    ```bash
-   docker-compose -f docker-compose.prod.yml up -d
+   docker-compose -f docker-compose.yml up -d
    ```
 
 ## 环境变量配置
@@ -75,22 +74,22 @@ export STORAGE_USE_SSL=true
 
 ```bash
 # 启动服务
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.yml up -d
 
 # 查看日志
-docker-compose -f docker-compose.prod.yml logs -f api
+docker-compose -f docker-compose.yml logs -f api
 
 # 停止服务
-docker-compose -f docker-compose.prod.yml down
+docker-compose -f docker-compose.yml down
 
 # 停止并删除数据卷（谨慎使用）
-docker-compose -f docker-compose.prod.yml down -v
+docker-compose -f docker-compose.yml down -v
 
 # 重启服务
-docker-compose -f docker-compose.prod.yml restart api
+docker-compose -f docker-compose.yml restart api
 
 # 查看运行状态
-docker-compose -f docker-compose.prod.yml ps
+docker-compose -f docker-compose.yml ps
 ```
 
 ## 故障排查

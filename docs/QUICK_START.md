@@ -66,7 +66,7 @@ EOF
 
 # 5. 启动服务（API + 日志采集，依赖外部 Qdrant/存储）
 cd deployments
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.yml up -d
 
 # 6. 检查服务状态
 docker ps
@@ -89,7 +89,7 @@ curl http://localhost:8080/health
 
 **环境变量**：
 ```
-CONFIG_PATH=./configs/config.prod.yaml
+CONFIG_PATH=./configs/config.yaml
 STORAGE_TYPE=r2
 STORAGE_ENDPOINT=<account-id>.r2.cloudflarestorage.com
 STORAGE_ACCESS_KEY=your-access-key
@@ -120,7 +120,7 @@ QDRANT_USE_TLS=true
 
 **环境变量**（Railway）：
 ```
-CONFIG_PATH=./configs/config.prod.yaml
+CONFIG_PATH=./configs/config.yaml
 QDRANT_HOST=your-cluster.qdrant.io
 QDRANT_PORT=6334
 QDRANT_API_KEY=your-qdrant-api-key
