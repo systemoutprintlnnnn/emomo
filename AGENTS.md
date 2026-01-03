@@ -10,7 +10,7 @@
 - `docs/`: Design and usage documentation.
 
 ## Build, Test, and Development Commands
-- `docker-compose -f deployments/docker-compose.yml up -d`: start local infra (Qdrant + storage).
+- `docker-compose -f deployments/docker-compose.yml up -d`: start API + Grafana Alloy (Qdrant + storage are external).
 - `go run ./cmd/api`: run the API server locally.
 - `./scripts/import-data.sh -s staging:fabiaoqing -l 50`: ingest staged memes (recommended).
 - `go run ./cmd/ingest --source=staging:fabiaoqing --limit=50`: ingest staged memes (alternative).
@@ -32,4 +32,4 @@
 
 ## Security & Configuration Tips
 - Never commit API keys or secrets; use `.env` or environment variables.
-- For production, prefer the `deployments/docker-compose.prod.yml` workflows and TLS-enabled endpoints.
+- For production, prefer TLS-enabled endpoints.

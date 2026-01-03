@@ -577,8 +577,7 @@ meme-library/
 │   └── config.example.yaml     # 示例配置
 │
 ├── deployments/                # 部署相关
-│   ├── docker-compose.yml      # Grafana Alloy（日志采集）
-│   ├── docker-compose.prod.yml # API + Alloy（Qdrant/存储外部）
+│   ├── docker-compose.yml      # API + Alloy（Qdrant/存储外部）
 │   └── Dockerfile
 │
 ├── scripts/                    # 脚本

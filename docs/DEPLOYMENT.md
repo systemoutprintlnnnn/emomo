@@ -346,8 +346,8 @@ JINA_API_KEY=your-key
 
 ### 使用 Docker Compose 部署
 
-`deployments/docker-compose.prod.yml` 仅启动 API + Grafana Alloy，Qdrant 与对象存储需外部提供（云服务或本地容器）。
-如仅需日志采集，可运行 `deployments/docker-compose.yml`。
+`deployments/docker-compose.yml` 启动 API + Grafana Alloy，Qdrant 与对象存储需外部提供（云服务或本地容器）。
+如仅需日志采集，可运行 `docker-compose -f deployments/docker-compose.yml up -d alloy`。
 
 详细说明请参考 [`deployments/README.md`](../deployments/README.md)。
 
@@ -379,7 +379,7 @@ export STORAGE_USE_SSL=true
 export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
 ```
 
-或者使用配置文件 `configs/config.cloud.yaml.example`，复制并修改为 `configs/config.prod.yaml`。
+或者使用配置文件 `configs/config.cloud.yaml.example` 作为参考，更新 `configs/config.yaml`。
 
 #### 步骤
 
@@ -393,9 +393,9 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
    ls -la ./data/ChineseBQB  # 应该看到图片文件
    ```
 
-2. **检查 docker-compose.prod.yml 挂载配置**
+2. **检查 docker-compose.yml 挂载配置**
    
-   确保 `docker-compose.prod.yml` 中有以下挂载配置：
+   确保 `docker-compose.yml` 中有以下挂载配置：
    ```yaml
    volumes:
      - ../data:/root/data        # 挂载整个 data 目录
@@ -407,7 +407,7 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
 3. **启动服务**
    ```bash
    cd deployments
-   docker-compose -f docker-compose.prod.yml up -d
+   docker-compose -f docker-compose.yml up -d
    ```
 
 4. **验证目录挂载**
@@ -440,7 +440,7 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
 1. 检查主机上的目录是否存在：`ls -la /path/to/emomo/data/ChineseBQB`
 2. 检查 docker-compose.yml 中的挂载路径是否正确（使用相对路径 `../data` 或绝对路径）
 3. 确保目录包含图片文件（.jpg, .png, .gif, .webp）
-4. 重启容器：`docker-compose -f docker-compose.prod.yml restart api`
+4. 重启容器：`docker-compose -f docker-compose.yml restart api`
 5. 查看容器日志：`docker logs emomo-api`
 
 **问题：使用绝对路径挂载**
@@ -565,7 +565,7 @@ docker exec -it emomo-api sh
   # 检查文件数量
   docker exec emomo-api find /root/data/ChineseBQB -type f | wc -l
   ```
-- **检查 docker-compose.prod.yml 挂载配置**：
+- **检查 docker-compose.yml 挂载配置**：
   - 确保 `../data:/root/data` 挂载正确
   - 如果使用绝对路径，确保路径正确
 - **检查主机上的目录**：
@@ -578,7 +578,7 @@ docker exec -it emomo-api sh
   ```
 - **重启容器**：
   ```bash
-  docker-compose -f docker-compose.prod.yml restart api
+  docker-compose -f docker-compose.yml restart api
   ```
 
 ## 安全建议

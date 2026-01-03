@@ -14,11 +14,11 @@ Emomo is an AI-powered meme/sticker semantic search system. Users can search for
 # Build binaries (optional, can use go run instead)
 go build -o api ./cmd/api
 
-# Start infrastructure - Development (Grafana Alloy only, Qdrant/S3 use cloud services)
+# Start infrastructure (API + Alloy; Qdrant/S3 are external)
 docker-compose -f deployments/docker-compose.yml up -d
 
-# Start infrastructure - Production (API + Alloy; Qdrant/S3 are external)
-docker-compose -f deployments/docker-compose.prod.yml up -d
+# Logs only (Grafana Alloy)
+docker-compose -f deployments/docker-compose.yml up -d alloy
 
 # Data ingestion using script (recommended, no build required)
 ./scripts/import-data.sh -s chinesebqb -l 100       # Ingest memes
@@ -123,8 +123,8 @@ Config file: `configs/config.yaml`
 
 ## Deployment & Monitoring
 
-- **Development**: Run `docker-compose.yml` for Grafana Alloy log collection only (Qdrant/S3 use cloud services)
-- **Production**: Run `docker-compose.prod.yml` for API + Alloy (Qdrant/S3 are external)
+- **Compose**: Run `docker-compose.yml` for API + Alloy (Qdrant/S3 are external)
+- **Logging only**: Run `docker-compose.yml` with `alloy` service if you only need log collection
 - **Logging**: Grafana Alloy collects Docker container logs and forwards to Grafana Cloud Loki
 - **Observability**: Alloy UI available at `http://localhost:12345` for pipeline monitoring
 
