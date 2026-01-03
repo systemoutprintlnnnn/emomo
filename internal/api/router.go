@@ -17,6 +17,7 @@ import (
 //   - sources: map of source adapters keyed by name.
 //   - cfg: application configuration for server settings.
 //   - log: logger instance for middleware.
+//
 // Returns:
 //   - *gin.Engine: configured Gin router.
 func SetupRouter(
@@ -61,7 +62,8 @@ func SetupRouter(
 	// API v1 routes
 	v1 := r.Group("/api/v1")
 	{
-		// Search
+		// Search - register stream route first to avoid matching /search first
+		v1.POST("/search/stream", searchHandler.TextSearchStream)
 		v1.POST("/search", searchHandler.TextSearch)
 
 		// Categories

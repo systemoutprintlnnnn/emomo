@@ -146,6 +146,15 @@ type SearchResponse struct {
 	Collection    string         `json:"collection,omitempty"` // Which collection was searched
 }
 
+// SearchProgress represents a progress update during streaming search.
+type SearchProgress struct {
+	Stage         string `json:"stage"`                    // Current stage of the search
+	Message       string `json:"message,omitempty"`        // User-friendly message
+	ThinkingText  string `json:"thinking_text,omitempty"`  // LLM thinking content (for streaming)
+	IsDelta       bool   `json:"is_delta,omitempty"`       // Whether thinking_text is incremental
+	ExpandedQuery string `json:"expanded_query,omitempty"` // Expanded query (when available)
+}
+
 // TextSearch performs a semantic text search.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
@@ -262,6 +271,199 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 
 	// Optionally enrich with full meme data from database
 	if len(results) > 0 {
+		ids := make([]string, len(results))
+		for i, r := range results {
+			ids[i] = r.ID
+		}
+
+		memes, err := s.memeRepo.GetByIDs(ctx, ids)
+		if err != nil {
+			s.log(ctx).WithError(err).Warn("Failed to enrich results from database")
+		} else {
+			memeMap := make(map[string]*domain.Meme)
+			for i := range memes {
+				memeMap[memes[i].ID] = &memes[i]
+			}
+
+			for i := range results {
+				if meme, ok := memeMap[results[i].ID]; ok {
+					results[i].Width = meme.Width
+					results[i].Height = meme.Height
+				}
+			}
+		}
+	}
+
+	return &SearchResponse{
+		Results:       results,
+		Total:         len(results),
+		Query:         originalQuery,
+		ExpandedQuery: expandedQuery,
+		Collection:    collectionName,
+	}, nil
+}
+
+// TextSearchWithProgress performs a semantic text search with progress updates.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - req: search request parameters.
+//   - progressCh: channel for sending progress updates.
+// Returns:
+//   - *SearchResponse: search results and metadata.
+//   - error: non-nil if search fails.
+func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchRequest, progressCh chan<- SearchProgress) (*SearchResponse, error) {
+	defer close(progressCh)
+
+	// Set defaults
+	if req.TopK <= 0 {
+		req.TopK = 20
+	}
+	if req.TopK > 100 {
+		req.TopK = 100
+	}
+
+	// Determine which collection, embedding, and qdrant repo to use
+	var qdrantRepo *repository.QdrantRepository
+	var embedding EmbeddingProvider
+	var collectionName string
+
+	if req.Collection != "" {
+		if cfg, ok := s.collections[req.Collection]; ok {
+			qdrantRepo = cfg.QdrantRepo
+			embedding = cfg.Embedding
+			collectionName = req.Collection
+		} else {
+			return nil, fmt.Errorf("unknown collection: %s", req.Collection)
+		}
+	} else {
+		qdrantRepo = s.defaultQdrantRepo
+		embedding = s.defaultEmbedding
+		collectionName = s.defaultCollection
+	}
+
+	originalQuery := req.Query
+	expandedQuery := ""
+
+	// Stage 1: Query Expansion (with streaming)
+	if s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
+		// Send start event
+		progressCh <- SearchProgress{
+			Stage:   "query_expansion_start",
+			Message: "AI 正在理解搜索意图...",
+		}
+
+		// Create token channel for streaming
+		tokenCh := make(chan string, 100)
+		expandDone := make(chan struct{})
+		var expandErr error
+
+		go func() {
+			defer close(expandDone)
+			expandedQuery, expandErr = s.queryExpansion.ExpandStream(ctx, req.Query, tokenCh)
+		}()
+
+		// Stream thinking tokens
+		for token := range tokenCh {
+			progressCh <- SearchProgress{
+				Stage:        "thinking",
+				ThinkingText: token,
+				IsDelta:      true,
+			}
+		}
+
+		<-expandDone
+
+		if expandErr != nil {
+			s.log(ctx).WithFields(logger.Fields{
+				"query": req.Query,
+			}).WithError(expandErr).Warn("Query expansion failed, using original query")
+			// Silent fallback - continue with original query
+			expandedQuery = ""
+		} else if expandedQuery != req.Query && expandedQuery != "" {
+			s.log(ctx).WithFields(logger.Fields{
+				"original": req.Query,
+				"expanded": expandedQuery,
+			}).Info("Query expanded")
+
+			progressCh <- SearchProgress{
+				Stage:         "query_expansion_done",
+				Message:       "理解完成",
+				ExpandedQuery: expandedQuery,
+			}
+		}
+	}
+
+	// Use expanded query for embedding if available
+	queryForEmbedding := originalQuery
+	if expandedQuery != "" {
+		queryForEmbedding = expandedQuery
+	}
+
+	// Stage 2: Generate Embedding
+	progressCh <- SearchProgress{
+		Stage:   "embedding",
+		Message: "正在生成语义向量...",
+	}
+
+	s.log(ctx).WithFields(logger.Fields{
+		"query":               originalQuery,
+		"query_for_embedding": queryForEmbedding,
+		"top_k":               req.TopK,
+		"score_threshold":     s.scoreThreshold,
+		"collection":          collectionName,
+	}).Info("Performing text search")
+
+	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+	}
+
+	// Stage 3: Search in Qdrant
+	progressCh <- SearchProgress{
+		Stage:   "searching",
+		Message: "在表情库中搜索...",
+	}
+
+	filters := &repository.SearchFilters{
+		Category:   req.Category,
+		IsAnimated: req.IsAnimated,
+		SourceType: req.SourceType,
+	}
+
+	qdrantResults, err := qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
+	}
+
+	// Convert to response format
+	results := make([]SearchResult, 0, len(qdrantResults))
+	for _, qr := range qdrantResults {
+		if qr.Payload == nil {
+			continue
+		}
+		if s.scoreThreshold > 0 && qr.Score < s.scoreThreshold {
+			continue
+		}
+
+		result := SearchResult{
+			ID:          qr.Payload.MemeID,
+			URL:         qr.Payload.StorageURL,
+			Score:       qr.Score,
+			Description: qr.Payload.VLMDescription,
+			Category:    qr.Payload.Category,
+			Tags:        qr.Payload.Tags,
+			IsAnimated:  qr.Payload.IsAnimated,
+		}
+		results = append(results, result)
+	}
+
+	// Stage 4: Enrich with database data
+	if len(results) > 0 {
+		progressCh <- SearchProgress{
+			Stage:   "enriching",
+			Message: "加载表情包详情...",
+		}
+
 		ids := make([]string, len(results))
 		for i, r := range results {
 			ids[i] = r.ID
