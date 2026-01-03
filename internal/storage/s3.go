@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/timmy/emomo/internal/logger"
 )
 
 // StorageType defines the type of S3-compatible storage.
@@ -164,6 +166,8 @@ func (s *S3Storage) EnsureBucket(ctx context.Context) error {
 // Returns:
 //   - error: non-nil if the upload fails.
 func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, size int64, contentType string) error {
+	startTime := time.Now()
+
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
 		Key:           aws.String(key),
@@ -171,9 +175,20 @@ func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, si
 		ContentLength: aws.Int64(size),
 		ContentType:   aws.String(contentType),
 	})
+	duration := time.Since(startTime)
+
 	if err != nil {
+		logger.With(logger.Fields{
+			logger.FieldDurationMs: duration.Milliseconds(),
+			logger.FieldSize:       size,
+		}).Error(ctx, "Failed to upload: key=%s, error=%v", key, err)
 		return fmt.Errorf("failed to upload object: %w", err)
 	}
+
+	logger.With(logger.Fields{
+		logger.FieldDurationMs: duration.Milliseconds(),
+		logger.FieldSize:       size,
+	}).Debug(ctx, "Upload completed: key=%s", key)
 
 	return nil
 }
@@ -186,13 +201,24 @@ func (s *S3Storage) Upload(ctx context.Context, key string, reader io.Reader, si
 //   - io.ReadCloser: reader for the object contents.
 //   - error: non-nil if the download fails.
 func (s *S3Storage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+	startTime := time.Now()
+
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
+	duration := time.Since(startTime)
+
 	if err != nil {
+		logger.With(logger.Fields{
+			logger.FieldDurationMs: duration.Milliseconds(),
+		}).Error(ctx, "Failed to download: key=%s, error=%v", key, err)
 		return nil, fmt.Errorf("failed to download object: %w", err)
 	}
+
+	logger.With(logger.Fields{
+		logger.FieldDurationMs: duration.Milliseconds(),
+	}).Debug(ctx, "Download completed: key=%s", key)
 
 	return result.Body, nil
 }
