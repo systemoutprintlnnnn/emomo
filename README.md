@@ -4,7 +4,8 @@ emoji: 🔥
 colorFrom: green
 colorTo: indigo
 sdk: docker
-pinned: false
+pinned: true
+license: mit
 ---
 
 # Emomo - AI 表情包语义搜索
