@@ -1,8 +1,12 @@
 package service
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -48,6 +52,7 @@ type QueryExpansionService struct {
 	client   *resty.Client
 	model    string
 	endpoint string
+	apiKey   string
 	enabled  bool
 }
 
@@ -84,6 +89,7 @@ func NewQueryExpansionService(cfg *QueryExpansionConfig) *QueryExpansionService 
 		client:   client,
 		model:    cfg.Model,
 		endpoint: endpoint,
+		apiKey:   cfg.APIKey,
 		enabled:  true,
 	}
 }
@@ -118,6 +124,25 @@ type queryExpansionResponse struct {
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+// queryExpansionStreamRequest represents a streaming request to the LLM API
+type queryExpansionStreamRequest struct {
+	Model       string                  `json:"model"`
+	Messages    []queryExpansionMessage `json:"messages"`
+	MaxTokens   int                     `json:"max_tokens"`
+	Temperature float32                 `json:"temperature"`
+	Stream      bool                    `json:"stream"`
+}
+
+// streamDelta represents a delta in the streaming response
+type streamDelta struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
 }
 
 // Expand expands a short query into a richer semantic description.
@@ -198,4 +223,117 @@ func (s *QueryExpansionService) ExpandWithFallback(ctx context.Context, query st
 		return query
 	}
 	return expanded
+}
+
+// ExpandStream expands a query with streaming token output.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: original query string.
+//   - tokenCh: channel to receive individual tokens.
+// Returns:
+//   - string: complete expanded query.
+//   - error: non-nil if the expansion request fails.
+func (s *QueryExpansionService) ExpandStream(ctx context.Context, query string, tokenCh chan<- string) (string, error) {
+	defer close(tokenCh)
+
+	if !s.enabled {
+		return query, nil
+	}
+
+	// Skip expansion for already long queries
+	if len([]rune(query)) > 50 {
+		return query, nil
+	}
+
+	req := queryExpansionStreamRequest{
+		Model: s.model,
+		Messages: []queryExpansionMessage{
+			{
+				Role:    "system",
+				Content: queryExpansionPrompt,
+			},
+			{
+				Role:    "user",
+				Content: query,
+			},
+		},
+		MaxTokens:   150,
+		Temperature: 0.3,
+		Stream:      true,
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return query, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create HTTP request manually for streaming
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.endpoint, strings.NewReader(string(reqBody)))
+	if err != nil {
+		return query, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+s.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return query, fmt.Errorf("stream request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return query, fmt.Errorf("stream API error: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse SSE stream
+	var fullContent strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+
+		// Parse data lines
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+
+			// Check for stream end
+			if data == "[DONE]" {
+				break
+			}
+
+			// Parse JSON delta
+			var delta streamDelta
+			if err := json.Unmarshal([]byte(data), &delta); err != nil {
+				continue // Skip malformed data
+			}
+
+			if len(delta.Choices) > 0 && delta.Choices[0].Delta.Content != "" {
+				content := delta.Choices[0].Delta.Content
+				fullContent.WriteString(content)
+				tokenCh <- content
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return query, fmt.Errorf("stream read error: %w", err)
+	}
+
+	expanded := strings.TrimSpace(fullContent.String())
+
+	// Validate expansion
+	if len([]rune(expanded)) < 10 {
+		return query, nil
+	}
+
+	return expanded, nil
 }
