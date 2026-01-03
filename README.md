@@ -8,6 +8,8 @@ pinned: true
 license: mit
 ---
 
+---
+
 # Emomo - AI 表情包语义搜索
 
 Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，支持多数据源采集、自动描述生成与向量检索。
