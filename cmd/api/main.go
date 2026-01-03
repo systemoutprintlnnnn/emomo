@@ -27,6 +27,7 @@ func main() {
 		ServiceName: "emomo-api",
 	})
 	logger.SetDefaultLogger(appLogger)
+	defer logger.Sync() // Ensure logs are flushed on exit
 
 	// Load configuration
 	configPath := os.Getenv("CONFIG_PATH")
@@ -188,15 +189,15 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	appLogger.Info("Shutting down server...")
+	logger.Info("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		appLogger.WithError(err).Fatal("Server forced to shutdown")
+		logger.Error("Server forced to shutdown: %v", err)
 	}
 
-	appLogger.Info("Server exited")
+	logger.Info("Server exited")
 }

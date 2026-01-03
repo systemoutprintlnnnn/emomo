@@ -195,19 +195,21 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	originalQuery := req.Query
 	expandedQuery := ""
 
+	// Inject search tracing fields into context
+	ctx = logger.WithFields(ctx, logger.Fields{
+		logger.FieldComponent: "search",
+		logger.FieldSearchID:  fmt.Sprintf("%d", ctx.Value("request_id")), // Will be overwritten if request_id exists
+	})
+
 	// Expand query using LLM if enabled
 	if s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
 		expanded, err := s.queryExpansion.Expand(ctx, req.Query)
 		if err != nil {
-			s.log(ctx).WithFields(logger.Fields{
-				"query": req.Query,
-			}).WithError(err).Warn("Query expansion failed, using original query")
+			logger.CtxWarn(ctx, "Query expansion failed, using original query: query=%q, error=%v",
+				req.Query, err)
 		} else if expanded != req.Query {
 			expandedQuery = expanded
-			s.log(ctx).WithFields(logger.Fields{
-				"original": req.Query,
-				"expanded": expanded,
-			}).Info("Query expanded")
+			logger.CtxInfo(ctx, "Query expanded: original=%q, expanded=%q", req.Query, expanded)
 		}
 	}
 
@@ -217,13 +219,8 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		queryForEmbedding = expandedQuery
 	}
 
-	s.log(ctx).WithFields(logger.Fields{
-		"query":               originalQuery,
-		"query_for_embedding": queryForEmbedding,
-		"top_k":               req.TopK,
-		"score_threshold":     s.scoreThreshold,
-		"collection":          collectionName,
-	}).Info("Performing text search")
+	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s",
+		originalQuery, queryForEmbedding, req.TopK, collectionName)
 
 	// Generate query embedding using the appropriate embedding provider
 	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
@@ -278,7 +275,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 
 		memes, err := s.memeRepo.GetByIDs(ctx, ids)
 		if err != nil {
-			s.log(ctx).WithError(err).Warn("Failed to enrich results from database")
+			logger.CtxWarn(ctx, "Failed to enrich results from database: error=%v", err)
 		} else {
 			memeMap := make(map[string]*domain.Meme)
 			for i := range memes {
@@ -374,16 +371,12 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		<-expandDone
 
 		if expandErr != nil {
-			s.log(ctx).WithFields(logger.Fields{
-				"query": req.Query,
-			}).WithError(expandErr).Warn("Query expansion failed, using original query")
+			logger.CtxWarn(ctx, "Query expansion failed, using original query: query=%q, error=%v",
+				req.Query, expandErr)
 			// Silent fallback - continue with original query
 			expandedQuery = ""
 		} else if expandedQuery != req.Query && expandedQuery != "" {
-			s.log(ctx).WithFields(logger.Fields{
-				"original": req.Query,
-				"expanded": expandedQuery,
-			}).Info("Query expanded")
+			logger.CtxInfo(ctx, "Query expanded: original=%q, expanded=%q", req.Query, expandedQuery)
 
 			progressCh <- SearchProgress{
 				Stage:         "query_expansion_done",
@@ -405,13 +398,8 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		Message: "正在生成语义向量...",
 	}
 
-	s.log(ctx).WithFields(logger.Fields{
-		"query":               originalQuery,
-		"query_for_embedding": queryForEmbedding,
-		"top_k":               req.TopK,
-		"score_threshold":     s.scoreThreshold,
-		"collection":          collectionName,
-	}).Info("Performing text search")
+	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s",
+		originalQuery, queryForEmbedding, req.TopK, collectionName)
 
 	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
@@ -471,7 +459,7 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 
 		memes, err := s.memeRepo.GetByIDs(ctx, ids)
 		if err != nil {
-			s.log(ctx).WithError(err).Warn("Failed to enrich results from database")
+			logger.CtxWarn(ctx, "Failed to enrich results from database: error=%v", err)
 		} else {
 			memeMap := make(map[string]*domain.Meme)
 			for i := range memes {

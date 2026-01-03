@@ -340,30 +340,24 @@ func (h *AdminHandler) AdminPage(c *gin.Context) {
 //   - c: Gin request context.
 // Returns: none (writes JSON response).
 func (h *AdminHandler) TriggerIngest(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	var req IngestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		h.log(c).WithFields(logger.Fields{
-			"client_ip": c.ClientIP(),
-		}).WithError(err).Warn("Invalid ingest request")
+		logger.CtxWarn(ctx, "Invalid ingest request: client_ip=%s, error=%v", c.ClientIP(), err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	h.log(c).WithFields(logger.Fields{
-		"source":    req.Source,
-		"limit":     req.Limit,
-		"force":     req.Force,
-		"client_ip": c.ClientIP(),
-	}).Info("Received ingest request")
+	logger.CtxInfo(ctx, "Received ingest request: source=%s, limit=%d, force=%v, client_ip=%s",
+		req.Source, req.Limit, req.Force, c.ClientIP())
 
 	// Check if ingest is already running
 	h.mu.RLock()
 	if h.isRunning {
 		h.mu.RUnlock()
-		h.log(c).WithFields(logger.Fields{
-			"source":    req.Source,
-			"client_ip": c.ClientIP(),
-		}).Warn("Ingest request rejected: already running")
+		logger.CtxWarn(ctx, "Ingest request rejected: already running, source=%s, client_ip=%s",
+			req.Source, c.ClientIP())
 		c.JSON(http.StatusConflict, gin.H{"error": "Ingest is already running"})
 		return
 	}
@@ -372,10 +366,7 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	// Get source
 	src, ok := h.sources[req.Source]
 	if !ok {
-		h.log(c).WithFields(logger.Fields{
-			"source":    req.Source,
-			"client_ip": c.ClientIP(),
-		}).Warn("Unknown source requested")
+		logger.CtxWarn(ctx, "Unknown source requested: source=%s, client_ip=%s", req.Source, c.ClientIP())
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unknown source: " + req.Source})
 		return
 	}
@@ -386,16 +377,13 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	h.currentStats = nil
 	h.mu.Unlock()
 
-	h.log(c).WithFields(logger.Fields{
-		"source": req.Source,
-		"limit":  req.Limit,
-		"force":  req.Force,
-	}).Info("Starting ingest process")
+	logger.CtxInfo(ctx, "Starting ingest process: source=%s, limit=%d, force=%v",
+		req.Source, req.Limit, req.Force)
 
-	// Run ingest
-	ctx := context.Background()
+	// Run ingest (use background context to avoid cancellation on HTTP timeout)
+	ingestCtx := context.Background()
 	startTime := time.Now()
-	stats, err := h.ingestService.IngestFromSource(ctx, src, req.Limit, &service.IngestOptions{
+	stats, err := h.ingestService.IngestFromSource(ingestCtx, src, req.Limit, &service.IngestOptions{
 		Force: req.Force,
 	})
 	duration := time.Since(startTime)
@@ -413,26 +401,19 @@ func (h *AdminHandler) TriggerIngest(c *gin.Context) {
 	h.mu.Unlock()
 
 	if err != nil {
-		h.log(c).WithFields(logger.Fields{
-			"source":   req.Source,
-			"limit":    req.Limit,
-			"force":    req.Force,
-			"duration": duration.String(),
-		}).WithError(err).Error("Ingest process failed")
+		logger.With(logger.Fields{
+			logger.FieldDurationMs: duration.Milliseconds(),
+		}).Error(ctx, "Ingest process failed: source=%s, limit=%d, force=%v, error=%v",
+			req.Source, req.Limit, req.Force, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	h.log(c).WithFields(logger.Fields{
-		"source":          req.Source,
-		"limit":           req.Limit,
-		"force":           req.Force,
-		"duration":        duration.String(),
-		"total_items":     stats.TotalItems,
-		"processed_items": stats.ProcessedItems,
-		"skipped_items":   stats.SkippedItems,
-		"failed_items":    stats.FailedItems,
-	}).Info("Ingest process completed successfully")
+	logger.With(logger.Fields{
+		logger.FieldDurationMs: duration.Milliseconds(),
+		logger.FieldCount:      stats.ProcessedItems,
+	}).Info(ctx, "Ingest process completed: source=%s, total=%d, processed=%d, skipped=%d, failed=%d",
+		req.Source, stats.TotalItems, stats.ProcessedItems, stats.SkippedItems, stats.FailedItems)
 
 	c.JSON(http.StatusOK, IngestResponse{
 		Message: "Ingest completed successfully",
@@ -448,10 +429,8 @@ func (h *AdminHandler) GetIngestStatus(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	h.log(c).WithFields(logger.Fields{
-		"client_ip":  c.ClientIP(),
-		"is_running": h.isRunning,
-	}).Debug("Ingest status requested")
+	ctx := c.Request.Context()
+	logger.CtxDebug(ctx, "Ingest status requested: client_ip=%s, is_running=%v", c.ClientIP(), h.isRunning)
 
 	resp := IngestStatusResponse{
 		IsRunning:     h.isRunning,

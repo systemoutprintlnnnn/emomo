@@ -119,15 +119,19 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 		opts = &IngestOptions{}
 	}
 
+	// Inject tracing fields into context
+	ctx = logger.WithFields(ctx, logger.Fields{
+		logger.FieldComponent: "ingest",
+		logger.FieldJobID:     uuid.New().String(),
+		logger.FieldSource:    src.GetSourceID(),
+	})
+
 	stats := &IngestStats{
 		StartTime: time.Now(),
 	}
 
-	s.log(ctx).WithFields(logger.Fields{
-		"source": src.GetSourceID(),
-		"limit":  limit,
-		"force":  opts.Force,
-	}).Info("Starting ingestion")
+	logger.CtxInfo(ctx, "Starting ingestion: source=%s, limit=%d, force=%v",
+		src.GetSourceID(), limit, opts.Force)
 
 	// Create work channel and results channel
 	itemsChan := make(chan source.MemeItem, s.workers*2)
@@ -152,9 +156,8 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 				atomic.AddInt64(&stats.SkippedItems, 1)
 			} else if result.err != nil {
 				atomic.AddInt64(&stats.FailedItems, 1)
-				s.log(ctx).WithFields(logger.Fields{
-					"source_id": result.sourceID,
-				}).WithError(result.err).Error("Failed to process item")
+				logger.CtxError(ctx, "Failed to process item: source_id=%s, error=%v",
+					result.sourceID, result.err)
 			}
 		}
 		close(done)
@@ -180,7 +183,7 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 
 		items, nextCursor, err := src.FetchBatch(ctx, cursor, batchLimit)
 		if err != nil {
-			s.log(ctx).WithError(err).Error("Failed to fetch batch")
+			logger.CtxError(ctx, "Failed to fetch batch: error=%v", err)
 			break
 		}
 
@@ -214,14 +217,13 @@ func (s *IngestService) IngestFromSource(ctx context.Context, src source.Source,
 	<-done
 
 	stats.EndTime = time.Now()
+	duration := stats.EndTime.Sub(stats.StartTime)
 
-	s.log(ctx).WithFields(logger.Fields{
-		"total":     stats.TotalItems,
-		"processed": stats.ProcessedItems,
-		"skipped":   stats.SkippedItems,
-		"failed":    stats.FailedItems,
-		"duration":  stats.EndTime.Sub(stats.StartTime).String(),
-	}).Info("Ingestion completed")
+	logger.With(logger.Fields{
+		logger.FieldDurationMs: duration.Milliseconds(),
+		logger.FieldCount:      stats.ProcessedItems,
+	}).Info(ctx, "Ingestion completed: total=%d, processed=%d, skipped=%d, failed=%d",
+		stats.TotalItems, stats.ProcessedItems, stats.SkippedItems, stats.FailedItems)
 
 	return stats, nil
 }
@@ -295,13 +297,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	rollbackMeme := func() {
 		if createdNewMeme && memeID != "" {
 			if delErr := s.memeRepo.Delete(ctx, memeID); delErr != nil {
-				s.log(ctx).WithFields(logger.Fields{
-					"meme_id": memeID,
-				}).WithError(delErr).Error("Failed to rollback meme record")
+				logger.CtxError(ctx, "Failed to rollback meme record: meme_id=%s, error=%v", memeID, delErr)
 			} else {
-				s.log(ctx).WithFields(logger.Fields{
-					"meme_id": memeID,
-				}).Debug("Rolled back meme record")
+				logger.CtxDebug(ctx, "Rolled back meme record: meme_id=%s", memeID)
 			}
 		}
 	}
@@ -310,13 +308,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	rollbackStorage := func() {
 		if uploaded {
 			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
-				s.log(ctx).WithFields(logger.Fields{
-					"storage_key": storageKey,
-				}).WithError(delErr).Error("Failed to rollback storage upload")
+				logger.CtxError(ctx, "Failed to rollback storage upload: storage_key=%s, error=%v", storageKey, delErr)
 			} else {
-				s.log(ctx).WithFields(logger.Fields{
-					"storage_key": storageKey,
-				}).Debug("Rolled back storage upload")
+				logger.CtxDebug(ctx, "Rolled back storage upload: storage_key=%s", storageKey)
 			}
 		}
 	}
@@ -330,12 +324,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		width = existingMeme.Width
 		height = existingMeme.Height
 
-		s.log(ctx).WithFields(logger.Fields{
-			"md5_hash":    md5Hash,
-			"meme_id":     memeID,
-			"storage_key": storageKey,
-			"collection":  s.collection,
-		}).Info("Reusing existing meme record for new embedding")
+		logger.CtxInfo(ctx, "Reusing existing meme record: md5=%s, meme_id=%s, collection=%s",
+			md5Hash, memeID, s.collection)
 	} else {
 		// NEW meme: full processing pipeline
 		memeID = uuid.New().String()
@@ -343,7 +333,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		// Get image dimensions
 		width, height, err = getImageDimensions(imageData)
 		if err != nil {
-			s.log(ctx).WithError(err).Warn("Failed to get image dimensions")
+			logger.CtxWarn(ctx, "Failed to get image dimensions: error=%v", err)
 			width, height = 0, 0
 		}
 
@@ -451,9 +441,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
 			// Rollback: delete from Qdrant first
 			if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
-				s.log(ctx).WithFields(logger.Fields{
-					"point_id": pointID,
-				}).WithError(delErr).Error("Failed to rollback Qdrant upsert")
+				logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
 			}
 			// Then rollback meme and storage
 			rollbackMeme()
@@ -462,13 +450,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 	}
 
-	s.log(ctx).WithFields(logger.Fields{
-		"meme_id":     memeID,
-		"point_id":    pointID,
-		"collection":  s.collection,
-		"model":       s.embedding.GetModel(),
-		"reused_meme": hasExistingMeme,
-	}).Debug("Successfully processed item")
+	logger.CtxDebug(ctx, "Successfully processed item: meme_id=%s, point_id=%s, collection=%s, model=%s, reused=%v",
+		memeID, pointID, s.collection, s.embedding.GetModel(), hasExistingMeme)
 
 	return nil
 }
@@ -538,7 +521,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		// Download from storage
 		reader, err := s.storage.Download(ctx, meme.StorageKey)
 		if err != nil {
-			s.log(ctx).WithError(err).Error("Failed to download from storage")
+			logger.CtxError(ctx, "Failed to download from storage: error=%v", err)
 			stats.FailedItems++
 			continue
 		}
@@ -546,7 +529,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		imageData, err := io.ReadAll(reader)
 		reader.Close()
 		if err != nil {
-			s.log(ctx).WithError(err).Error("Failed to read image data")
+			logger.CtxError(ctx, "Failed to read image data: error=%v", err)
 			stats.FailedItems++
 			continue
 		}
@@ -554,7 +537,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		// Generate VLM description
 		description, err := s.vlm.DescribeImage(ctx, imageData, meme.Format)
 		if err != nil {
-			s.log(ctx).WithError(err).Warn("Failed to generate VLM description")
+			logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
 			stats.FailedItems++
 			continue
 		}
@@ -562,7 +545,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		// Generate embedding
 		embedding, err := s.embedding.Embed(ctx, description)
 		if err != nil {
-			s.log(ctx).WithError(err).Warn("Failed to generate embedding")
+			logger.CtxWarn(ctx, "Failed to generate embedding: error=%v", err)
 			stats.FailedItems++
 			continue
 		}
@@ -579,7 +562,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		}
 
 		if err := s.qdrantRepo.Upsert(ctx, meme.ID, embedding, payload); err != nil {
-			s.log(ctx).WithError(err).Error("Failed to upsert to Qdrant")
+			logger.CtxError(ctx, "Failed to upsert to Qdrant: error=%v", err)
 			stats.FailedItems++
 			continue
 		}
@@ -590,7 +573,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		meme.UpdatedAt = time.Now()
 
 		if err := s.memeRepo.Update(ctx, &meme); err != nil {
-			s.log(ctx).WithError(err).Error("Failed to update database")
+			logger.CtxError(ctx, "Failed to update database: error=%v", err)
 			stats.FailedItems++
 			continue
 		}

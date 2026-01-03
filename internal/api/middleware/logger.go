@@ -22,23 +22,23 @@ func LoggerMiddleware(log *logger.Logger) gin.HandlerFunc {
 		// Generate request ID
 		requestID := uuid.New().String()
 
-		// Create request-scoped logger with common fields
-		reqLogger := log.WithFields(logger.Fields{
-			"request_id": requestID,
-			"path":       path,
-			"method":     c.Request.Method,
-			"client_ip":  c.ClientIP(),
+		// Inject tracing fields into context (using standard field constants)
+		ctx := c.Request.Context()
+		ctx = logger.WithFields(ctx, logger.Fields{
+			logger.FieldRequestID: requestID,
+			logger.FieldComponent: "api",
 		})
-
-		// Inject logger into request context
-		ctx := reqLogger.WithContext(c.Request.Context())
 		c.Request = c.Request.WithContext(ctx)
 
-		// Also store in Gin's context for convenience
-		c.Set("logger", reqLogger)
+		// Also store logger in Gin's context for convenience
+		c.Set("logger", logger.FromContext(ctx))
 
 		// Add request ID to response headers
 		c.Header("X-Request-ID", requestID)
+
+		// Log request start
+		logger.CtxInfo(ctx, "Request started: method=%s, path=%s, client_ip=%s",
+			c.Request.Method, path, c.ClientIP())
 
 		// Process request
 		c.Next()
@@ -53,13 +53,12 @@ func LoggerMiddleware(log *logger.Logger) gin.HandlerFunc {
 			fullPath = path + "?" + query
 		}
 
-		// Log request completion
-		reqLogger.WithFields(logger.Fields{
-			"status":     status,
-			"latency_ms": latency.Milliseconds(),
-			"size":       c.Writer.Size(),
-			"full_path":  fullPath,
-		}).Info("Request completed")
+		// Log request completion with metric fields (using Entry API)
+		logger.With(logger.Fields{
+			logger.FieldStatus:     status,
+			logger.FieldDurationMs: latency.Milliseconds(),
+			logger.FieldSize:       c.Writer.Size(),
+		}).Info(ctx, "Request completed: method=%s, path=%s", c.Request.Method, fullPath)
 	}
 }
 

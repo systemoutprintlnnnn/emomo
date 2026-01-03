@@ -1,13 +1,22 @@
 package logger
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+// writerCloser holds a reference to closable writers for Sync()
+var (
+	writerCloser   io.Closer
+	writerCloserMu sync.Mutex
 )
 
 // Logger wraps logrus.Entry to provide structured logging with context support.
@@ -90,6 +99,113 @@ func New(cfg *Config) *Logger {
 	return &Logger{Entry: entry}
 }
 
+// NewFromEnv creates a new Logger from environment configuration.
+// This supports log rotation and multi-output (stdout + file).
+func NewFromEnv(envCfg *EnvConfig) *Logger {
+	if envCfg == nil {
+		envCfg = LoadFromEnv()
+	}
+
+	log := logrus.New()
+
+	// Set log level
+	level, err := logrus.ParseLevel(envCfg.Level)
+	if err != nil {
+		level = logrus.InfoLevel
+	}
+	log.SetLevel(level)
+
+	// Enable caller reporting
+	log.SetReportCaller(true)
+
+	// Set formatter
+	if strings.ToLower(envCfg.Format) == "text" {
+		log.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp:    true,
+			TimestampFormat:  "2006-01-02T15:04:05.000Z07:00",
+			CallerPrettyfier: callerPrettyfier,
+		})
+	} else {
+		log.SetFormatter(&logrus.JSONFormatter{
+			TimestampFormat: "2006-01-02T15:04:05.000Z07:00",
+			FieldMap: logrus.FieldMap{
+				logrus.FieldKeyTime:  "timestamp",
+				logrus.FieldKeyLevel: "level",
+				logrus.FieldKeyMsg:   "message",
+			},
+			CallerPrettyfier: callerPrettyfier,
+		})
+	}
+
+	// Configure output
+	if envCfg.Output != nil {
+		// Use explicitly specified output
+		log.SetOutput(envCfg.Output)
+	} else {
+		// Configure based on environment
+		var writers []io.Writer
+
+		// Stdout output (for local env or when not file-only)
+		if envCfg.Environment == "local" || !envCfg.LogFileOnly {
+			writers = append(writers, os.Stdout)
+		}
+
+		// File output (for non-local environments)
+		if envCfg.Environment != "local" && envCfg.LogFile != "" {
+			fileWriter := &lumberjack.Logger{
+				Filename:   envCfg.LogFile,
+				MaxSize:    envCfg.MaxSize,    // MB
+				MaxBackups: envCfg.MaxBackups,
+				MaxAge:     envCfg.MaxAge,     // days
+				Compress:   envCfg.Compress,
+			}
+			writers = append(writers, fileWriter)
+
+			// Store closer reference for Sync()
+			writerCloserMu.Lock()
+			writerCloser = fileWriter
+			writerCloserMu.Unlock()
+		}
+
+		if len(writers) == 0 {
+			writers = append(writers, os.Stdout)
+		}
+
+		log.SetOutput(io.MultiWriter(writers...))
+	}
+
+	// Create base entry with service name
+	entry := log.WithField("service", envCfg.ServiceName)
+
+	return &Logger{Entry: entry}
+}
+
+// NewDefault creates a new Logger using environment variable configuration.
+// This is the recommended way to create a logger in main().
+func NewDefault() *Logger {
+	return NewFromEnv(nil)
+}
+
+// Sync flushes all pending logs and closes file handles.
+// Should be called before program exit to ensure no logs are lost.
+//
+// Usage:
+//
+//	func main() {
+//	    logger.SetDefaultLogger(logger.NewDefault())
+//	    defer logger.Sync()
+//	    // ...
+//	}
+func Sync() error {
+	writerCloserMu.Lock()
+	defer writerCloserMu.Unlock()
+
+	if writerCloser != nil {
+		return writerCloser.Close()
+	}
+	return nil
+}
+
 // WithFields returns a new Logger with additional fields.
 // Parameters:
 //   - fields: structured fields to add.
@@ -153,4 +269,62 @@ func itoa(i int) string {
 		b[n] = '-'
 	}
 	return string(b[n:])
+}
+
+// ============================================
+// Simple Log Functions (no Context)
+// ============================================
+
+// Debug logs a message at Debug level.
+func Debug(format string, args ...interface{}) {
+	getDefaultLogger().Debugf(format, args...)
+}
+
+// Info logs a message at Info level.
+func Info(format string, args ...interface{}) {
+	getDefaultLogger().Infof(format, args...)
+}
+
+// Warn logs a message at Warn level.
+func Warn(format string, args ...interface{}) {
+	getDefaultLogger().Warnf(format, args...)
+}
+
+// Error logs a message at Error level.
+func Error(format string, args ...interface{}) {
+	getDefaultLogger().Errorf(format, args...)
+}
+
+// Fatal logs a message at Fatal level and exits.
+func Fatal(format string, args ...interface{}) {
+	getDefaultLogger().Fatalf(format, args...)
+}
+
+// ============================================
+// Context Log Functions (recommended)
+// ============================================
+
+// CtxDebug logs a message at Debug level with context fields.
+func CtxDebug(ctx context.Context, format string, args ...interface{}) {
+	FromContext(ctx).Debugf(format, args...)
+}
+
+// CtxInfo logs a message at Info level with context fields.
+func CtxInfo(ctx context.Context, format string, args ...interface{}) {
+	FromContext(ctx).Infof(format, args...)
+}
+
+// CtxWarn logs a message at Warn level with context fields.
+func CtxWarn(ctx context.Context, format string, args ...interface{}) {
+	FromContext(ctx).Warnf(format, args...)
+}
+
+// CtxError logs a message at Error level with context fields.
+func CtxError(ctx context.Context, format string, args ...interface{}) {
+	FromContext(ctx).Errorf(format, args...)
+}
+
+// CtxFatal logs a message at Fatal level with context fields and exits.
+func CtxFatal(ctx context.Context, format string, args ...interface{}) {
+	FromContext(ctx).Fatalf(format, args...)
 }

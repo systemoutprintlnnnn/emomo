@@ -26,6 +26,7 @@ func main() {
 		ServiceName: "emomo-ingest",
 	})
 	logger.SetDefaultLogger(appLogger)
+	defer logger.Sync() // Ensure logs are flushed on exit
 
 	// Parse command line flags
 	sourceType := flag.String("source", "chinesebqb", "Data source to ingest from")

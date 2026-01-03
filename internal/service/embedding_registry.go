@@ -59,16 +59,14 @@ func NewEmbeddingRegistry(cfg *EmbeddingRegistryConfig) (*EmbeddingRegistry, err
 
 		// Validate configuration (without requiring API key for listing)
 		if err := embCfg.Validate(); err != nil {
-			cfg.Logger.WithError(err).Warnf("Skipping invalid embedding config at index %d", i)
+			logger.Warn("Skipping invalid embedding config: index=%d, error=%v", i, err)
 			continue
 		}
 
 		// Check API key is available
 		if embCfg.APIKey == "" {
-			cfg.Logger.WithFields(logger.Fields{
-				"name":        embCfg.Name,
-				"api_key_env": embCfg.APIKeyEnv,
-			}).Warn("Skipping embedding config: no API key configured")
+			logger.Warn("Skipping embedding config: no API key configured, name=%s, api_key_env=%s",
+				embCfg.Name, embCfg.APIKeyEnv)
 			continue
 		}
 
@@ -81,10 +79,8 @@ func NewEmbeddingRegistry(cfg *EmbeddingRegistryConfig) (*EmbeddingRegistry, err
 			Dimensions: embCfg.Dimensions,
 		})
 		if err != nil {
-			cfg.Logger.WithFields(logger.Fields{
-				"name":  embCfg.Name,
-				"error": err.Error(),
-			}).Warn("Failed to create embedding provider, skipping")
+			logger.Warn("Failed to create embedding provider, skipping: name=%s, error=%v",
+				embCfg.Name, err)
 			continue
 		}
 
@@ -101,11 +97,8 @@ func NewEmbeddingRegistry(cfg *EmbeddingRegistryConfig) (*EmbeddingRegistry, err
 			VectorDimension: embCfg.Dimensions,
 		})
 		if err != nil {
-			cfg.Logger.WithFields(logger.Fields{
-				"name":       embCfg.Name,
-				"collection": collection,
-				"error":      err.Error(),
-			}).Warn("Failed to create Qdrant repository, skipping")
+			logger.Warn("Failed to create Qdrant repository, skipping: name=%s, collection=%s, error=%v",
+				embCfg.Name, collection, err)
 			continue
 		}
 
@@ -117,22 +110,14 @@ func NewEmbeddingRegistry(cfg *EmbeddingRegistryConfig) (*EmbeddingRegistry, err
 		// Track default
 		if embCfg.IsDefault {
 			if r.defaultName != "" {
-				cfg.Logger.WithFields(logger.Fields{
-					"existing_default": r.defaultName,
-					"new_default":      embCfg.Name,
-				}).Warn("Multiple default embeddings configured, using latest")
+				logger.Warn("Multiple default embeddings configured, using latest: existing=%s, new=%s",
+					r.defaultName, embCfg.Name)
 			}
 			r.defaultName = embCfg.Name
 		}
 
-		cfg.Logger.WithFields(logger.Fields{
-			"name":       embCfg.Name,
-			"provider":   embCfg.Provider,
-			"model":      embCfg.Model,
-			"collection": collection,
-			"dimensions": embCfg.Dimensions,
-			"is_default": embCfg.IsDefault,
-		}).Info("Registered embedding")
+		logger.Info("Registered embedding: name=%s, provider=%s, model=%s, collection=%s, dim=%d, default=%v",
+			embCfg.Name, embCfg.Provider, embCfg.Model, collection, embCfg.Dimensions, embCfg.IsDefault)
 	}
 
 	// Ensure we have at least one valid embedding
@@ -144,7 +129,7 @@ func NewEmbeddingRegistry(cfg *EmbeddingRegistryConfig) (*EmbeddingRegistry, err
 	if r.defaultName == "" {
 		for name := range r.configs {
 			r.defaultName = name
-			cfg.Logger.WithField("name", name).Info("Using first embedding as default")
+			logger.Info("Using first embedding as default: name=%s", name)
 			break
 		}
 	}
@@ -265,10 +250,7 @@ func (r *EmbeddingRegistry) EnsureCollections(ctx context.Context) error {
 	var lastErr error
 	for name, repo := range r.qdrantRepos {
 		if err := repo.EnsureCollection(ctx); err != nil {
-			r.logger.WithFields(logger.Fields{
-				"name":  name,
-				"error": err.Error(),
-			}).Warn("Failed to ensure collection")
+			logger.CtxWarn(ctx, "Failed to ensure collection: name=%s, error=%v", name, err)
 			lastErr = err
 		}
 	}
@@ -283,10 +265,7 @@ func (r *EmbeddingRegistry) Close() {
 
 	for name, repo := range r.qdrantRepos {
 		if err := repo.Close(); err != nil {
-			r.logger.WithFields(logger.Fields{
-				"name":  name,
-				"error": err.Error(),
-			}).Warn("Error closing Qdrant repository")
+			logger.Warn("Error closing Qdrant repository: name=%s, error=%v", name, err)
 		}
 	}
 
