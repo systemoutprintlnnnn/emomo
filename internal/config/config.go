@@ -117,6 +117,8 @@ type SearchConfig struct {
 type QueryExpansionConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	Model   string `mapstructure:"model"`
+	APIKey  string `mapstructure:"api_key"`
+	BaseURL string `mapstructure:"base_url"`
 }
 
 // SourcesConfig defines configuration for available data sources.
@@ -286,6 +288,8 @@ func bindEnvVars(v *viper.Viper) {
 	// Search
 	v.BindEnv("search.score_threshold", "SEARCH_SCORE_THRESHOLD")
 	v.BindEnv("search.query_expansion.model", "QUERY_EXPANSION_MODEL")
+	v.BindEnv("search.query_expansion.api_key", "QUERY_EXPANSION_API_KEY")
+	v.BindEnv("search.query_expansion.base_url", "QUERY_EXPANSION_BASE_URL")
 }
 
 // GetStorageConfig returns the storage configuration.
