@@ -375,10 +375,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			IsAnimated:     item.IsAnimated,
 			FileSize:       int64(len(imageData)),
 			MD5Hash:        md5Hash,
-			QdrantPointID:  memeID,
 			VLMDescription: vlmDescription,
 			VLMModel:       s.vlm.GetModel(),
-			EmbeddingModel: s.embedding.GetModel(),
 			Tags:           item.Tags,
 			Category:       item.Category,
 			Status:         domain.MemeStatusActive,
@@ -518,6 +516,28 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		default:
 		}
 
+		// Check if vector already exists for this meme in the current collection
+		if s.vectorRepo != nil {
+			exists, err := s.vectorRepo.ExistsByMD5AndCollection(ctx, meme.MD5Hash, s.collection)
+			if err != nil {
+				logger.CtxError(ctx, "Failed to check vector existence: meme_id=%s, error=%v", meme.ID, err)
+				stats.FailedItems++
+				continue
+			}
+			if exists {
+				// Vector already exists, just update meme status to active
+				meme.Status = domain.MemeStatusActive
+				meme.UpdatedAt = time.Now()
+				if err := s.memeRepo.Update(ctx, &meme); err != nil {
+					logger.CtxError(ctx, "Failed to update meme status: meme_id=%s, error=%v", meme.ID, err)
+					stats.FailedItems++
+					continue
+				}
+				stats.ProcessedItems++
+				continue
+			}
+		}
+
 		// Download from storage
 		reader, err := s.storage.Download(ctx, meme.StorageKey)
 		if err != nil {
@@ -550,7 +570,10 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			continue
 		}
 
-		// Update Qdrant
+		// Generate a new point ID for this vector
+		pointID := uuid.New().String()
+
+		// Upsert to Qdrant
 		payload := &repository.MemePayload{
 			MemeID:         meme.ID,
 			SourceType:     meme.SourceType,
@@ -561,14 +584,39 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			StorageURL:     s.storage.GetURL(meme.StorageKey),
 		}
 
-		if err := s.qdrantRepo.Upsert(ctx, meme.ID, embedding, payload); err != nil {
+		if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
 			logger.CtxError(ctx, "Failed to upsert to Qdrant: error=%v", err)
 			stats.FailedItems++
 			continue
 		}
 
-		// Update database
+		// Create meme_vectors record to track this vector
+		if s.vectorRepo != nil {
+			vectorRecord := &domain.MemeVector{
+				ID:             uuid.New().String(),
+				MemeID:         meme.ID,
+				MD5Hash:        meme.MD5Hash,
+				Collection:     s.collection,
+				EmbeddingModel: s.embedding.GetModel(),
+				QdrantPointID:  pointID,
+				Status:         domain.MemeVectorStatusActive,
+				CreatedAt:      time.Now(),
+			}
+
+			if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
+				// Rollback: delete from Qdrant
+				if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
+					logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
+				}
+				logger.CtxError(ctx, "Failed to save vector record: meme_id=%s, error=%v", meme.ID, err)
+				stats.FailedItems++
+				continue
+			}
+		}
+
+		// Update meme record
 		meme.VLMDescription = description
+		meme.VLMModel = s.vlm.GetModel()
 		meme.Status = domain.MemeStatusActive
 		meme.UpdatedAt = time.Now()
 
@@ -577,6 +625,9 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			stats.FailedItems++
 			continue
 		}
+
+		logger.CtxDebug(ctx, "Retry processed: meme_id=%s, point_id=%s, collection=%s, model=%s",
+			meme.ID, pointID, s.collection, s.embedding.GetModel())
 
 		stats.ProcessedItems++
 	}
