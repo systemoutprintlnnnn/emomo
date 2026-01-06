@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
+	"image/gif"
+	"image/jpeg"
 	_ "image/png"
 	"io"
 	"os"
@@ -58,6 +58,7 @@ type IngestConfig struct {
 //   - embedding: embedding provider for vector generation.
 //   - log: logger instance.
 //   - cfg: ingest configuration settings.
+//
 // Returns:
 //   - *IngestService: initialized ingest service.
 func NewIngestService(
@@ -115,6 +116,7 @@ type IngestOptions struct {
 //   - src: data source implementation.
 //   - limit: maximum number of items to ingest.
 //   - opts: ingestion options (nil uses defaults).
+//
 // Returns:
 //   - *IngestStats: statistics for the ingest run.
 //   - error: non-nil if ingestion fails.
@@ -271,7 +273,20 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		return fmt.Errorf("failed to read image: %w", err)
 	}
 
-	// Calculate MD5 hash
+	// Convert non-static formats (GIF, WebP) to JPEG for storage and VLM compatibility
+	processedFormat := item.Format
+	if !isStaticImageFormat(item.Format) {
+		converted, err := convertToJPEG(imageData, item.Format)
+		if err != nil {
+			return fmt.Errorf("failed to convert %s to JPEG: %w", item.Format, err)
+		}
+		logger.CtxDebug(ctx, "Converted %s to JPEG: original_size=%d, converted_size=%d",
+			item.Format, len(imageData), len(converted))
+		imageData = converted
+		processedFormat = "jpeg"
+	}
+
+	// Calculate MD5 hash (of the processed/converted image)
 	md5Hash := calculateMD5(imageData)
 
 	// NEW: Check if vector already exists for this MD5 + Collection combination
@@ -296,7 +311,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var descriptionID string
 	var width, height int
 	uploaded := false
-	createdNewMeme := false       // Track if we created a new meme record for rollback
+	createdNewMeme := false        // Track if we created a new meme record for rollback
 	createdNewDescription := false // Track if we created a new description record for rollback
 
 	// rollbackMeme cleans up the meme record if we created one
@@ -354,8 +369,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 
 		// Upload to storage (use MD5 prefix for bucketing)
-		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, item.Format)
-		contentType := getContentType(item.Format)
+		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, processedFormat)
+		contentType := getContentType(processedFormat)
 
 		// Check if file already exists in storage
 		existsInStorage, err := s.storage.Exists(ctx, storageKey)
@@ -381,7 +396,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			LocalPath:  item.LocalPath,
 			Width:      width,
 			Height:     height,
-			Format:     item.Format,
+			Format:     processedFormat,
 			IsAnimated: item.IsAnimated,
 			FileSize:   int64(len(imageData)),
 			MD5Hash:    md5Hash,
@@ -411,7 +426,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", md5Hash, s.vlm.GetModel())
 		} else {
 			// Generate new VLM description
-			vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
+			vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, processedFormat)
 			if err != nil {
 				rollbackMeme()
 				rollbackStorage()
@@ -439,7 +454,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 	} else {
 		// Fallback: generate VLM description without storing to database
-		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
+		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, processedFormat)
 		if err != nil {
 			rollbackMeme()
 			rollbackStorage()
@@ -548,10 +563,57 @@ func getContentType(format string) string {
 	}
 }
 
+// isStaticImageFormat checks if the image format is a static format (not animated).
+// GIF and WebP can be animated and should be converted to JPEG for storage.
+func isStaticImageFormat(format string) bool {
+	switch format {
+	case "jpg", "jpeg", "png":
+		return true
+	case "gif", "webp":
+		return false
+	default:
+		return true
+	}
+}
+
+// convertToJPEG converts an image from any supported format to JPEG.
+// For GIF images, it extracts the first frame.
+func convertToJPEG(imageData []byte, format string) ([]byte, error) {
+	var img image.Image
+	var err error
+
+	reader := bytes.NewReader(imageData)
+
+	// Decode based on format
+	switch format {
+	case "gif":
+		// For GIF, decode only the first frame
+		img, err = gif.Decode(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode GIF: %w", err)
+		}
+	default:
+		// For other formats (webp, etc.), use the generic decoder
+		img, _, err = image.Decode(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode image: %w", err)
+		}
+	}
+
+	// Encode to JPEG
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		return nil, fmt.Errorf("failed to encode to JPEG: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // RetryPending retries processing for memes with pending status.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - limit: maximum number of pending memes to retry.
+//
 // Returns:
 //   - *IngestStats: statistics for the retry run.
 //   - error: non-nil if the retry processing fails.
