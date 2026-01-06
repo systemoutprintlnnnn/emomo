@@ -67,6 +67,10 @@ search:
     enabled: true
     # model: set via QUERY_EXPANSION_MODEL env var
     model: ""
+    # api_key: set via QUERY_EXPANSION_API_KEY env var (optional, defaults to VLM's OPENAI_API_KEY)
+    api_key: ""
+    # base_url: set via QUERY_EXPANSION_BASE_URL env var (optional, defaults to VLM's OPENAI_BASE_URL)
+    base_url: ""
 
 sources:
   chinesebqb:
