@@ -72,8 +72,6 @@ type Meme struct {
 	FileSize       int64       `json:"file_size"`
 	MD5Hash        string      `gorm:"uniqueIndex:idx_memes_md5" json:"md5_hash"`
 	PerceptualHash string      `gorm:"type:text" json:"perceptual_hash,omitempty"`
-	VLMDescription string      `gorm:"type:text" json:"vlm_description,omitempty"`
-	VLMModel       string      `gorm:"type:text" json:"vlm_model,omitempty"`
 	Tags           StringArray `gorm:"type:text" json:"tags"`
 	Category       string      `gorm:"type:text;index:idx_memes_category" json:"category"`
 	Status         MemeStatus  `gorm:"type:text;index:idx_memes_status;default:pending" json:"status"`

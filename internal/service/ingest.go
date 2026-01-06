@@ -29,6 +29,7 @@ import (
 type IngestService struct {
 	memeRepo   *repository.MemeRepository
 	vectorRepo *repository.MemeVectorRepository
+	descRepo   *repository.MemeDescriptionRepository
 	qdrantRepo *repository.QdrantRepository
 	storage    storage.ObjectStorage
 	vlm        *VLMService
@@ -50,6 +51,7 @@ type IngestConfig struct {
 // Parameters:
 //   - memeRepo: repository for meme records.
 //   - vectorRepo: repository for meme vectors.
+//   - descRepo: repository for meme descriptions.
 //   - qdrantRepo: Qdrant repository for vector storage.
 //   - objectStorage: object storage client for image files.
 //   - vlm: vision-language model service for descriptions.
@@ -61,6 +63,7 @@ type IngestConfig struct {
 func NewIngestService(
 	memeRepo *repository.MemeRepository,
 	vectorRepo *repository.MemeVectorRepository,
+	descRepo *repository.MemeDescriptionRepository,
 	qdrantRepo *repository.QdrantRepository,
 	objectStorage storage.ObjectStorage,
 	vlm *VLMService,
@@ -71,6 +74,7 @@ func NewIngestService(
 	return &IngestService{
 		memeRepo:   memeRepo,
 		vectorRepo: vectorRepo,
+		descRepo:   descRepo,
 		qdrantRepo: qdrantRepo,
 		storage:    objectStorage,
 		vlm:        vlm,
@@ -289,9 +293,11 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var storageKey string
 	var storageURL string
 	var vlmDescription string
+	var descriptionID string
 	var width, height int
 	uploaded := false
-	createdNewMeme := false // Track if we created a new meme record for rollback
+	createdNewMeme := false       // Track if we created a new meme record for rollback
+	createdNewDescription := false // Track if we created a new description record for rollback
 
 	// rollbackMeme cleans up the meme record if we created one
 	rollbackMeme := func() {
@@ -315,12 +321,22 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 	}
 
+	// rollbackDescription cleans up the description record if we created one
+	rollbackDescription := func() {
+		if createdNewDescription && descriptionID != "" && s.descRepo != nil {
+			if delErr := s.descRepo.Delete(ctx, descriptionID); delErr != nil {
+				logger.CtxError(ctx, "Failed to rollback description record: description_id=%s, error=%v", descriptionID, delErr)
+			} else {
+				logger.CtxDebug(ctx, "Rolled back description record: description_id=%s", descriptionID)
+			}
+		}
+	}
+
 	if hasExistingMeme {
-		// REUSE existing resources: S3 path and VLM description
+		// REUSE existing resources: S3 path
 		memeID = existingMeme.ID
 		storageKey = existingMeme.StorageKey
 		storageURL = s.storage.GetURL(storageKey)
-		vlmDescription = existingMeme.VLMDescription
 		width = existingMeme.Width
 		height = existingMeme.Height
 
@@ -335,12 +351,6 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		if err != nil {
 			logger.CtxWarn(ctx, "Failed to get image dimensions: error=%v", err)
 			width, height = 0, 0
-		}
-
-		// Generate VLM description - most likely to fail (external API)
-		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
-		if err != nil {
-			return fmt.Errorf("failed to generate VLM description: %w", err)
 		}
 
 		// Upload to storage (use MD5 prefix for bucketing)
@@ -362,26 +372,24 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 
 		storageURL = s.storage.GetURL(storageKey)
 
-		// Create meme record
+		// Create meme record (without VLM description - stored in meme_descriptions table)
 		meme := &domain.Meme{
-			ID:             memeID,
-			SourceType:     sourceType,
-			SourceID:       item.SourceID,
-			StorageKey:     storageKey,
-			LocalPath:      item.LocalPath,
-			Width:          width,
-			Height:         height,
-			Format:         item.Format,
-			IsAnimated:     item.IsAnimated,
-			FileSize:       int64(len(imageData)),
-			MD5Hash:        md5Hash,
-			VLMDescription: vlmDescription,
-			VLMModel:       s.vlm.GetModel(),
-			Tags:           item.Tags,
-			Category:       item.Category,
-			Status:         domain.MemeStatusActive,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
+			ID:         memeID,
+			SourceType: sourceType,
+			SourceID:   item.SourceID,
+			StorageKey: storageKey,
+			LocalPath:  item.LocalPath,
+			Width:      width,
+			Height:     height,
+			Format:     item.Format,
+			IsAnimated: item.IsAnimated,
+			FileSize:   int64(len(imageData)),
+			MD5Hash:    md5Hash,
+			Tags:       item.Tags,
+			Category:   item.Category,
+			Status:     domain.MemeStatusActive,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Save meme to database first
@@ -393,10 +401,57 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		createdNewMeme = true // Mark that we created a new meme record
 	}
 
+	// Get or create VLM description for current VLM model
+	if s.descRepo != nil {
+		existingDesc, err := s.descRepo.GetByMD5AndModel(ctx, md5Hash, s.vlm.GetModel())
+		if err == nil && existingDesc != nil {
+			// Reuse existing description for this VLM model
+			vlmDescription = existingDesc.Description
+			descriptionID = existingDesc.ID
+			logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", md5Hash, s.vlm.GetModel())
+		} else {
+			// Generate new VLM description
+			vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
+			if err != nil {
+				rollbackMeme()
+				rollbackStorage()
+				return fmt.Errorf("failed to generate VLM description: %w", err)
+			}
+
+			// Save description to meme_descriptions table
+			descRecord := &domain.MemeDescription{
+				ID:          uuid.New().String(),
+				MemeID:      memeID,
+				MD5Hash:     md5Hash,
+				VLMModel:    s.vlm.GetModel(),
+				Description: vlmDescription,
+				CreatedAt:   time.Now(),
+			}
+			if err := s.descRepo.Create(ctx, descRecord); err != nil {
+				rollbackMeme()
+				rollbackStorage()
+				return fmt.Errorf("failed to save VLM description: %w", err)
+			}
+			descriptionID = descRecord.ID
+			createdNewDescription = true
+			logger.CtxDebug(ctx, "Created new VLM description: md5=%s, vlm_model=%s, description_id=%s",
+				md5Hash, s.vlm.GetModel(), descriptionID)
+		}
+	} else {
+		// Fallback: generate VLM description without storing to database
+		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
+		if err != nil {
+			rollbackMeme()
+			rollbackStorage()
+			return fmt.Errorf("failed to generate VLM description: %w", err)
+		}
+	}
+
 	// Generate embedding for the current embedding model
 	embedding, err := s.embedding.Embed(ctx, vlmDescription)
 	if err != nil {
-		// Rollback: clean up meme record and storage if we created them
+		// Rollback: clean up description, meme record and storage if we created them
+		rollbackDescription()
 		rollbackMeme()
 		rollbackStorage()
 		return fmt.Errorf("failed to generate embedding: %w", err)
@@ -417,7 +472,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
-		// Rollback: clean up meme record and storage if we created them
+		// Rollback: clean up description, meme record and storage if we created them
+		rollbackDescription()
 		rollbackMeme()
 		rollbackStorage()
 		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
@@ -431,6 +487,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			MD5Hash:        md5Hash,
 			Collection:     s.collection,
 			EmbeddingModel: s.embedding.GetModel(),
+			DescriptionID:  descriptionID,
 			QdrantPointID:  pointID,
 			Status:         domain.MemeVectorStatusActive,
 			CreatedAt:      time.Now(),
@@ -441,7 +498,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
 				logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
 			}
-			// Then rollback meme and storage
+			// Then rollback description, meme and storage
+			rollbackDescription()
 			rollbackMeme()
 			rollbackStorage()
 			return fmt.Errorf("failed to save vector record: %w", err)
@@ -554,12 +612,52 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			continue
 		}
 
-		// Generate VLM description
-		description, err := s.vlm.DescribeImage(ctx, imageData, meme.Format)
-		if err != nil {
-			logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
-			stats.FailedItems++
-			continue
+		// Get or create VLM description for current VLM model
+		var description string
+		var descriptionID string
+		if s.descRepo != nil {
+			existingDesc, err := s.descRepo.GetByMD5AndModel(ctx, meme.MD5Hash, s.vlm.GetModel())
+			if err == nil && existingDesc != nil {
+				// Reuse existing description for this VLM model
+				description = existingDesc.Description
+				descriptionID = existingDesc.ID
+				logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", meme.MD5Hash, s.vlm.GetModel())
+			} else {
+				// Generate new VLM description
+				description, err = s.vlm.DescribeImage(ctx, imageData, meme.Format)
+				if err != nil {
+					logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
+					stats.FailedItems++
+					continue
+				}
+
+				// Save description to meme_descriptions table
+				descRecord := &domain.MemeDescription{
+					ID:          uuid.New().String(),
+					MemeID:      meme.ID,
+					MD5Hash:     meme.MD5Hash,
+					VLMModel:    s.vlm.GetModel(),
+					Description: description,
+					CreatedAt:   time.Now(),
+				}
+				if err := s.descRepo.Create(ctx, descRecord); err != nil {
+					logger.CtxError(ctx, "Failed to save VLM description: meme_id=%s, error=%v", meme.ID, err)
+					stats.FailedItems++
+					continue
+				}
+				descriptionID = descRecord.ID
+				logger.CtxDebug(ctx, "Created new VLM description: md5=%s, vlm_model=%s, description_id=%s",
+					meme.MD5Hash, s.vlm.GetModel(), descriptionID)
+			}
+		} else {
+			// Fallback: generate VLM description without storing to database
+			var err error
+			description, err = s.vlm.DescribeImage(ctx, imageData, meme.Format)
+			if err != nil {
+				logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
+				stats.FailedItems++
+				continue
+			}
 		}
 
 		// Generate embedding
@@ -598,6 +696,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 				MD5Hash:        meme.MD5Hash,
 				Collection:     s.collection,
 				EmbeddingModel: s.embedding.GetModel(),
+				DescriptionID:  descriptionID,
 				QdrantPointID:  pointID,
 				Status:         domain.MemeVectorStatusActive,
 				CreatedAt:      time.Now(),
@@ -614,9 +713,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			}
 		}
 
-		// Update meme record
-		meme.VLMDescription = description
-		meme.VLMModel = s.vlm.GetModel()
+		// Update meme status to active
 		meme.Status = domain.MemeStatusActive
 		meme.UpdatedAt = time.Now()
 

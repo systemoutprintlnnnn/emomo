@@ -548,8 +548,8 @@ func (s *SearchService) ListMemes(ctx context.Context, category string, limit, o
 		results[i] = SearchResult{
 			ID:          meme.ID,
 			URL:         url,
-			Score:       0, // No score for listing (not a search)
-			Description: meme.VLMDescription,
+			Score:       0,  // No score for listing (not a search)
+			Description: "", // VLM description moved to meme_descriptions table; use search for descriptions
 			Category:    meme.Category,
 			Tags:        meme.Tags,
 			IsAnimated:  meme.IsAnimated,

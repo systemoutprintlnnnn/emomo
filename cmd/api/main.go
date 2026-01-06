@@ -45,6 +45,7 @@ func main() {
 	// Initialize repositories
 	memeRepo := repository.NewMemeRepository(db)
 	vectorRepo := repository.NewMemeVectorRepository(db)
+	descRepo := repository.NewMemeDescriptionRepository(db)
 
 	ctx := context.Background()
 
@@ -145,6 +146,7 @@ func main() {
 	ingestService := service.NewIngestService(
 		memeRepo,
 		vectorRepo,
+		descRepo,
 		defaultQdrantRepo,
 		objectStorage,
 		vlmService,
