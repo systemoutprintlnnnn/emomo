@@ -105,6 +105,26 @@ func (r *MemeDescriptionRepository) GetByMemeID(ctx context.Context, memeID stri
 	return descs, nil
 }
 
+// Search performs a simple keyword search on descriptions.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - query: keyword to search for.
+//   - limit: maximum number of results to return.
+//
+// Returns:
+//   - []domain.MemeDescription: matching description records.
+//   - error: non-nil if the query fails.
+func (r *MemeDescriptionRepository) Search(ctx context.Context, query string, limit int) ([]domain.MemeDescription, error) {
+	var descs []domain.MemeDescription
+	if err := r.db.WithContext(ctx).
+		Where("description ILIKE ?", "%"+query+"%").
+		Limit(limit).
+		Find(&descs).Error; err != nil {
+		return nil, err
+	}
+	return descs, nil
+}
+
 // Delete removes a meme description by ID.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.

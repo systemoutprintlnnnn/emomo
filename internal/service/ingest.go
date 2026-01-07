@@ -593,25 +593,56 @@ func detectImageFormat(data []byte) string {
 		return "unknown"
 	}
 
-	// JPEG: starts with FF D8 FF
-	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+	// JPEG/JPG: starts with FF D8 (more accurate than checking third byte)
+	// JPEG files start with FF D8 and end with FF D9
+	if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
 		return "jpeg"
 	}
 
-	// PNG: starts with 89 50 4E 47 0D 0A 1A 0A
-	if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
+	// PNG: starts with 89 50 4E 47 0D 0A 1A 0A (8-byte signature)
+	if len(data) >= 8 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
+		data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A {
 		return "png"
 	}
 
 	// GIF: starts with "GIF87a" or "GIF89a"
-	if data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 { // "GIF"
+	if len(data) >= 6 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && // "GIF"
+		data[3] == 0x38 && (data[4] == 0x37 || data[4] == 0x39) && data[5] == 0x61 { // "87a" or "89a"
 		return "gif"
 	}
 
 	// WebP: starts with "RIFF" and contains "WEBP" at offset 8
-	if data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 && // "RIFF"
-		len(data) >= 12 && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 { // "WEBP"
+	if len(data) >= 12 && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 && // "RIFF"
+		data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 { // "WEBP"
 		return "webp"
+	}
+
+	// BMP: starts with "BM" (42 4D)
+	if len(data) >= 2 && data[0] == 0x42 && data[1] == 0x4D {
+		return "bmp"
+	}
+
+	// TIFF: starts with either "II" (little-endian) or "MM" (big-endian) followed by 42
+	if len(data) >= 4 {
+		// Little-endian: 49 49 2A 00
+		if data[0] == 0x49 && data[1] == 0x49 && data[2] == 0x2A && data[3] == 0x00 {
+			return "tiff"
+		}
+		// Big-endian: 4D 4D 00 2A
+		if data[0] == 0x4D && data[1] == 0x4D && data[2] == 0x00 && data[3] == 0x2A {
+			return "tiff"
+		}
+	}
+
+	// ICO: starts with 00 00 01 00
+	if len(data) >= 4 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x01 && data[3] == 0x00 {
+		return "ico"
+	}
+
+	// AVIF: starts with ftypavif (at offset 4-11)
+	if len(data) >= 12 && data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70 && // "ftyp"
+		data[8] == 0x61 && data[9] == 0x76 && data[10] == 0x69 && data[11] == 0x66 { // "avif"
+		return "avif"
 	}
 
 	return "unknown"
