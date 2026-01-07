@@ -93,11 +93,20 @@ func main() {
 	defaultProvider, defaultQdrantRepo := embeddingRegistry.Default()
 
 	// Initialize query expansion service
+	// Use Query Expansion's own APIKey/BaseURL if configured, otherwise fall back to VLM's
+	qeAPIKey := cfg.Search.QueryExpansion.APIKey
+	if qeAPIKey == "" {
+		qeAPIKey = cfg.VLM.APIKey
+	}
+	qeBaseURL := cfg.Search.QueryExpansion.BaseURL
+	if qeBaseURL == "" {
+		qeBaseURL = cfg.VLM.BaseURL
+	}
 	queryExpansionService := service.NewQueryExpansionService(&service.QueryExpansionConfig{
 		Enabled: cfg.Search.QueryExpansion.Enabled,
 		Model:   cfg.Search.QueryExpansion.Model,
-		APIKey:  cfg.VLM.APIKey,
-		BaseURL: cfg.VLM.BaseURL,
+		APIKey:  qeAPIKey,
+		BaseURL: qeBaseURL,
 	})
 
 	if queryExpansionService.IsEnabled() {
@@ -112,6 +121,7 @@ func main() {
 	// Create search service
 	searchService := service.NewSearchService(
 		memeRepo,
+		descRepo,
 		defaultQdrantRepo,
 		defaultProvider,
 		queryExpansionService,

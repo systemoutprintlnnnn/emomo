@@ -39,6 +39,7 @@ func (a StringArray) Value() (driver.Value, error) {
 // Scan implements the sql.Scanner interface for database deserialization.
 // Parameters:
 //   - value: raw database value to decode.
+//
 // Returns:
 //   - error: non-nil if decoding fails or the type is unexpected.
 func (a *StringArray) Scan(value interface{}) error {
