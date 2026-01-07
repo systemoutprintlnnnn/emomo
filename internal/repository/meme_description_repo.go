@@ -33,6 +33,21 @@ func (r *MemeDescriptionRepository) Create(ctx context.Context, desc *domain.Mem
 	return r.db.WithContext(ctx).Create(desc).Error
 }
 
+// UpdateOCRText updates the OCR text field for a description record.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - id: description record ID.
+//   - ocrText: OCR text to store.
+//
+// Returns:
+//   - error: non-nil if the update fails.
+func (r *MemeDescriptionRepository) UpdateOCRText(ctx context.Context, id, ocrText string) error {
+	return r.db.WithContext(ctx).
+		Model(&domain.MemeDescription{}).
+		Where("id = ?", id).
+		Update("ocr_text", ocrText).Error
+}
+
 // GetByMD5AndModel retrieves a description by MD5 hash and VLM model.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
@@ -117,7 +132,7 @@ func (r *MemeDescriptionRepository) GetByMemeID(ctx context.Context, memeID stri
 func (r *MemeDescriptionRepository) Search(ctx context.Context, query string, limit int) ([]domain.MemeDescription, error) {
 	var descs []domain.MemeDescription
 	if err := r.db.WithContext(ctx).
-		Where("description ILIKE ?", "%"+query+"%").
+		Where("description ILIKE ? OR ocr_text ILIKE ?", "%"+query+"%", "%"+query+"%").
 		Limit(limit).
 		Find(&descs).Error; err != nil {
 		return nil, err

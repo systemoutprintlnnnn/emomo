@@ -10,6 +10,7 @@ type MemeDescription struct {
 	MD5Hash     string    `gorm:"type:text;not null;uniqueIndex:idx_meme_descriptions_md5_model" json:"md5_hash"`
 	VLMModel    string    `gorm:"type:text;not null;uniqueIndex:idx_meme_descriptions_md5_model" json:"vlm_model"`
 	Description string    `gorm:"type:text;not null" json:"description"`
+	OCRText     string    `gorm:"type:text" json:"ocr_text"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 

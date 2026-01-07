@@ -48,9 +48,11 @@ type QdrantRepository struct {
 // NewQdrantRepository creates a new QdrantRepository.
 // Parameters:
 //   - cfg: Qdrant connection settings including host, port, and collection.
+//
 // Returns:
 //   - *QdrantRepository: initialized repository instance.
 //   - error: non-nil if the connection cannot be established.
+//
 // Supports both local Qdrant (insecure) and Qdrant Cloud (TLS + API Key).
 func NewQdrantRepository(cfg *QdrantConnectionConfig) (*QdrantRepository, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -110,6 +112,7 @@ func (r *QdrantRepository) Close() error {
 // EnsureCollection creates the collection if it doesn't exist.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
+//
 // Returns:
 //   - error: non-nil if the collection check/create fails.
 func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
@@ -173,6 +176,7 @@ type MemePayload struct {
 	IsAnimated     bool     `json:"is_animated"`
 	Tags           []string `json:"tags"`
 	VLMDescription string   `json:"vlm_description"`
+	OCRText        string   `json:"ocr_text"`
 	StorageURL     string   `json:"storage_url"`
 }
 
@@ -182,6 +186,7 @@ type MemePayload struct {
 //   - pointID: UUID string for the vector point.
 //   - vector: embedding vector values.
 //   - payload: metadata payload stored with the vector.
+//
 // Returns:
 //   - error: non-nil if the upsert fails.
 func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []float32, payload *MemePayload) error {
@@ -211,6 +216,7 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 				"category":        {Kind: &pb.Value_StringValue{StringValue: payload.Category}},
 				"is_animated":     {Kind: &pb.Value_BoolValue{BoolValue: payload.IsAnimated}},
 				"vlm_description": {Kind: &pb.Value_StringValue{StringValue: payload.VLMDescription}},
+				"ocr_text":        {Kind: &pb.Value_StringValue{StringValue: payload.OCRText}},
 				"storage_url":     {Kind: &pb.Value_StringValue{StringValue: payload.StorageURL}},
 				"tags":            tagsToValue(payload.Tags),
 			},
@@ -253,6 +259,7 @@ type SearchResult struct {
 //   - vector: query embedding vector.
 //   - topK: maximum number of results to return.
 //   - filters: optional filter criteria for the search.
+//
 // Returns:
 //   - []SearchResult: ranked search results.
 //   - error: non-nil if the search fails.
@@ -367,6 +374,9 @@ func parsePayload(payload map[string]*pb.Value) *MemePayload {
 	if v, ok := payload["vlm_description"]; ok {
 		p.VLMDescription = v.GetStringValue()
 	}
+	if v, ok := payload["ocr_text"]; ok {
+		p.OCRText = v.GetStringValue()
+	}
 	if v, ok := payload["storage_url"]; ok {
 		p.StorageURL = v.GetStringValue()
 	}
@@ -385,6 +395,7 @@ func parsePayload(payload map[string]*pb.Value) *MemePayload {
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - pointID: UUID string for the vector point.
+//
 // Returns:
 //   - bool: true if the point exists.
 //   - error: non-nil if the check fails.
@@ -411,6 +422,7 @@ func (r *QdrantRepository) PointExists(ctx context.Context, pointID string) (boo
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - pointID: UUID string for the vector point.
+//
 // Returns:
 //   - error: non-nil if the delete fails.
 func (r *QdrantRepository) Delete(ctx context.Context, pointID string) error {

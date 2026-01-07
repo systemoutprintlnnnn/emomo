@@ -55,6 +55,13 @@ const (
 示例4：一只猫咪瘫倒在地，四仰八叉，表情疲惫、无力、摆烂，眼神空洞望向天花板，表达累了、不想动、彻底放弃挣扎的emo状态。
 
 现在请分析图片并生成描述：`
+
+	// OCR System Prompt - 仅识别图片中的文字
+	vlmOCRSystemPrompt = `你是OCR文字识别助手，只负责提取图片中的文字内容。`
+
+	// OCR User Prompt - 只输出识别文本
+	vlmOCRUserPrompt = `请只输出图片中的文字内容，保持原有顺序与换行，不要解释或添加任何前缀。
+如果图片中没有文字，请输出空字符串。`
 )
 
 // VLMService handles image description generation using Vision Language Models.
@@ -229,6 +236,86 @@ func (s *VLMService) DescribeImage(ctx context.Context, imageData []byte, format
 			errorMsg += fmt.Sprintf(", response body: %s", string(httpResp.Body()))
 		}
 		return "", fmt.Errorf("no response from VLM API: %s", errorMsg)
+	}
+
+	return resp.Choices[0].Message.Content, nil
+}
+
+// ExtractOCRText extracts text from an image using the VLM OCR prompt.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - imageData: raw image bytes (must be in a VLM-supported format: jpg, png).
+//   - format: image format extension (jpg, png).
+//
+// Returns:
+//   - string: extracted OCR text (may be empty).
+//   - error: non-nil if the API request fails.
+func (s *VLMService) ExtractOCRText(ctx context.Context, imageData []byte, format string) (string, error) {
+	// Determine MIME type
+	mimeType := getMIMEType(format)
+
+	// Encode image to base64
+	base64Image := base64.StdEncoding.EncodeToString(imageData)
+	dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, base64Image)
+
+	req := openAIRequest{
+		Model: s.model,
+		Messages: []openAIMessage{
+			{
+				Role:    "system",
+				Content: vlmOCRSystemPrompt,
+			},
+			{
+				Role: "user",
+				Content: []interface{}{
+					openAITextContent{
+						Type: "text",
+						Text: vlmOCRUserPrompt,
+					},
+					openAIImageContent{
+						Type: "image_url",
+						ImageURL: openAIImageURL{
+							URL:    dataURL,
+							Detail: "auto",
+						},
+					},
+				},
+			},
+		},
+		MaxTokens: 400,
+	}
+
+	var resp openAIResponse
+	httpResp, err := s.client.R().
+		SetContext(ctx).
+		SetBody(req).
+		SetResult(&resp).
+		Post(s.endpoint)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to call VLM OCR API: %w", err)
+	}
+
+	if httpResp.StatusCode() < 200 || httpResp.StatusCode() >= 300 {
+		errorMsg := fmt.Sprintf("HTTP %d", httpResp.StatusCode())
+		if resp.Error != nil {
+			errorMsg = fmt.Sprintf("HTTP %d: %s", httpResp.StatusCode(), resp.Error.Message)
+		} else {
+			errorMsg = fmt.Sprintf("HTTP %d: %s", httpResp.StatusCode(), string(httpResp.Body()))
+		}
+		return "", fmt.Errorf("VLM OCR API returned error: %s", errorMsg)
+	}
+
+	if resp.Error != nil {
+		return "", fmt.Errorf("VLM OCR API error: %s", resp.Error.Message)
+	}
+
+	if len(resp.Choices) == 0 {
+		errorMsg := fmt.Sprintf("no choices in response (status: %d)", httpResp.StatusCode())
+		if len(httpResp.Body()) > 0 {
+			errorMsg += fmt.Sprintf(", response body: %s", string(httpResp.Body()))
+		}
+		return "", fmt.Errorf("no response from VLM OCR API: %s", errorMsg)
 	}
 
 	return resp.Choices[0].Message.Content, nil
