@@ -273,17 +273,27 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		return fmt.Errorf("failed to read image: %w", err)
 	}
 
+	// Detect actual image format from magic bytes (don't trust file extension)
+	actualFormat := detectImageFormat(imageData)
+	if actualFormat == "unknown" {
+		actualFormat = item.Format // Fallback to extension if detection fails
+	}
+
 	// Convert non-static formats (GIF, WebP) to JPEG for storage and VLM compatibility
-	processedFormat := item.Format
-	if !isStaticImageFormat(item.Format) {
-		converted, err := convertToJPEG(imageData, item.Format)
+	processedFormat := actualFormat
+	if !isStaticImageFormat(actualFormat) {
+		converted, err := convertToJPEG(imageData, actualFormat)
 		if err != nil {
-			return fmt.Errorf("failed to convert %s to JPEG: %w", item.Format, err)
+			return fmt.Errorf("failed to convert %s to JPEG: %w", actualFormat, err)
 		}
 		logger.CtxDebug(ctx, "Converted %s to JPEG: original_size=%d, converted_size=%d",
-			item.Format, len(imageData), len(converted))
+			actualFormat, len(imageData), len(converted))
 		imageData = converted
 		processedFormat = "jpeg"
+	} else if actualFormat != item.Format {
+		// Log when actual format differs from extension (e.g., .gif file that's actually JPEG)
+		logger.CtxDebug(ctx, "Format mismatch: extension=%s, actual=%s, using actual format",
+			item.Format, actualFormat)
 	}
 
 	// Calculate MD5 hash (of the processed/converted image)
@@ -574,6 +584,37 @@ func isStaticImageFormat(format string) bool {
 	default:
 		return true
 	}
+}
+
+// detectImageFormat detects the actual image format by examining magic bytes.
+// This is more reliable than trusting file extensions.
+func detectImageFormat(data []byte) string {
+	if len(data) < 12 {
+		return "unknown"
+	}
+
+	// JPEG: starts with FF D8 FF
+	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return "jpeg"
+	}
+
+	// PNG: starts with 89 50 4E 47 0D 0A 1A 0A
+	if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
+		return "png"
+	}
+
+	// GIF: starts with "GIF87a" or "GIF89a"
+	if data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 { // "GIF"
+		return "gif"
+	}
+
+	// WebP: starts with "RIFF" and contains "WEBP" at offset 8
+	if data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 && // "RIFF"
+		len(data) >= 12 && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 { // "WEBP"
+		return "webp"
+	}
+
+	return "unknown"
 }
 
 // convertToJPEG converts an image from any supported format to JPEG.
