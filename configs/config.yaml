@@ -62,7 +62,7 @@ ingest:
   retry_count: 3
 
 search:
-  score_threshold: 0.0
+  score_threshold: 0.35
   query_expansion:
     enabled: true
     # model: set via QUERY_EXPANSION_MODEL env var

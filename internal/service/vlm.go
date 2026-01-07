@@ -76,6 +76,7 @@ type VLMConfig struct {
 // NewVLMService creates a new VLM service.
 // Parameters:
 //   - cfg: VLM configuration including provider, model, and API key.
+//
 // Returns:
 //   - *VLMService: initialized VLM client wrapper.
 func NewVLMService(cfg *VLMConfig) *VLMService {
@@ -150,8 +151,9 @@ type openAIResponse struct {
 // DescribeImage generates a description for an image.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
-//   - imageData: raw image bytes.
-//   - format: image format extension (jpg, png, gif, webp).
+//   - imageData: raw image bytes (must be in a VLM-supported format: jpg, png).
+//   - format: image format extension (jpg, png).
+//
 // Returns:
 //   - string: generated description text.
 //   - error: non-nil if the API request fails.
@@ -236,6 +238,7 @@ func (s *VLMService) DescribeImage(ctx context.Context, imageData []byte, format
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - imageURL: publicly accessible image URL.
+//
 // Returns:
 //   - string: generated description text.
 //   - error: non-nil if the API request fails.

@@ -95,6 +95,7 @@ func main() {
 	// Initialize repositories
 	memeRepo := repository.NewMemeRepository(db)
 	vectorRepo := repository.NewMemeVectorRepository(db)
+	descRepo := repository.NewMemeDescriptionRepository(db)
 
 	// Initialize Qdrant repository
 	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
@@ -162,6 +163,7 @@ func main() {
 	ingestService := service.NewIngestService(
 		memeRepo,
 		vectorRepo,
+		descRepo,
 		qdrantRepo,
 		objectStorage,
 		vlmService,

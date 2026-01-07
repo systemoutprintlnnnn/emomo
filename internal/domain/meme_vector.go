@@ -10,6 +10,7 @@ type MemeVector struct {
 	MD5Hash        string    `gorm:"type:text;not null;uniqueIndex:idx_meme_vectors_md5_collection" json:"md5_hash"`
 	Collection     string    `gorm:"type:text;not null;uniqueIndex:idx_meme_vectors_md5_collection" json:"collection"`
 	EmbeddingModel string    `gorm:"type:text;not null" json:"embedding_model"`
+	DescriptionID  string    `gorm:"type:text;index:idx_meme_vectors_description" json:"description_id"`
 	QdrantPointID  string    `gorm:"type:text;not null" json:"qdrant_point_id"`
 	Status         string    `gorm:"type:text;default:active" json:"status"`
 	CreatedAt      time.Time `json:"created_at"`

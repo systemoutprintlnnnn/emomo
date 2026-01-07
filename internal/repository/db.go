@@ -63,6 +63,7 @@ func InitDB(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 		if err := db.AutoMigrate(
 			&domain.Meme{},
 			&domain.MemeVector{},
+			&domain.MemeDescription{},
 			&domain.DataSource{},
 			&domain.IngestJob{},
 		); err != nil {

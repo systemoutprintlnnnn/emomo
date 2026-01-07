@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
+	"image/gif"
+	"image/jpeg"
 	_ "image/png"
 	"io"
 	"os"
@@ -29,6 +29,7 @@ import (
 type IngestService struct {
 	memeRepo   *repository.MemeRepository
 	vectorRepo *repository.MemeVectorRepository
+	descRepo   *repository.MemeDescriptionRepository
 	qdrantRepo *repository.QdrantRepository
 	storage    storage.ObjectStorage
 	vlm        *VLMService
@@ -50,17 +51,20 @@ type IngestConfig struct {
 // Parameters:
 //   - memeRepo: repository for meme records.
 //   - vectorRepo: repository for meme vectors.
+//   - descRepo: repository for meme descriptions.
 //   - qdrantRepo: Qdrant repository for vector storage.
 //   - objectStorage: object storage client for image files.
 //   - vlm: vision-language model service for descriptions.
 //   - embedding: embedding provider for vector generation.
 //   - log: logger instance.
 //   - cfg: ingest configuration settings.
+//
 // Returns:
 //   - *IngestService: initialized ingest service.
 func NewIngestService(
 	memeRepo *repository.MemeRepository,
 	vectorRepo *repository.MemeVectorRepository,
+	descRepo *repository.MemeDescriptionRepository,
 	qdrantRepo *repository.QdrantRepository,
 	objectStorage storage.ObjectStorage,
 	vlm *VLMService,
@@ -71,6 +75,7 @@ func NewIngestService(
 	return &IngestService{
 		memeRepo:   memeRepo,
 		vectorRepo: vectorRepo,
+		descRepo:   descRepo,
 		qdrantRepo: qdrantRepo,
 		storage:    objectStorage,
 		vlm:        vlm,
@@ -111,6 +116,7 @@ type IngestOptions struct {
 //   - src: data source implementation.
 //   - limit: maximum number of items to ingest.
 //   - opts: ingestion options (nil uses defaults).
+//
 // Returns:
 //   - *IngestStats: statistics for the ingest run.
 //   - error: non-nil if ingestion fails.
@@ -267,7 +273,30 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		return fmt.Errorf("failed to read image: %w", err)
 	}
 
-	// Calculate MD5 hash
+	// Detect actual image format from magic bytes (don't trust file extension)
+	actualFormat := detectImageFormat(imageData)
+	if actualFormat == "unknown" {
+		actualFormat = item.Format // Fallback to extension if detection fails
+	}
+
+	// Convert non-static formats (GIF, WebP) to JPEG for storage and VLM compatibility
+	processedFormat := actualFormat
+	if !isStaticImageFormat(actualFormat) {
+		converted, err := convertToJPEG(imageData, actualFormat)
+		if err != nil {
+			return fmt.Errorf("failed to convert %s to JPEG: %w", actualFormat, err)
+		}
+		logger.CtxDebug(ctx, "Converted %s to JPEG: original_size=%d, converted_size=%d",
+			actualFormat, len(imageData), len(converted))
+		imageData = converted
+		processedFormat = "jpeg"
+	} else if actualFormat != item.Format {
+		// Log when actual format differs from extension (e.g., .gif file that's actually JPEG)
+		logger.CtxDebug(ctx, "Format mismatch: extension=%s, actual=%s, using actual format",
+			item.Format, actualFormat)
+	}
+
+	// Calculate MD5 hash (of the processed/converted image)
 	md5Hash := calculateMD5(imageData)
 
 	// NEW: Check if vector already exists for this MD5 + Collection combination
@@ -289,9 +318,11 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var storageKey string
 	var storageURL string
 	var vlmDescription string
+	var descriptionID string
 	var width, height int
 	uploaded := false
-	createdNewMeme := false // Track if we created a new meme record for rollback
+	createdNewMeme := false        // Track if we created a new meme record for rollback
+	createdNewDescription := false // Track if we created a new description record for rollback
 
 	// rollbackMeme cleans up the meme record if we created one
 	rollbackMeme := func() {
@@ -315,12 +346,22 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 	}
 
+	// rollbackDescription cleans up the description record if we created one
+	rollbackDescription := func() {
+		if createdNewDescription && descriptionID != "" && s.descRepo != nil {
+			if delErr := s.descRepo.Delete(ctx, descriptionID); delErr != nil {
+				logger.CtxError(ctx, "Failed to rollback description record: description_id=%s, error=%v", descriptionID, delErr)
+			} else {
+				logger.CtxDebug(ctx, "Rolled back description record: description_id=%s", descriptionID)
+			}
+		}
+	}
+
 	if hasExistingMeme {
-		// REUSE existing resources: S3 path and VLM description
+		// REUSE existing resources: S3 path
 		memeID = existingMeme.ID
 		storageKey = existingMeme.StorageKey
 		storageURL = s.storage.GetURL(storageKey)
-		vlmDescription = existingMeme.VLMDescription
 		width = existingMeme.Width
 		height = existingMeme.Height
 
@@ -337,15 +378,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			width, height = 0, 0
 		}
 
-		// Generate VLM description - most likely to fail (external API)
-		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, item.Format)
-		if err != nil {
-			return fmt.Errorf("failed to generate VLM description: %w", err)
-		}
-
 		// Upload to storage (use MD5 prefix for bucketing)
-		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, item.Format)
-		contentType := getContentType(item.Format)
+		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, processedFormat)
+		contentType := getContentType(processedFormat)
 
 		// Check if file already exists in storage
 		existsInStorage, err := s.storage.Exists(ctx, storageKey)
@@ -362,26 +397,24 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 
 		storageURL = s.storage.GetURL(storageKey)
 
-		// Create meme record
+		// Create meme record (without VLM description - stored in meme_descriptions table)
 		meme := &domain.Meme{
-			ID:             memeID,
-			SourceType:     sourceType,
-			SourceID:       item.SourceID,
-			StorageKey:     storageKey,
-			LocalPath:      item.LocalPath,
-			Width:          width,
-			Height:         height,
-			Format:         item.Format,
-			IsAnimated:     item.IsAnimated,
-			FileSize:       int64(len(imageData)),
-			MD5Hash:        md5Hash,
-			VLMDescription: vlmDescription,
-			VLMModel:       s.vlm.GetModel(),
-			Tags:           item.Tags,
-			Category:       item.Category,
-			Status:         domain.MemeStatusActive,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
+			ID:         memeID,
+			SourceType: sourceType,
+			SourceID:   item.SourceID,
+			StorageKey: storageKey,
+			LocalPath:  item.LocalPath,
+			Width:      width,
+			Height:     height,
+			Format:     processedFormat,
+			IsAnimated: item.IsAnimated,
+			FileSize:   int64(len(imageData)),
+			MD5Hash:    md5Hash,
+			Tags:       item.Tags,
+			Category:   item.Category,
+			Status:     domain.MemeStatusActive,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Save meme to database first
@@ -393,10 +426,57 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		createdNewMeme = true // Mark that we created a new meme record
 	}
 
+	// Get or create VLM description for current VLM model
+	if s.descRepo != nil {
+		existingDesc, err := s.descRepo.GetByMD5AndModel(ctx, md5Hash, s.vlm.GetModel())
+		if err == nil && existingDesc != nil {
+			// Reuse existing description for this VLM model
+			vlmDescription = existingDesc.Description
+			descriptionID = existingDesc.ID
+			logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", md5Hash, s.vlm.GetModel())
+		} else {
+			// Generate new VLM description
+			vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, processedFormat)
+			if err != nil {
+				rollbackMeme()
+				rollbackStorage()
+				return fmt.Errorf("failed to generate VLM description: %w", err)
+			}
+
+			// Save description to meme_descriptions table
+			descRecord := &domain.MemeDescription{
+				ID:          uuid.New().String(),
+				MemeID:      memeID,
+				MD5Hash:     md5Hash,
+				VLMModel:    s.vlm.GetModel(),
+				Description: vlmDescription,
+				CreatedAt:   time.Now(),
+			}
+			if err := s.descRepo.Create(ctx, descRecord); err != nil {
+				rollbackMeme()
+				rollbackStorage()
+				return fmt.Errorf("failed to save VLM description: %w", err)
+			}
+			descriptionID = descRecord.ID
+			createdNewDescription = true
+			logger.CtxDebug(ctx, "Created new VLM description: md5=%s, vlm_model=%s, description_id=%s",
+				md5Hash, s.vlm.GetModel(), descriptionID)
+		}
+	} else {
+		// Fallback: generate VLM description without storing to database
+		vlmDescription, err = s.vlm.DescribeImage(ctx, imageData, processedFormat)
+		if err != nil {
+			rollbackMeme()
+			rollbackStorage()
+			return fmt.Errorf("failed to generate VLM description: %w", err)
+		}
+	}
+
 	// Generate embedding for the current embedding model
 	embedding, err := s.embedding.Embed(ctx, vlmDescription)
 	if err != nil {
-		// Rollback: clean up meme record and storage if we created them
+		// Rollback: clean up description, meme record and storage if we created them
+		rollbackDescription()
 		rollbackMeme()
 		rollbackStorage()
 		return fmt.Errorf("failed to generate embedding: %w", err)
@@ -417,7 +497,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
-		// Rollback: clean up meme record and storage if we created them
+		// Rollback: clean up description, meme record and storage if we created them
+		rollbackDescription()
 		rollbackMeme()
 		rollbackStorage()
 		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
@@ -431,6 +512,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			MD5Hash:        md5Hash,
 			Collection:     s.collection,
 			EmbeddingModel: s.embedding.GetModel(),
+			DescriptionID:  descriptionID,
 			QdrantPointID:  pointID,
 			Status:         domain.MemeVectorStatusActive,
 			CreatedAt:      time.Now(),
@@ -441,7 +523,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
 				logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
 			}
-			// Then rollback meme and storage
+			// Then rollback description, meme and storage
+			rollbackDescription()
 			rollbackMeme()
 			rollbackStorage()
 			return fmt.Errorf("failed to save vector record: %w", err)
@@ -490,10 +573,119 @@ func getContentType(format string) string {
 	}
 }
 
+// isStaticImageFormat checks if the image format is a static format (not animated).
+// GIF and WebP can be animated and should be converted to JPEG for storage.
+func isStaticImageFormat(format string) bool {
+	switch format {
+	case "jpg", "jpeg", "png":
+		return true
+	case "gif", "webp":
+		return false
+	default:
+		return true
+	}
+}
+
+// detectImageFormat detects the actual image format by examining magic bytes.
+// This is more reliable than trusting file extensions.
+func detectImageFormat(data []byte) string {
+	if len(data) < 12 {
+		return "unknown"
+	}
+
+	// JPEG/JPG: starts with FF D8 (more accurate than checking third byte)
+	// JPEG files start with FF D8 and end with FF D9
+	if len(data) >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
+		return "jpeg"
+	}
+
+	// PNG: starts with 89 50 4E 47 0D 0A 1A 0A (8-byte signature)
+	if len(data) >= 8 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
+		data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A {
+		return "png"
+	}
+
+	// GIF: starts with "GIF87a" or "GIF89a"
+	if len(data) >= 6 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && // "GIF"
+		data[3] == 0x38 && (data[4] == 0x37 || data[4] == 0x39) && data[5] == 0x61 { // "87a" or "89a"
+		return "gif"
+	}
+
+	// WebP: starts with "RIFF" and contains "WEBP" at offset 8
+	if len(data) >= 12 && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 && // "RIFF"
+		data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 { // "WEBP"
+		return "webp"
+	}
+
+	// BMP: starts with "BM" (42 4D)
+	if len(data) >= 2 && data[0] == 0x42 && data[1] == 0x4D {
+		return "bmp"
+	}
+
+	// TIFF: starts with either "II" (little-endian) or "MM" (big-endian) followed by 42
+	if len(data) >= 4 {
+		// Little-endian: 49 49 2A 00
+		if data[0] == 0x49 && data[1] == 0x49 && data[2] == 0x2A && data[3] == 0x00 {
+			return "tiff"
+		}
+		// Big-endian: 4D 4D 00 2A
+		if data[0] == 0x4D && data[1] == 0x4D && data[2] == 0x00 && data[3] == 0x2A {
+			return "tiff"
+		}
+	}
+
+	// ICO: starts with 00 00 01 00
+	if len(data) >= 4 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x01 && data[3] == 0x00 {
+		return "ico"
+	}
+
+	// AVIF: starts with ftypavif (at offset 4-11)
+	if len(data) >= 12 && data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70 && // "ftyp"
+		data[8] == 0x61 && data[9] == 0x76 && data[10] == 0x69 && data[11] == 0x66 { // "avif"
+		return "avif"
+	}
+
+	return "unknown"
+}
+
+// convertToJPEG converts an image from any supported format to JPEG.
+// For GIF images, it extracts the first frame.
+func convertToJPEG(imageData []byte, format string) ([]byte, error) {
+	var img image.Image
+	var err error
+
+	reader := bytes.NewReader(imageData)
+
+	// Decode based on format
+	switch format {
+	case "gif":
+		// For GIF, decode only the first frame
+		img, err = gif.Decode(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode GIF: %w", err)
+		}
+	default:
+		// For other formats (webp, etc.), use the generic decoder
+		img, _, err = image.Decode(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode image: %w", err)
+		}
+	}
+
+	// Encode to JPEG
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		return nil, fmt.Errorf("failed to encode to JPEG: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // RetryPending retries processing for memes with pending status.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - limit: maximum number of pending memes to retry.
+//
 // Returns:
 //   - *IngestStats: statistics for the retry run.
 //   - error: non-nil if the retry processing fails.
@@ -554,12 +746,52 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			continue
 		}
 
-		// Generate VLM description
-		description, err := s.vlm.DescribeImage(ctx, imageData, meme.Format)
-		if err != nil {
-			logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
-			stats.FailedItems++
-			continue
+		// Get or create VLM description for current VLM model
+		var description string
+		var descriptionID string
+		if s.descRepo != nil {
+			existingDesc, err := s.descRepo.GetByMD5AndModel(ctx, meme.MD5Hash, s.vlm.GetModel())
+			if err == nil && existingDesc != nil {
+				// Reuse existing description for this VLM model
+				description = existingDesc.Description
+				descriptionID = existingDesc.ID
+				logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", meme.MD5Hash, s.vlm.GetModel())
+			} else {
+				// Generate new VLM description
+				description, err = s.vlm.DescribeImage(ctx, imageData, meme.Format)
+				if err != nil {
+					logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
+					stats.FailedItems++
+					continue
+				}
+
+				// Save description to meme_descriptions table
+				descRecord := &domain.MemeDescription{
+					ID:          uuid.New().String(),
+					MemeID:      meme.ID,
+					MD5Hash:     meme.MD5Hash,
+					VLMModel:    s.vlm.GetModel(),
+					Description: description,
+					CreatedAt:   time.Now(),
+				}
+				if err := s.descRepo.Create(ctx, descRecord); err != nil {
+					logger.CtxError(ctx, "Failed to save VLM description: meme_id=%s, error=%v", meme.ID, err)
+					stats.FailedItems++
+					continue
+				}
+				descriptionID = descRecord.ID
+				logger.CtxDebug(ctx, "Created new VLM description: md5=%s, vlm_model=%s, description_id=%s",
+					meme.MD5Hash, s.vlm.GetModel(), descriptionID)
+			}
+		} else {
+			// Fallback: generate VLM description without storing to database
+			var err error
+			description, err = s.vlm.DescribeImage(ctx, imageData, meme.Format)
+			if err != nil {
+				logger.CtxWarn(ctx, "Failed to generate VLM description: error=%v", err)
+				stats.FailedItems++
+				continue
+			}
 		}
 
 		// Generate embedding
@@ -598,6 +830,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 				MD5Hash:        meme.MD5Hash,
 				Collection:     s.collection,
 				EmbeddingModel: s.embedding.GetModel(),
+				DescriptionID:  descriptionID,
 				QdrantPointID:  pointID,
 				Status:         domain.MemeVectorStatusActive,
 				CreatedAt:      time.Now(),
@@ -614,9 +847,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			}
 		}
 
-		// Update meme record
-		meme.VLMDescription = description
-		meme.VLMModel = s.vlm.GetModel()
+		// Update meme status to active
 		meme.Status = domain.MemeStatusActive
 		meme.UpdatedAt = time.Now()
 
