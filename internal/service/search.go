@@ -41,13 +41,14 @@ type SearchService struct {
 // NewSearchService creates a new search service.
 // Parameters:
 //   - memeRepo: repository for meme records.
-//   - memeDescRepo: repository for meme descriptions (keyword search).
+//   - memeDescRepo: repository for meme descriptions (metadata access).
 //   - qdrantRepo: default Qdrant repository.
 //   - embedding: default embedding provider.
 //   - queryExpansion: optional query expansion service.
 //   - objectStorage: object storage client for URL generation.
 //   - log: logger instance.
 //   - cfg: search configuration settings.
+//
 // Returns:
 //   - *SearchService: initialized search service.
 func NewSearchService(
@@ -85,6 +86,7 @@ func NewSearchService(
 //   - name: collection name key.
 //   - qdrantRepo: Qdrant repository for the collection.
 //   - embedding: embedding provider for the collection.
+//
 // Returns: none.
 func (s *SearchService) RegisterCollection(name string, qdrantRepo *repository.QdrantRepository, embedding EmbeddingProvider) {
 	s.collections[name] = &CollectionConfig{
@@ -159,10 +161,11 @@ type SearchProgress struct {
 	ExpandedQuery string `json:"expanded_query,omitempty"` // Expanded query (when available)
 }
 
-// TextSearch performs a semantic text search.
+// TextSearch performs a hybrid text search (dense + BM25).
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - req: search request parameters.
+//
 // Returns:
 //   - *SearchResponse: search results and metadata.
 //   - error: non-nil if search fails.
@@ -197,6 +200,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}
 
 	originalQuery := req.Query
+	route := classifyQuery(originalQuery)
 	expandedQuery := ""
 
 	// Inject search tracing fields into context
@@ -205,8 +209,8 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		logger.FieldSearchID:  fmt.Sprintf("%d", ctx.Value("request_id")), // Will be overwritten if request_id exists
 	})
 
-	// Expand query using LLM if enabled
-	if s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
+	// Expand query using LLM if enabled (skip exact-match routes)
+	if route != QueryRouteExact && s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
 		expanded, err := s.queryExpansion.Expand(ctx, req.Query)
 		if err != nil {
 			logger.CtxWarn(ctx, "Query expansion failed, using original query: query=%q, error=%v",
@@ -223,16 +227,9 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		queryForEmbedding = expandedQuery
 	}
 
-	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s",
-		originalQuery, queryForEmbedding, req.TopK, collectionName)
+	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s, route=%s",
+		originalQuery, queryForEmbedding, req.TopK, collectionName, route)
 
-	// 1. Keyword Search (Database) - Use original query
-	keywordResults, err := s.memeDescRepo.Search(ctx, originalQuery, req.TopK)
-	if err != nil {
-		logger.CtxWarn(ctx, "Keyword search failed: %v", err)
-	}
-
-	// 2. Vector Search (Qdrant)
 	// Generate query embedding using the appropriate embedding provider
 	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
@@ -246,51 +243,28 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		SourceType: req.SourceType,
 	}
 
-	// Search in Qdrant
-	qdrantResults, err := qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
+	plan := buildHybridPlan(route, req.TopK)
+	usingHybrid := true
+
+	qdrantResults, err := qdrantRepo.HybridSearch(ctx, queryEmbedding, originalQuery, req.TopK, &plan, filters)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
+		usingHybrid = false
+		logger.CtxWarn(ctx, "Hybrid search failed, falling back to dense search: error=%v", err)
+		qdrantResults, err = qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
+		if err != nil {
+			return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
+		}
 	}
 
-	// 3. Merge Results
-	results := make([]SearchResult, 0, req.TopK*2)
-	seenIDs := make(map[string]bool)
-
-	// Add Keyword Results (High Priority)
-	for _, desc := range keywordResults {
-		// Basic check against filters if possible (Category/Animated), but DB search didn't filter.
-		// For now, we assume keyword match is strong enough relevance.
-		// If strict filtering is needed, we'd need to fetch Meme first or filter in DB.
-		// Given the current architecture, we'll let enrichment step handle full details,
-		// but we might include items that don't match filters.
-		// To fix this properly, we should filter in the enrichment step or DB.
-		// For this iteration, we accept keyword matches as-is.
-
-		results = append(results, SearchResult{
-			ID:          desc.MemeID,
-			Score:       2.0, // Boosted score for exact match
-			Description: desc.Description,
-			// Other fields like Category/Tags/IsAnimated will be filled by enrichment
-		})
-		seenIDs[desc.MemeID] = true
-	}
-
-	// Add Vector Results
+	results := make([]SearchResult, 0, req.TopK)
 	for _, qr := range qdrantResults {
 		if qr.Payload == nil {
 			continue
 		}
-
-		// Filter out results below score threshold
-		if s.scoreThreshold > 0 && qr.Score < s.scoreThreshold {
+		if !usingHybrid && s.scoreThreshold > 0 && qr.Score < s.scoreThreshold {
 			continue
 		}
-
-		if seenIDs[qr.Payload.MemeID] {
-			continue
-		}
-
-		result := SearchResult{
+		results = append(results, SearchResult{
 			ID:          qr.Payload.MemeID,
 			URL:         qr.Payload.StorageURL,
 			Score:       qr.Score,
@@ -298,10 +272,7 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 			Category:    qr.Payload.Category,
 			Tags:        qr.Payload.Tags,
 			IsAnimated:  qr.Payload.IsAnimated,
-		}
-
-		results = append(results, result)
-		seenIDs[qr.Payload.MemeID] = true
+		})
 	}
 
 	// Slice to TopK
@@ -343,11 +314,12 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}, nil
 }
 
-// TextSearchWithProgress performs a semantic text search with progress updates.
+// TextSearchWithProgress performs a hybrid text search with progress updates.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - req: search request parameters.
 //   - progressCh: channel for sending progress updates.
+//
 // Returns:
 //   - *SearchResponse: search results and metadata.
 //   - error: non-nil if search fails.
@@ -382,10 +354,11 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 	}
 
 	originalQuery := req.Query
+	route := classifyQuery(originalQuery)
 	expandedQuery := ""
 
 	// Stage 1: Query Expansion (with streaming)
-	if s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
+	if route != QueryRouteExact && s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
 		// Send start event
 		progressCh <- SearchProgress{
 			Stage:   "query_expansion_start",
@@ -441,14 +414,8 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		Message: "正在生成语义向量...",
 	}
 
-	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s",
-		originalQuery, queryForEmbedding, req.TopK, collectionName)
-
-	// 1. Keyword Search (Database)
-	keywordResults, err := s.memeDescRepo.Search(ctx, originalQuery, req.TopK)
-	if err != nil {
-		logger.CtxWarn(ctx, "Keyword search failed: %v", err)
-	}
+	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s, route=%s",
+		originalQuery, queryForEmbedding, req.TopK, collectionName, route)
 
 	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
@@ -467,39 +434,31 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		SourceType: req.SourceType,
 	}
 
-	qdrantResults, err := qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
+	plan := buildHybridPlan(route, req.TopK)
+	usingHybrid := true
+
+	qdrantResults, err := qdrantRepo.HybridSearch(ctx, queryEmbedding, originalQuery, req.TopK, &plan, filters)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
+		usingHybrid = false
+		logger.CtxWarn(ctx, "Hybrid search failed, falling back to dense search: error=%v", err)
+		progressCh <- SearchProgress{
+			Stage:   "searching",
+			Message: "混合检索失败，切换为语义检索...",
+		}
+		qdrantResults, err = qdrantRepo.Search(ctx, queryEmbedding, req.TopK, filters)
+		if err != nil {
+			return nil, fmt.Errorf("failed to search in Qdrant: %w", err)
+		}
 	}
 
-	// Convert to response format
-	results := make([]SearchResult, 0, req.TopK*2)
-	seenIDs := make(map[string]bool)
-
-	// Add Keyword Results (High Priority)
-	for _, desc := range keywordResults {
-		results = append(results, SearchResult{
-			ID:          desc.MemeID,
-			Score:       2.0,
-			Description: desc.Description,
-			// Other fields filled by enrichment
-		})
-		seenIDs[desc.MemeID] = true
-	}
-
-	// Add Vector Results
+	results := make([]SearchResult, 0, req.TopK)
 	for _, qr := range qdrantResults {
 		if qr.Payload == nil {
 			continue
 		}
-		if s.scoreThreshold > 0 && qr.Score < s.scoreThreshold {
+		if !usingHybrid && s.scoreThreshold > 0 && qr.Score < s.scoreThreshold {
 			continue
 		}
-
-		if seenIDs[qr.Payload.MemeID] {
-			continue
-		}
-
 		result := SearchResult{
 			ID:          qr.Payload.MemeID,
 			URL:         qr.Payload.StorageURL,
@@ -510,7 +469,6 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 			IsAnimated:  qr.Payload.IsAnimated,
 		}
 		results = append(results, result)
-		seenIDs[qr.Payload.MemeID] = true
 	}
 
 	// Slice to TopK
@@ -560,6 +518,7 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 // GetCategories returns all available categories.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
+//
 // Returns:
 //   - []string: distinct category names.
 //   - error: non-nil if lookup fails.
@@ -571,6 +530,7 @@ func (s *SearchService) GetCategories(ctx context.Context) ([]string, error) {
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - id: meme ID.
+//
 // Returns:
 //   - *domain.Meme: meme record if found.
 //   - error: non-nil if lookup fails.
@@ -592,9 +552,11 @@ type MemeListResponse struct {
 //   - category: category name to filter by; empty means all.
 //   - limit: maximum number of records to return.
 //   - offset: number of records to skip.
+//
 // Returns:
 //   - *MemeListResponse: list results in search-compatible format.
 //   - error: non-nil if retrieval fails.
+//
 // Returns results in the same format as search results for API consistency.
 func (s *SearchService) ListMemes(ctx context.Context, category string, limit, offset int) (*MemeListResponse, error) {
 	if limit <= 0 {
@@ -642,6 +604,7 @@ func (s *SearchService) ListMemes(ctx context.Context, category string, limit, o
 // GetStats returns search-related statistics.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
+//
 // Returns:
 //   - map[string]interface{}: aggregated stats for search and ingest.
 //   - error: non-nil if statistics cannot be computed.
