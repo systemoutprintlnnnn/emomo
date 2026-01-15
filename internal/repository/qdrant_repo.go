@@ -283,7 +283,7 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 	return nil
 }
 
-// UpsertHybrid inserts a dense vector and updates the sparse BM25 vector for the same point.
+// UpsertHybrid inserts a dense vector and sparse BM25 vector in a single atomic operation.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
 //   - pointID: UUID string for the vector point.
@@ -292,18 +292,58 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 //   - payload: metadata payload stored with the vector.
 //
 // Returns:
-//   - error: non-nil if dense upsert or sparse update fails.
+//   - error: non-nil if the upsert fails.
 func (r *QdrantRepository) UpsertHybrid(ctx context.Context, pointID string, vector []float32, bm25Text string, payload *MemePayload) error {
-	if err := r.Upsert(ctx, pointID, vector, payload); err != nil {
-		return err
+	uid, err := uuid.Parse(pointID)
+	if err != nil {
+		return fmt.Errorf("invalid point ID: %w", err)
 	}
 
+	// Build named vectors map
+	vectorsMap := map[string]*pb.Vector{
+		"": pb.NewVectorDense(vector), // Default (anonymous) dense vector
+	}
+
+	// Add sparse BM25 vector if text provided
 	bm25Text = strings.TrimSpace(bm25Text)
-	if bm25Text == "" {
-		return nil
+	if bm25Text != "" {
+		doc := &pb.Document{
+			Text:  bm25Text,
+			Model: SparseVectorModel,
+		}
+		vectorsMap[SparseVectorName] = pb.NewVectorDocument(doc)
 	}
 
-	return r.UpdateSparseVector(ctx, pointID, bm25Text)
+	points := []*pb.PointStruct{
+		{
+			Id: &pb.PointId{
+				PointIdOptions: &pb.PointId_Uuid{
+					Uuid: uid.String(),
+				},
+			},
+			Vectors: pb.NewVectorsMap(vectorsMap),
+			Payload: map[string]*pb.Value{
+				"meme_id":         {Kind: &pb.Value_StringValue{StringValue: payload.MemeID}},
+				"source_type":     {Kind: &pb.Value_StringValue{StringValue: payload.SourceType}},
+				"category":        {Kind: &pb.Value_StringValue{StringValue: payload.Category}},
+				"is_animated":     {Kind: &pb.Value_BoolValue{BoolValue: payload.IsAnimated}},
+				"vlm_description": {Kind: &pb.Value_StringValue{StringValue: payload.VLMDescription}},
+				"ocr_text":        {Kind: &pb.Value_StringValue{StringValue: payload.OCRText}},
+				"storage_url":     {Kind: &pb.Value_StringValue{StringValue: payload.StorageURL}},
+				"tags":            tagsToValue(payload.Tags),
+			},
+		},
+	}
+
+	_, err = r.pointsClient.Upsert(ctx, &pb.UpsertPoints{
+		CollectionName: r.collectionName,
+		Points:         points,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upsert point: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateSparseVector updates the BM25 sparse vector for an existing point.
