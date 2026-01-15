@@ -17,6 +17,7 @@ import (
 const (
 	// DefaultVectorDimension is the default embedding dimension (Jina)
 	DefaultVectorDimension = 1024
+	DenseVectorName        = "dense"
 	SparseVectorName       = "bm25"
 	SparseVectorModel      = "qdrant/bm25"
 )
@@ -136,19 +137,23 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 		return nil
 	}
 
-	// Create collection with dynamic vector dimension
+	// Create collection with named vectors (dense + sparse)
 	_, err = r.collectClient.Create(ctx, &pb.CreateCollection{
 		CollectionName: r.collectionName,
 		VectorsConfig: &pb.VectorsConfig{
-			Config: &pb.VectorsConfig_Params{
-				Params: &pb.VectorParams{
-					Size:     uint64(r.vectorDimension),
-					Distance: pb.Distance_Cosine,
+			Config: &pb.VectorsConfig_ParamsMap{
+				ParamsMap: &pb.VectorParamsMap{
+					Map: map[string]*pb.VectorParams{
+						DenseVectorName: {
+							Size:     uint64(r.vectorDimension),
+							Distance: pb.Distance_Cosine,
+						},
+					},
 				},
 			},
 		},
 		SparseVectorsConfig: pb.NewSparseVectorsConfig(map[string]*pb.SparseVectorParams{
-			SparseVectorName: &pb.SparseVectorParams{},
+			SparseVectorName: {},
 		}),
 		HnswConfig: &pb.HnswConfigDiff{
 			M:                 optionalUint64(16),
@@ -252,13 +257,9 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 					Uuid: uid.String(),
 				},
 			},
-			Vectors: &pb.Vectors{
-				VectorsOptions: &pb.Vectors_Vector{
-					Vector: &pb.Vector{
-						Data: vector,
-					},
-				},
-			},
+			Vectors: pb.NewVectorsMap(map[string]*pb.Vector{
+				DenseVectorName: pb.NewVectorDense(vector),
+			}),
 			Payload: map[string]*pb.Value{
 				"meme_id":         {Kind: &pb.Value_StringValue{StringValue: payload.MemeID}},
 				"source_type":     {Kind: &pb.Value_StringValue{StringValue: payload.SourceType}},
@@ -301,7 +302,7 @@ func (r *QdrantRepository) UpsertHybrid(ctx context.Context, pointID string, vec
 
 	// Build named vectors map
 	vectorsMap := map[string]*pb.Vector{
-		"": pb.NewVectorDense(vector), // Default (anonymous) dense vector
+		DenseVectorName: pb.NewVectorDense(vector),
 	}
 
 	// Add sparse BM25 vector if text provided
@@ -430,6 +431,7 @@ func (r *QdrantRepository) Search(ctx context.Context, vector []float32, topK in
 	req := &pb.SearchPoints{
 		CollectionName: r.collectionName,
 		Vector:         vector,
+		VectorName:     optionalString(DenseVectorName),
 		Limit:          uint64(topK),
 		WithPayload: &pb.WithPayloadSelector{
 			SelectorOptions: &pb.WithPayloadSelector_Enable{Enable: true},
@@ -491,6 +493,7 @@ func (r *QdrantRepository) HybridSearch(
 	if plan.UseDense && len(denseVector) > 0 {
 		prefetch = append(prefetch, &pb.PrefetchQuery{
 			Query:  pb.NewQueryDense(denseVector),
+			Using:  optionalString(DenseVectorName),
 			Filter: filter,
 			Limit:  optionalUint64(uint64(plan.DenseLimit)),
 		})
@@ -549,6 +552,10 @@ type SearchFilters struct {
 }
 
 func buildFilter(filters *SearchFilters) *pb.Filter {
+	if filters == nil {
+		return nil
+	}
+
 	var conditions []*pb.Condition
 
 	if filters.Category != nil && *filters.Category != "" {
