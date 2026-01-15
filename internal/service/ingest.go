@@ -318,6 +318,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var storageKey string
 	var storageURL string
 	var vlmDescription string
+	var ocrText string
 	var descriptionID string
 	var width, height int
 	uploaded := false
@@ -433,6 +434,17 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			// Reuse existing description for this VLM model
 			vlmDescription = existingDesc.Description
 			descriptionID = existingDesc.ID
+			ocrText = normalizeOCRText(existingDesc.OCRText)
+			if ocrText == "" {
+				ocrText, err = s.extractOCRText(ctx, imageData, processedFormat)
+				if err != nil {
+					logger.CtxWarn(ctx, "Failed to extract OCR text: md5=%s, error=%v", md5Hash, err)
+				} else if ocrText != "" {
+					if updateErr := s.descRepo.UpdateOCRText(ctx, existingDesc.ID, ocrText); updateErr != nil {
+						logger.CtxWarn(ctx, "Failed to update OCR text: description_id=%s, error=%v", existingDesc.ID, updateErr)
+					}
+				}
+			}
 			logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", md5Hash, s.vlm.GetModel())
 		} else {
 			// Generate new VLM description
@@ -443,6 +455,12 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				return fmt.Errorf("failed to generate VLM description: %w", err)
 			}
 
+			ocrText, err = s.extractOCRText(ctx, imageData, processedFormat)
+			if err != nil {
+				logger.CtxWarn(ctx, "Failed to extract OCR text: md5=%s, error=%v", md5Hash, err)
+				ocrText = ""
+			}
+
 			// Save description to meme_descriptions table
 			descRecord := &domain.MemeDescription{
 				ID:          uuid.New().String(),
@@ -450,6 +468,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				MD5Hash:     md5Hash,
 				VLMModel:    s.vlm.GetModel(),
 				Description: vlmDescription,
+				OCRText:     ocrText,
 				CreatedAt:   time.Now(),
 			}
 			if err := s.descRepo.Create(ctx, descRecord); err != nil {
@@ -470,10 +489,23 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			rollbackStorage()
 			return fmt.Errorf("failed to generate VLM description: %w", err)
 		}
+
+		ocrText, err = s.extractOCRText(ctx, imageData, processedFormat)
+		if err != nil {
+			logger.CtxWarn(ctx, "Failed to extract OCR text: md5=%s, error=%v", md5Hash, err)
+			ocrText = ""
+		}
 	}
 
-	// Generate embedding for the current embedding model
-	embedding, err := s.embedding.Embed(ctx, vlmDescription)
+	compactDesc := compactDescription(vlmDescription)
+	embeddingText := buildEmbeddingText(
+		ocrText,
+		compactDesc,
+		item.Tags,
+		extractEmotionWords(vlmDescription),
+	)
+	bm25Text := buildBM25Text(ocrText, compactDesc, item.Tags)
+	embedding, err := s.embedding.Embed(ctx, embeddingText)
 	if err != nil {
 		// Rollback: clean up description, meme record and storage if we created them
 		rollbackDescription()
@@ -493,10 +525,11 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		IsAnimated:     item.IsAnimated,
 		Tags:           item.Tags,
 		VLMDescription: vlmDescription,
+		OCRText:        ocrText,
 		StorageURL:     storageURL,
 	}
 
-	if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
+	if err := s.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
 		// Rollback: clean up description, meme record and storage if we created them
 		rollbackDescription()
 		rollbackMeme()
@@ -535,6 +568,17 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		memeID, pointID, s.collection, s.embedding.GetModel(), hasExistingMeme)
 
 	return nil
+}
+
+func (s *IngestService) extractOCRText(ctx context.Context, imageData []byte, format string) (string, error) {
+	if s.vlm == nil {
+		return "", nil
+	}
+	text, err := s.vlm.ExtractOCRText(ctx, imageData, format)
+	if err != nil {
+		return "", err
+	}
+	return normalizeOCRText(text), nil
 }
 
 func (s *IngestService) readImage(item *source.MemeItem) ([]byte, error) {
@@ -748,6 +792,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 
 		// Get or create VLM description for current VLM model
 		var description string
+		var ocrText string
 		var descriptionID string
 		if s.descRepo != nil {
 			existingDesc, err := s.descRepo.GetByMD5AndModel(ctx, meme.MD5Hash, s.vlm.GetModel())
@@ -755,6 +800,17 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 				// Reuse existing description for this VLM model
 				description = existingDesc.Description
 				descriptionID = existingDesc.ID
+				ocrText = normalizeOCRText(existingDesc.OCRText)
+				if ocrText == "" {
+					ocrText, err = s.extractOCRText(ctx, imageData, meme.Format)
+					if err != nil {
+						logger.CtxWarn(ctx, "Failed to extract OCR text: meme_id=%s, error=%v", meme.ID, err)
+					} else if ocrText != "" {
+						if updateErr := s.descRepo.UpdateOCRText(ctx, existingDesc.ID, ocrText); updateErr != nil {
+							logger.CtxWarn(ctx, "Failed to update OCR text: description_id=%s, error=%v", existingDesc.ID, updateErr)
+						}
+					}
+				}
 				logger.CtxDebug(ctx, "Reusing existing VLM description: md5=%s, vlm_model=%s", meme.MD5Hash, s.vlm.GetModel())
 			} else {
 				// Generate new VLM description
@@ -765,6 +821,12 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 					continue
 				}
 
+				ocrText, err = s.extractOCRText(ctx, imageData, meme.Format)
+				if err != nil {
+					logger.CtxWarn(ctx, "Failed to extract OCR text: meme_id=%s, error=%v", meme.ID, err)
+					ocrText = ""
+				}
+
 				// Save description to meme_descriptions table
 				descRecord := &domain.MemeDescription{
 					ID:          uuid.New().String(),
@@ -772,6 +834,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 					MD5Hash:     meme.MD5Hash,
 					VLMModel:    s.vlm.GetModel(),
 					Description: description,
+					OCRText:     ocrText,
 					CreatedAt:   time.Now(),
 				}
 				if err := s.descRepo.Create(ctx, descRecord); err != nil {
@@ -792,10 +855,23 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 				stats.FailedItems++
 				continue
 			}
+
+			ocrText, err = s.extractOCRText(ctx, imageData, meme.Format)
+			if err != nil {
+				logger.CtxWarn(ctx, "Failed to extract OCR text: meme_id=%s, error=%v", meme.ID, err)
+				ocrText = ""
+			}
 		}
 
-		// Generate embedding
-		embedding, err := s.embedding.Embed(ctx, description)
+		compactDesc := compactDescription(description)
+		embeddingText := buildEmbeddingText(
+			ocrText,
+			compactDesc,
+			meme.Tags,
+			extractEmotionWords(description),
+		)
+		bm25Text := buildBM25Text(ocrText, compactDesc, meme.Tags)
+		embedding, err := s.embedding.Embed(ctx, embeddingText)
 		if err != nil {
 			logger.CtxWarn(ctx, "Failed to generate embedding: error=%v", err)
 			stats.FailedItems++
@@ -813,10 +889,11 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			IsAnimated:     meme.IsAnimated,
 			Tags:           meme.Tags,
 			VLMDescription: description,
+			OCRText:        ocrText,
 			StorageURL:     s.storage.GetURL(meme.StorageKey),
 		}
 
-		if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
+		if err := s.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
 			logger.CtxError(ctx, "Failed to upsert to Qdrant: error=%v", err)
 			stats.FailedItems++
 			continue
