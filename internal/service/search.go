@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/timmy/emomo/internal/domain"
 	"github.com/timmy/emomo/internal/logger"
@@ -24,15 +25,15 @@ type CollectionConfig struct {
 
 // SearchService handles meme search operations.
 type SearchService struct {
-	memeRepo          *repository.MemeRepository
-	memeDescRepo      *repository.MemeDescriptionRepository
-	defaultQdrantRepo *repository.QdrantRepository
-	defaultEmbedding  EmbeddingProvider
-	queryExpansion    *QueryExpansionService
-	storage           storage.ObjectStorage
-	logger            *logger.Logger
-	scoreThreshold    float32
-	defaultCollection string
+	memeRepo           *repository.MemeRepository
+	memeDescRepo       *repository.MemeDescriptionRepository
+	defaultQdrantRepo  *repository.QdrantRepository
+	defaultEmbedding   EmbeddingProvider
+	queryUnderstanding *QueryUnderstandingService
+	storage            storage.ObjectStorage
+	logger             *logger.Logger
+	scoreThreshold     float32
+	defaultCollection  string
 
 	// Multi-collection support: collection name -> config
 	collections map[string]*CollectionConfig
@@ -44,7 +45,7 @@ type SearchService struct {
 //   - memeDescRepo: repository for meme descriptions (metadata access).
 //   - qdrantRepo: default Qdrant repository.
 //   - embedding: default embedding provider.
-//   - queryExpansion: optional query expansion service.
+//   - queryUnderstanding: optional query understanding service.
 //   - objectStorage: object storage client for URL generation.
 //   - log: logger instance.
 //   - cfg: search configuration settings.
@@ -56,7 +57,7 @@ func NewSearchService(
 	memeDescRepo *repository.MemeDescriptionRepository,
 	qdrantRepo *repository.QdrantRepository,
 	embedding EmbeddingProvider,
-	queryExpansion *QueryExpansionService,
+	queryUnderstanding *QueryUnderstandingService,
 	objectStorage storage.ObjectStorage,
 	log *logger.Logger,
 	cfg *SearchConfig,
@@ -68,16 +69,16 @@ func NewSearchService(
 		defaultCollection = cfg.DefaultCollection
 	}
 	return &SearchService{
-		memeRepo:          memeRepo,
-		memeDescRepo:      memeDescRepo,
-		defaultQdrantRepo: qdrantRepo,
-		defaultEmbedding:  embedding,
-		queryExpansion:    queryExpansion,
-		storage:           objectStorage,
-		logger:            log,
-		scoreThreshold:    threshold,
-		defaultCollection: defaultCollection,
-		collections:       make(map[string]*CollectionConfig),
+		memeRepo:           memeRepo,
+		memeDescRepo:       memeDescRepo,
+		defaultQdrantRepo:  qdrantRepo,
+		defaultEmbedding:   embedding,
+		queryUnderstanding: queryUnderstanding,
+		storage:            objectStorage,
+		logger:             log,
+		scoreThreshold:     threshold,
+		defaultCollection:  defaultCollection,
+		collections:        make(map[string]*CollectionConfig),
 	}
 }
 
@@ -200,8 +201,6 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}
 
 	originalQuery := req.Query
-	route := classifyQuery(originalQuery)
-	expandedQuery := ""
 
 	// Inject search tracing fields into context
 	ctx = logger.WithFields(ctx, logger.Fields{
@@ -209,26 +208,36 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		logger.FieldSearchID:  fmt.Sprintf("%d", ctx.Value("request_id")), // Will be overwritten if request_id exists
 	})
 
-	// Expand query using LLM if enabled (skip exact-match routes)
-	if route != QueryRouteExact && s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
-		expanded, err := s.queryExpansion.Expand(ctx, req.Query)
+	// Use Query Understanding to analyze the query
+	var queryPlan *QueryPlan
+	if s.queryUnderstanding != nil && s.queryUnderstanding.IsEnabled() {
+		var err error
+		queryPlan, err = s.queryUnderstanding.Understand(ctx, originalQuery)
 		if err != nil {
-			logger.CtxWarn(ctx, "Query expansion failed, using original query: query=%q, error=%v",
-				req.Query, err)
-		} else if expanded != req.Query {
-			expandedQuery = expanded
-			logger.CtxInfo(ctx, "Query expanded: original=%q, expanded=%q", req.Query, expanded)
+			logger.CtxWarn(ctx, "Query understanding failed: query=%q, error=%v", req.Query, err)
+		}
+	}
+	if queryPlan == nil {
+		// Fallback: use original query directly
+		queryPlan = &QueryPlan{
+			Intent:        IntentSemantic,
+			SemanticQuery: originalQuery,
+			Keywords:      []string{originalQuery},
+			Strategy: SearchStrategy{
+				DenseWeight:    0.7,
+				NeedExactMatch: false,
+			},
 		}
 	}
 
-	// Use expanded query for embedding if available
-	queryForEmbedding := originalQuery
-	if expandedQuery != "" {
-		queryForEmbedding = expandedQuery
+	// Use semantic query for embedding
+	queryForEmbedding := queryPlan.SemanticQuery
+	if queryForEmbedding == "" {
+		queryForEmbedding = originalQuery
 	}
 
-	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s, route=%s",
-		originalQuery, queryForEmbedding, req.TopK, collectionName, route)
+	logger.CtxInfo(ctx, "Performing text search: query=%q, semantic_query=%q, intent=%s, top_k=%d, collection=%s",
+		originalQuery, queryForEmbedding, queryPlan.Intent, req.TopK, collectionName)
 
 	// Generate query embedding using the appropriate embedding provider
 	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
@@ -236,17 +245,30 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	// Build filters
+	// Build filters - merge QueryPlan suggestions with request parameters (request takes priority)
 	filters := &repository.SearchFilters{
 		Category:   req.Category,
 		IsAnimated: req.IsAnimated,
 		SourceType: req.SourceType,
 	}
+	// Apply suggested filters if not overridden by request
+	if queryPlan.Filters != nil {
+		if req.Category == nil && len(queryPlan.Filters.Categories) > 0 {
+			filters.Category = &queryPlan.Filters.Categories[0]
+		}
+		if req.IsAnimated == nil && queryPlan.Filters.IsAnimated != nil {
+			filters.IsAnimated = queryPlan.Filters.IsAnimated
+		}
+	}
 
-	plan := buildHybridPlan(route, req.TopK)
+	// Build hybrid search plan from QueryPlan
+	plan := buildHybridPlanFromQueryPlan(queryPlan, req.TopK)
 	usingHybrid := true
 
-	qdrantResults, err := qdrantRepo.HybridSearch(ctx, queryEmbedding, originalQuery, req.TopK, &plan, filters)
+	// Build BM25 query from keywords and synonyms
+	bm25Query := buildBM25QueryFromPlan(queryPlan)
+
+	qdrantResults, err := qdrantRepo.HybridSearch(ctx, queryEmbedding, bm25Query, req.TopK, &plan, filters)
 	if err != nil {
 		usingHybrid = false
 		logger.CtxWarn(ctx, "Hybrid search failed, falling back to dense search: error=%v", err)
@@ -305,6 +327,12 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		}
 	}
 
+	// Use semantic query as expanded query for backward compatibility
+	expandedQuery := ""
+	if queryPlan.SemanticQuery != originalQuery {
+		expandedQuery = queryPlan.SemanticQuery
+	}
+
 	return &SearchResponse{
 		Results:       results,
 		Total:         len(results),
@@ -354,58 +382,70 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 	}
 
 	originalQuery := req.Query
-	route := classifyQuery(originalQuery)
-	expandedQuery := ""
 
-	// Stage 1: Query Expansion (with streaming)
-	if route != QueryRouteExact && s.queryExpansion != nil && s.queryExpansion.IsEnabled() {
-		// Send start event
-		progressCh <- SearchProgress{
-			Stage:   "query_expansion_start",
-			Message: "AI 正在理解搜索意图...",
-		}
-
-		// Create token channel for streaming
-		tokenCh := make(chan string, 100)
-		expandDone := make(chan struct{})
-		var expandErr error
+	// Stage 1: Query Understanding (with streaming)
+	var queryPlan *QueryPlan
+	if s.queryUnderstanding != nil && s.queryUnderstanding.IsEnabled() {
+		// Create progress channel for streaming
+		understandProgressCh := make(chan UnderstandProgress, 100)
+		understandDone := make(chan struct{})
+		var understandErr error
 
 		go func() {
-			defer close(expandDone)
-			expandedQuery, expandErr = s.queryExpansion.ExpandStream(ctx, req.Query, tokenCh)
+			defer close(understandDone)
+			queryPlan, understandErr = s.queryUnderstanding.UnderstandStream(ctx, originalQuery, understandProgressCh)
 		}()
 
-		// Stream thinking tokens
-		for token := range tokenCh {
-			progressCh <- SearchProgress{
-				Stage:        "thinking",
-				ThinkingText: token,
-				IsDelta:      true,
+		// Forward understanding progress to search progress
+		for progress := range understandProgressCh {
+			switch progress.Stage {
+			case "thinking_start":
+				progressCh <- SearchProgress{
+					Stage:   "query_expansion_start",
+					Message: progress.Message,
+				}
+			case "thinking":
+				progressCh <- SearchProgress{
+					Stage:        "thinking",
+					ThinkingText: progress.ThinkingText,
+					IsDelta:      progress.IsDelta,
+				}
+			case "done":
+				if queryPlan != nil && queryPlan.SemanticQuery != originalQuery {
+					progressCh <- SearchProgress{
+						Stage:         "query_expansion_done",
+						Message:       "理解完成",
+						ExpandedQuery: queryPlan.SemanticQuery,
+					}
+				}
 			}
 		}
 
-		<-expandDone
+		<-understandDone
 
-		if expandErr != nil {
-			logger.CtxWarn(ctx, "Query expansion failed, using original query: query=%q, error=%v",
-				req.Query, expandErr)
-			// Silent fallback - continue with original query
-			expandedQuery = ""
-		} else if expandedQuery != req.Query && expandedQuery != "" {
-			logger.CtxInfo(ctx, "Query expanded: original=%q, expanded=%q", req.Query, expandedQuery)
-
-			progressCh <- SearchProgress{
-				Stage:         "query_expansion_done",
-				Message:       "理解完成",
-				ExpandedQuery: expandedQuery,
-			}
+		if understandErr != nil {
+			logger.CtxWarn(ctx, "Query understanding failed: query=%q, error=%v",
+				req.Query, understandErr)
 		}
 	}
 
-	// Use expanded query for embedding if available
-	queryForEmbedding := originalQuery
-	if expandedQuery != "" {
-		queryForEmbedding = expandedQuery
+	// Fallback if no query plan
+	if queryPlan == nil {
+		queryPlan = &QueryPlan{
+			Intent:        IntentSemantic,
+			SemanticQuery: originalQuery,
+			Keywords:      []string{originalQuery},
+			Strategy: SearchStrategy{
+				DenseWeight:    0.7,
+				NeedExactMatch: false,
+			},
+		}
+	}
+
+	// Use semantic query for embedding
+	queryForEmbedding := queryPlan.SemanticQuery
+	if queryForEmbedding == "" {
+		queryForEmbedding = originalQuery
 	}
 
 	// Stage 2: Generate Embedding
@@ -414,8 +454,8 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		Message: "正在生成语义向量...",
 	}
 
-	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s, route=%s",
-		originalQuery, queryForEmbedding, req.TopK, collectionName, route)
+	logger.CtxInfo(ctx, "Performing text search: query=%q, semantic_query=%q, intent=%s, top_k=%d, collection=%s",
+		originalQuery, queryForEmbedding, queryPlan.Intent, req.TopK, collectionName)
 
 	queryEmbedding, err := embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
@@ -428,16 +468,29 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		Message: "在表情库中搜索...",
 	}
 
+	// Build filters - merge QueryPlan suggestions with request parameters
 	filters := &repository.SearchFilters{
 		Category:   req.Category,
 		IsAnimated: req.IsAnimated,
 		SourceType: req.SourceType,
 	}
+	if queryPlan.Filters != nil {
+		if req.Category == nil && len(queryPlan.Filters.Categories) > 0 {
+			filters.Category = &queryPlan.Filters.Categories[0]
+		}
+		if req.IsAnimated == nil && queryPlan.Filters.IsAnimated != nil {
+			filters.IsAnimated = queryPlan.Filters.IsAnimated
+		}
+	}
 
-	plan := buildHybridPlan(route, req.TopK)
+	// Build hybrid search plan from QueryPlan
+	plan := buildHybridPlanFromQueryPlan(queryPlan, req.TopK)
 	usingHybrid := true
 
-	qdrantResults, err := qdrantRepo.HybridSearch(ctx, queryEmbedding, originalQuery, req.TopK, &plan, filters)
+	// Build BM25 query from keywords and synonyms
+	bm25Query := buildBM25QueryFromPlan(queryPlan)
+
+	qdrantResults, err := qdrantRepo.HybridSearch(ctx, queryEmbedding, bm25Query, req.TopK, &plan, filters)
 	if err != nil {
 		usingHybrid = false
 		logger.CtxWarn(ctx, "Hybrid search failed, falling back to dense search: error=%v", err)
@@ -504,6 +557,12 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 				}
 			}
 		}
+	}
+
+	// Use semantic query as expanded query for backward compatibility
+	expandedQuery := ""
+	if queryPlan.SemanticQuery != originalQuery {
+		expandedQuery = queryPlan.SemanticQuery
 	}
 
 	return &SearchResponse{
@@ -630,4 +689,79 @@ func (s *SearchService) GetStats(ctx context.Context) (map[string]interface{}, e
 		"total_categories":      len(categories),
 		"available_collections": s.GetAvailableCollections(),
 	}, nil
+}
+
+// buildHybridPlanFromQueryPlan builds a HybridSearchPlan from a QueryPlan.
+// The mapping follows the design document section 5.1:
+//   - dense_weight: 0.8 → DenseLimit: topK * 4, SparseLimit: topK * 1
+//   - dense_weight: 0.5 → DenseLimit: topK * 2.5, SparseLimit: topK * 2.5
+//   - dense_weight: 0.3 → DenseLimit: topK * 1.5, SparseLimit: topK * 3.5
+func buildHybridPlanFromQueryPlan(queryPlan *QueryPlan, topK int) repository.HybridSearchPlan {
+	if topK <= 0 {
+		topK = 20
+	}
+
+	const maxPrefetch = 200
+	const defaultRRFK = 60
+
+	dw := queryPlan.Strategy.DenseWeight
+
+	// Linear interpolation for prefetch limits based on dense_weight
+	// dense_weight 0 → dense 1x, sparse 4x
+	// dense_weight 1 → dense 4x, sparse 1x
+	denseMultiplier := 1.0 + 3.0*float64(dw)  // 1 to 4
+	sparseMultiplier := 4.0 - 3.0*float64(dw) // 4 to 1
+
+	denseLimit := int(float64(topK) * denseMultiplier)
+	sparseLimit := int(float64(topK) * sparseMultiplier)
+
+	// Clamp to max prefetch
+	if denseLimit > maxPrefetch {
+		denseLimit = maxPrefetch
+	}
+	if sparseLimit > maxPrefetch {
+		sparseLimit = maxPrefetch
+	}
+	if denseLimit < 1 {
+		denseLimit = 1
+	}
+	if sparseLimit < 1 {
+		sparseLimit = 1
+	}
+
+	return repository.HybridSearchPlan{
+		UseDense:    true,
+		UseSparse:   true,
+		DenseLimit:  denseLimit,
+		SparseLimit: sparseLimit,
+		RRFK:        defaultRRFK,
+	}
+}
+
+// buildBM25QueryFromPlan builds a BM25 query string from a QueryPlan.
+// If need_exact_match is true, only keywords are used.
+// Otherwise, keywords and synonyms are combined.
+func buildBM25QueryFromPlan(queryPlan *QueryPlan) string {
+	var terms []string
+
+	// Always include keywords
+	terms = append(terms, queryPlan.Keywords...)
+
+	// Include synonyms if not exact match
+	if !queryPlan.Strategy.NeedExactMatch {
+		terms = append(terms, queryPlan.Synonyms...)
+	}
+
+	// Deduplicate and join
+	seen := make(map[string]bool)
+	var unique []string
+	for _, term := range terms {
+		lower := strings.ToLower(strings.TrimSpace(term))
+		if lower != "" && !seen[lower] {
+			seen[lower] = true
+			unique = append(unique, term)
+		}
+	}
+
+	return strings.Join(unique, " ")
 }

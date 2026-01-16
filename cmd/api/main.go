@@ -92,27 +92,29 @@ func main() {
 	// Get default embedding provider and Qdrant repo
 	defaultProvider, defaultQdrantRepo := embeddingRegistry.Default()
 
-	// Initialize query expansion service
-	// Use Query Expansion's own APIKey/BaseURL if configured, otherwise fall back to VLM's
-	qeAPIKey := cfg.Search.QueryExpansion.APIKey
-	if qeAPIKey == "" {
-		qeAPIKey = cfg.VLM.APIKey
+	// Initialize query understanding service
+	// Use Query Understanding's own APIKey/BaseURL if configured, otherwise fall back to VLM's
+	quAPIKey := cfg.Search.QueryExpansion.APIKey
+	if quAPIKey == "" {
+		quAPIKey = cfg.VLM.APIKey
 	}
-	qeBaseURL := cfg.Search.QueryExpansion.BaseURL
-	if qeBaseURL == "" {
-		qeBaseURL = cfg.VLM.BaseURL
+	quBaseURL := cfg.Search.QueryExpansion.BaseURL
+	if quBaseURL == "" {
+		quBaseURL = cfg.VLM.BaseURL
 	}
-	queryExpansionService := service.NewQueryExpansionService(&service.QueryExpansionConfig{
-		Enabled: cfg.Search.QueryExpansion.Enabled,
-		Model:   cfg.Search.QueryExpansion.Model,
-		APIKey:  qeAPIKey,
-		BaseURL: qeBaseURL,
+	queryUnderstandingService := service.NewQueryUnderstandingService(&service.QueryUnderstandingConfig{
+		Enabled:   cfg.Search.QueryExpansion.Enabled,
+		Model:     cfg.Search.QueryExpansion.Model,
+		APIKey:    quAPIKey,
+		BaseURL:   quBaseURL,
+		CacheSize: 100,
+		CacheTTL:  10 * time.Minute,
 	})
 
-	if queryExpansionService.IsEnabled() {
+	if queryUnderstandingService.IsEnabled() {
 		appLogger.WithFields(logger.Fields{
 			"model": cfg.Search.QueryExpansion.Model,
-		}).Info("Query expansion enabled")
+		}).Info("Query understanding enabled")
 	}
 
 	// Get default collection name from registry default
@@ -124,7 +126,7 @@ func main() {
 		descRepo,
 		defaultQdrantRepo,
 		defaultProvider,
-		queryExpansionService,
+		queryUnderstandingService,
 		objectStorage,
 		appLogger,
 		&service.SearchConfig{
