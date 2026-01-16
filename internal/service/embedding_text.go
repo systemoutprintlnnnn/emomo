@@ -1,6 +1,10 @@
 package service
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/timmy/emomo/internal/prompts"
+)
 
 const maxVLMEmbeddingRunes = 120
 
@@ -52,8 +56,8 @@ func extractEmotionWords(text string) []string {
 	}
 
 	lower := strings.ToLower(text)
-	matches := make([]string, 0, len(EmotionWords))
-	for _, word := range EmotionWords {
+	matches := make([]string, 0, len(prompts.EmotionWords))
+	for _, word := range prompts.EmotionWords {
 		if word == "" {
 			continue
 		}

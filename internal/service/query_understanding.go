@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/timmy/emomo/internal/prompts"
 )
 
 // QueryIntent represents the type of user query intent.
@@ -119,92 +120,6 @@ func (s *QueryUnderstandingService) IsEnabled() bool {
 	return s.enabled
 }
 
-// queryUnderstandingPrompt is the system prompt for query understanding.
-const queryUnderstandingPrompt = `你是表情包搜索查询理解助手。你的任务是理解用户的搜索意图，并生成结构化的查询计划。
-
-【输出格式】
-请严格按照以下格式输出：
-1. 先用 <think></think> 标签包裹你的思考过程（2-4 句话，简洁明了）
-2. 然后直接输出 JSON（不要用 markdown 代码块）
-
-【意图类型】
-- emotion: 情绪表达（无语、开心、emo）
-- meme: 网络流行梗（芭比Q、绝绝子、yyds）
-- subject: 主体/角色（熊猫头、猫咪、柴犬）
-- scene: 使用场景（上班、恋爱、考试）
-- action: 动作描述（比心、翻白眼、点赞）
-- text: 文字内容（有666的、写着谢谢）
-- composite: 复合意图（熊猫头无语 = subject + emotion）
-
-【JSON Schema】
-{
-  "intent": "emotion|meme|subject|scene|action|text|composite",
-  "semantic_query": "50-100字的语义描述，用于向量搜索",
-  "keywords": ["关键词1", "关键词2"],  // 最多5个
-  "synonyms": ["同义词1", "同义词2"],  // 最多5个，可选
-  "strategy": {
-    "dense_weight": 0.0-1.0,  // 0=全BM25, 1=全语义
-    "need_exact_match": true/false
-  },
-  "filters": {  // 可选
-    "categories": ["熊猫头"]
-  }
-}
-
-【策略指南】
-- text 意图: dense_weight = 0.3 (BM25 为主，搜索 OCR 文本)
-- subject 意图: dense_weight = 0.5 (均衡)
-- meme 意图: dense_weight = 0.6 (需要理解梗的含义)
-- emotion/scene 意图: dense_weight = 0.8 (语义为主)
-- composite 意图: dense_weight = 0.5-0.7 (根据具体情况)
-- action 意图: dense_weight = 0.7 (语义+关键词结合)
-
-【示例】
-
-输入: 无语
-<think>
-用户想表达"无语"的情绪，这是典型的 emotion 意图。需要扩展相关情绪词（无奈、嫌弃、翻白眼），并描述这类表情包的视觉特征。语义理解为主，dense_weight 设为 0.8。
-</think>
-{"intent":"emotion","semantic_query":"无语、无奈、嫌弃的情绪表情包，翻白眼、面无表情、一脸嫌弃的样子，对某事无话可说不想理会，表达对某人某事的无奈和不屑","keywords":["无语","无奈","嫌弃"],"synonyms":["翻白眼","不想说话","懒得理"],"strategy":{"dense_weight":0.8,"need_exact_match":false}}
-
-输入: 熊猫头无语
-<think>
-查询包含两个部分："熊猫头"是主体类型（subject），"无语"是情绪（emotion），这是复合意图。需要在 filters 中限定熊猫头类别，同时语义描述要结合无语情绪。策略上均衡一些，dense_weight 设为 0.6。
-</think>
-{"intent":"composite","semantic_query":"熊猫头表情包，表达无语、无奈、嫌弃的情绪，黑白熊猫脸露出一脸嫌弃翻白眼的样子，对某事无话可说","keywords":["熊猫头","无语","无奈"],"synonyms":["嫌弃","翻白眼"],"strategy":{"dense_weight":0.6,"need_exact_match":false},"filters":{"categories":["熊猫头"]}}
-
-输入: 有666的表情包
-<think>
-用户想找包含"666"文字的表情包，这是 text 意图。需要搜索 OCR 文本，BM25 为主，dense_weight 设为 0.3。关键词就是"666"。
-</think>
-{"intent":"text","semantic_query":"包含666文字的表情包，写着666、厉害、牛逼的意思，表达赞叹佩服的表情","keywords":["666","厉害","牛"],"synonyms":[],"strategy":{"dense_weight":0.3,"need_exact_match":true}}
-
-输入: 熊猫头
-<think>
-用户想找熊猫头类型的表情包，这是 subject 意图。需要精确匹配主体类型，同时语义描述熊猫头的特征。策略均衡，dense_weight 设为 0.5。
-</think>
-{"intent":"subject","semantic_query":"熊猫头表情包，经典黑白熊猫脸，圆圆的脑袋配各种搞怪表情，可表达无语、开心、疑惑、震惊、嫌弃等多种情绪","keywords":["熊猫头"],"synonyms":["熊猫","panda"],"strategy":{"dense_weight":0.5,"need_exact_match":false},"filters":{"categories":["熊猫头"]}}
-
-输入: 芭比Q了
-<think>
-"芭比Q了"是网络流行梗，意思是"完蛋了"。这是 meme 意图。需要扩展同义词（完蛋、凉了、糟糕），语义描述这类表情的情绪特征。dense_weight 设为 0.6。
-</think>
-{"intent":"meme","semantic_query":"完蛋了、糟糕了、大事不妙，芭比Q网络流行语表示完蛋，惊恐绝望崩溃的表情，事情搞砸了要完蛋了","keywords":["芭比Q","完蛋"],"synonyms":["凉了","糟糕","完犊子","大事不妙"],"strategy":{"dense_weight":0.6,"need_exact_match":false}}
-
-输入: 比心
-<think>
-"比心"是一个动作描述，用户想找做比心手势的表情包。这是 action 意图。语义描述比心的动作特征，dense_weight 设为 0.7。
-</think>
-{"intent":"action","semantic_query":"比心手势表情包，双手比成心形，表达爱意、喜欢、感谢、可爱的表情，爱心手势","keywords":["比心","爱心"],"synonyms":["心形","爱你","么么哒"],"strategy":{"dense_weight":0.7,"need_exact_match":false}}
-
-输入: 上班摸鱼
-<think>
-"上班摸鱼"描述的是工作场景下偷懒的状态，这是 scene 意图。需要理解场景下的情绪（无聊、偷懒、划水），语义为主，dense_weight 设为 0.8。
-</think>
-{"intent":"scene","semantic_query":"上班摸鱼划水表情包，工作时间偷懒不想干活，无聊发呆假装很忙实际在摸鱼，打工人摆烂躺平","keywords":["摸鱼","上班","划水"],"synonyms":["偷懒","摆烂","躺平"],"strategy":{"dense_weight":0.8,"need_exact_match":false}}
-
-现在请理解以下查询：`
-
 // llmRequest represents the request to the LLM API.
 type llmRequest struct {
 	Model       string       `json:"model"`
@@ -259,7 +174,7 @@ func (s *QueryUnderstandingService) Understand(ctx context.Context, query string
 	req := llmRequest{
 		Model: s.model,
 		Messages: []llmMessage{
-			{Role: "system", Content: queryUnderstandingPrompt},
+			{Role: "system", Content: prompts.QueryUnderstandingPrompt},
 			{Role: "user", Content: query},
 		},
 		MaxTokens:   300,
@@ -332,7 +247,7 @@ func (s *QueryUnderstandingService) UnderstandStream(
 	req := llmRequest{
 		Model: s.model,
 		Messages: []llmMessage{
-			{Role: "system", Content: queryUnderstandingPrompt},
+			{Role: "system", Content: prompts.QueryUnderstandingPrompt},
 			{Role: "user", Content: query},
 		},
 		MaxTokens:   300,
@@ -516,7 +431,7 @@ func (s *QueryUnderstandingService) fallbackUnderstand(query string) *QueryPlan 
 	} else {
 		// Check emotion words
 		hasEmotion := false
-		for _, word := range EmotionWords {
+		for _, word := range prompts.EmotionWords {
 			if word == "" {
 				continue
 			}
@@ -528,7 +443,7 @@ func (s *QueryUnderstandingService) fallbackUnderstand(query string) *QueryPlan 
 
 		// Check internet memes
 		hasMeme := false
-		for _, word := range InternetMemes {
+		for _, word := range prompts.InternetMemes {
 			if word == "" {
 				continue
 			}
