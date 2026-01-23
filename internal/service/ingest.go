@@ -396,8 +396,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			width, height = 0, 0
 		}
 
-		// Upload to storage (use MD5 prefix for bucketing)
-		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, processedFormat)
+		// Upload to storage (use emomo/ prefix + MD5 prefix for bucketing)
+		storageKey = fmt.Sprintf("emomo/%s/%s.%s", md5Hash[:2], md5Hash, processedFormat)
 		contentType := getContentType(processedFormat)
 
 		// Check if file already exists in storage
