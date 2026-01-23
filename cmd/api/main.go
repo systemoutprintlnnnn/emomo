@@ -103,12 +103,10 @@ func main() {
 		quBaseURL = cfg.VLM.BaseURL
 	}
 	queryUnderstandingService := service.NewQueryUnderstandingService(&service.QueryUnderstandingConfig{
-		Enabled:   cfg.Search.QueryExpansion.Enabled,
-		Model:     cfg.Search.QueryExpansion.Model,
-		APIKey:    quAPIKey,
-		BaseURL:   quBaseURL,
-		CacheSize: 100,
-		CacheTTL:  10 * time.Minute,
+		Enabled: cfg.Search.QueryExpansion.Enabled,
+		Model:   cfg.Search.QueryExpansion.Model,
+		APIKey:  quAPIKey,
+		BaseURL: quBaseURL,
 	})
 
 	if queryUnderstandingService.IsEnabled() {

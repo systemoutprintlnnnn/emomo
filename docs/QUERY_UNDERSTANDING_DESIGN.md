@@ -801,45 +801,6 @@ func (s *QueryUnderstandingService) validateAndFix(plan *QueryPlan, originalQuer
 }
 ```
 
-### 6.5 缓存策略
-
-```go
-type QueryPlanCache struct {
-    cache *lru.Cache // 使用 LRU 缓存
-    ttl   time.Duration
-}
-
-type cachedPlan struct {
-    plan      *QueryPlan
-    timestamp time.Time
-}
-
-func (c *QueryPlanCache) Get(query string) (*QueryPlan, bool) {
-    key := normalizeQuery(query)
-    if cached, ok := c.cache.Get(key); ok {
-        cp := cached.(*cachedPlan)
-        if time.Since(cp.timestamp) < c.ttl {
-            return cp.plan, true
-        }
-        c.cache.Remove(key)
-    }
-    return nil, false
-}
-
-func (c *QueryPlanCache) Set(query string, plan *QueryPlan) {
-    key := normalizeQuery(query)
-    c.cache.Add(key, &cachedPlan{
-        plan:      plan,
-        timestamp: time.Now(),
-    })
-}
-
-func normalizeQuery(query string) string {
-    // 去除空格、转小写
-    return strings.ToLower(strings.TrimSpace(query))
-}
-```
-
 ---
 
 ## 7. 未来扩展

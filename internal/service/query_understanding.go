@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -61,12 +60,10 @@ type UnderstandProgress struct {
 
 // QueryUnderstandingConfig holds configuration for query understanding service.
 type QueryUnderstandingConfig struct {
-	Enabled   bool
-	Model     string
-	APIKey    string
-	BaseURL   string
-	CacheSize int           // LRU cache size
-	CacheTTL  time.Duration // Cache TTL
+	Enabled bool
+	Model   string
+	APIKey  string
+	BaseURL string
 }
 
 // QueryUnderstandingService handles query understanding using LLM.
@@ -76,7 +73,6 @@ type QueryUnderstandingService struct {
 	endpoint string
 	apiKey   string
 	enabled  bool
-	cache    *queryPlanCache
 }
 
 // NewQueryUnderstandingService creates a new query understanding service.
@@ -96,22 +92,12 @@ func NewQueryUnderstandingService(cfg *QueryUnderstandingConfig) *QueryUnderstan
 	}
 	endpoint := baseURL + "/chat/completions"
 
-	cacheSize := cfg.CacheSize
-	if cacheSize <= 0 {
-		cacheSize = 100
-	}
-	cacheTTL := cfg.CacheTTL
-	if cacheTTL <= 0 {
-		cacheTTL = 10 * time.Minute
-	}
-
 	return &QueryUnderstandingService{
 		client:   client,
 		model:    cfg.Model,
 		endpoint: endpoint,
 		apiKey:   cfg.APIKey,
 		enabled:  true,
-		cache:    newQueryPlanCache(cacheSize, cacheTTL),
 	}
 }
 
@@ -160,11 +146,6 @@ func (s *QueryUnderstandingService) Understand(ctx context.Context, query string
 		return s.fallbackUnderstand(query), nil
 	}
 
-	// Check cache
-	if cached, ok := s.cache.Get(query); ok {
-		return cached, nil
-	}
-
 	// Skip LLM for already long queries (likely already descriptive)
 	if len([]rune(query)) > 100 {
 		plan := s.fallbackUnderstand(query)
@@ -206,9 +187,6 @@ func (s *QueryUnderstandingService) Understand(ctx context.Context, query string
 		return s.fallbackUnderstand(query), nil
 	}
 
-	// Cache the result
-	s.cache.Set(query, plan)
-
 	return plan, nil
 }
 
@@ -222,15 +200,6 @@ func (s *QueryUnderstandingService) UnderstandStream(
 
 	if !s.enabled {
 		return s.fallbackUnderstand(query), nil
-	}
-
-	// Check cache
-	if cached, ok := s.cache.Get(query); ok {
-		progressCh <- UnderstandProgress{
-			Stage:   "done",
-			Message: "理解完成（缓存）",
-		}
-		return cached, nil
 	}
 
 	// Skip LLM for long queries
@@ -341,9 +310,6 @@ func (s *QueryUnderstandingService) UnderstandStream(
 
 	// Validate and fix
 	plan = *s.validateAndFix(&plan, query)
-
-	// Cache the result
-	s.cache.Set(query, &plan)
 
 	// Send done event
 	progressCh <- UnderstandProgress{
@@ -664,91 +630,3 @@ func (p *streamParser) GetThinking() string {
 	return p.thinkBuffer.String()
 }
 
-// ============================================================================
-// QueryPlanCache - LRU cache with TTL
-// ============================================================================
-
-type cachedPlan struct {
-	plan      *QueryPlan
-	timestamp time.Time
-}
-
-type queryPlanCache struct {
-	mu      sync.RWMutex
-	cache   map[string]*cachedPlan
-	ttl     time.Duration
-	maxSize int
-	order   []string // LRU order (oldest first)
-}
-
-func newQueryPlanCache(maxSize int, ttl time.Duration) *queryPlanCache {
-	return &queryPlanCache{
-		cache:   make(map[string]*cachedPlan),
-		ttl:     ttl,
-		maxSize: maxSize,
-		order:   make([]string, 0, maxSize),
-	}
-}
-
-func (c *queryPlanCache) Get(query string) (*QueryPlan, bool) {
-	key := normalizeQuery(query)
-
-	c.mu.RLock()
-	cached, ok := c.cache[key]
-	c.mu.RUnlock()
-
-	if !ok {
-		return nil, false
-	}
-
-	if time.Since(cached.timestamp) > c.ttl {
-		c.mu.Lock()
-		delete(c.cache, key)
-		c.removeFromOrder(key)
-		c.mu.Unlock()
-		return nil, false
-	}
-
-	// Move to end of order (most recently used)
-	c.mu.Lock()
-	c.removeFromOrder(key)
-	c.order = append(c.order, key)
-	c.mu.Unlock()
-
-	return cached.plan, true
-}
-
-func (c *queryPlanCache) Set(query string, plan *QueryPlan) {
-	key := normalizeQuery(query)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Evict oldest if at capacity
-	for len(c.cache) >= c.maxSize && len(c.order) > 0 {
-		oldestKey := c.order[0]
-		delete(c.cache, oldestKey)
-		c.order = c.order[1:]
-	}
-
-	c.cache[key] = &cachedPlan{
-		plan:      plan,
-		timestamp: time.Now(),
-	}
-
-	c.removeFromOrder(key)
-	c.order = append(c.order, key)
-}
-
-func (c *queryPlanCache) removeFromOrder(key string) {
-	for i, k := range c.order {
-		if k == key {
-			c.order = append(c.order[:i], c.order[i+1:]...)
-			break
-		}
-	}
-}
-
-func normalizeQuery(query string) string {
-	return strings.ToLower(strings.TrimSpace(query))
-}

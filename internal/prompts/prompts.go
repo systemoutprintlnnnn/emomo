@@ -71,8 +71,8 @@ const VLMOCRUserPrompt = `请只输出图片中的文字内容，保持原有顺
 // 查询理解系统提示词：理解用户搜索意图并生成结构化查询计划
 //
 // 输出格式：
-//   1. <think></think> 标签包裹思考过程（2-4句话）
-//   2. 直接输出 JSON（不要用 markdown 代码块）
+//  1. <think></think> 标签包裹思考过程（2-4句话）
+//  2. 直接输出 JSON（不要用 markdown 代码块）
 //
 // 意图类型（7种）：
 //   - emotion: 情绪表达（无语、开心、emo）
@@ -108,18 +108,18 @@ const VLMOCRUserPrompt = `请只输出图片中的文字内容，保持原有顺
 //   - action 意图: dense_weight = 0.7 (语义+关键词结合)
 //
 // Few-shot 示例（6个）：
-//   1. "无语" → emotion，扩展情绪词，dense=0.8
-//   2. "熊猫头无语" → composite，category 过滤，dense=0.6
-//   3. "有666的表情包" → text，BM25 优先，dense=0.3
-//   4. "熊猫头" → subject，category 过滤，dense=0.5
-//   5. "芭比Q了" → meme，扩展同义词，dense=0.6
-//   6. "比心" → action，描述动作，dense=0.7
-//   7. "上班摸鱼" → scene，理解场景情绪，dense=0.8
+//  1. "无语" → emotion，扩展情绪词，dense=0.8
+//  2. "熊猫头无语" → composite，category 过滤，dense=0.6
+//  3. "有666的表情包" → text，BM25 优先，dense=0.3
+//  4. "熊猫头" → subject，category 过滤，dense=0.5
+//  5. "芭比Q了" → meme，扩展同义词，dense=0.6
+//  6. "比心" → action，描述动作，dense=0.7
+//  7. "上班摸鱼" → scene，理解场景情绪，dense=0.8
 const QueryUnderstandingPrompt = `你是表情包搜索查询理解助手。你的任务是理解用户的搜索意图，并生成结构化的查询计划。
 
 【输出格式】
 请严格按照以下格式输出：
-1. 先用 <think></think> 标签包裹你的思考过程（2-4 句话，简洁明了）
+1. 先用 <think></think> 标签包裹你的思考过程
 2. 然后直接输出 JSON（不要用 markdown 代码块）
 
 【意图类型】
