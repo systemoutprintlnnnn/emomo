@@ -16,7 +16,7 @@ import (
 
 const (
 	// DefaultVectorDimension is the default embedding dimension (Jina)
-	DefaultVectorDimension = 1024
+	DefaultVectorDimension = 4096
 	DenseVectorName        = "dense"
 	SparseVectorName       = "bm25"
 	SparseVectorModel      = "qdrant/bm25"
@@ -29,7 +29,7 @@ type QdrantConnectionConfig struct {
 	Collection      string
 	APIKey          string // Qdrant Cloud API Key (enables TLS automatically)
 	UseTLS          bool   // Explicitly enable TLS without API Key
-	VectorDimension int    // Vector dimension for this collection (default: 1024)
+	VectorDimension int    // Vector dimension for this collection (default: 4096)
 }
 
 // apiKeyInterceptor creates a unary interceptor that adds API key to metadata

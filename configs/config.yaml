@@ -26,7 +26,7 @@ storage:
   # endpoint: set via STORAGE_ENDPOINT env var
   endpoint: ""
   use_ssl: true
-  bucket: emomo
+  bucket: emomo-v2
   region: auto
   # public_url: set via STORAGE_PUBLIC_URL env var
   public_url: ""

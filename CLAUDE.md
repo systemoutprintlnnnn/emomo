@@ -13,12 +13,16 @@ Emomo is an AI-powered meme/sticker semantic search system. Users can search for
 ```bash
 # Build binaries (optional, can use go run instead)
 go build -o api ./cmd/api
+go build -o ingest ./cmd/ingest
+
+# Run tests
+go test ./...
+
+# Run specific test
+go test ./internal/service -run TestQueryUnderstandingService
 
 # Start infrastructure (API + Alloy; Qdrant/S3 are external)
 docker-compose -f deployments/docker-compose.yml up -d
-
-# Logs only (Grafana Alloy)
-docker-compose -f deployments/docker-compose.yml up -d alloy
 
 # Data ingestion using script (recommended, no build required)
 ./scripts/import-data.sh -s chinesebqb -l 100       # Ingest memes
@@ -72,15 +76,18 @@ internal/
 │   ├── router.go        # Route configuration
 │   └── handler/         # HTTP handlers (search, meme, health)
 ├── service/
-│   ├── search.go        # Semantic search (query → embedding → Qdrant)
+│   ├── search.go        # Semantic search with multi-collection support
+│   ├── query_understanding.go  # Query intent analysis & hybrid search routing
 │   ├── ingest.go        # Ingestion pipeline with worker pool
 │   ├── vlm.go           # OpenAI-compatible VLM client for image descriptions
-│   └── embedding.go     # Jina text embeddings (1024-dim)
+│   └── embedding.go     # Text embeddings (supports multiple providers)
 ├── repository/
-│   ├── meme_repo.go     # PostgreSQL operations
+│   ├── meme_repo.go     # PostgreSQL/SQLite operations
+│   ├── meme_description_repo.go  # VLM-generated descriptions
 │   └── qdrant_repo.go   # Vector search operations (gRPC)
 ├── storage/s3.go        # S3-compatible object storage (supports R2, S3, etc.)
 ├── source/              # Data source adapters (extensible)
+│   ├── interface.go     # Source interface definition
 │   ├── chinesebqb/      # Static file system source
 │   └── staging/         # Staging directory source (from Python crawler)
 └── domain/              # Data models (Meme, Source, Job)
@@ -96,12 +103,44 @@ crawler/                 # Python crawler (requests + BeautifulSoup)
 
 ### Data Flow
 
-1. **Ingestion**: Source adapter → VLM description → Jina embedding → Object storage upload → Qdrant upsert → Database save
-2. **Search**: Query text → (Optional: VLM query expansion) → Jina embedding → Qdrant cosine similarity → Return top-K results
+1. **Ingestion**: Source adapter → VLM description → Text embedding → Object storage upload → Qdrant upsert → Database save
+2. **Search**: Query text → Query understanding (optional) → Hybrid search (BM25 + vector) → RRF fusion → Return top-K results
+
+### Key Patterns
+
+#### Multi-Collection Support
+The system supports multiple embedding models, each with its own Qdrant collection. Collections are configured in `configs/config.yaml` under `embeddings[]`. Each collection can use a different provider (jina, openai, modelscope), model, dimensions, and collection name. The default collection is marked with `is_default: true`.
+
+#### Query Understanding & Hybrid Search
+Query understanding analyzes user intent and routes to appropriate search strategy:
+- **Intent Classification**: Emotion, Subject, Scene, Meme, Text, Composite, Semantic
+- **Hybrid Search**: Combines BM25 (sparse) + vector (dense) search with Reciprocal Rank Fusion (RRF)
+- **Adaptive Weights**: Dense/sparse weights adjust based on intent (emotion → high dense weight, text → low dense weight)
+- **Fallback Logic**: If VLM-based understanding is disabled or fails, uses rule-based classification
+
+Query understanding uses streaming JSON parsing to handle partial LLM responses.
+
+#### Source Interface Pattern
+New data sources must implement the `Source` interface in `internal/source/interface.go`:
+- `GetSourceID()` - Unique identifier
+- `GetDisplayName()` - Human-readable name
+- `FetchBatch(ctx, cursor, limit)` - Paginated item fetching
+- `SupportsIncremental()` - Whether incremental updates are supported
+
+#### Deterministic Vector IDs
+Qdrant point IDs are deterministically generated using MD5 hash of (source_type, source_id, embedding_name) to ensure idempotency and enable safe re-ingestion without duplicates.
+
+#### Meme Status Lifecycle
+- `pending` - Awaiting VLM description generation
+- `active` - Description generated, vector embedded, ready for search
+- `failed` - VLM or embedding generation failed
+
+#### Worker Pool Ingestion
+Ingest service uses configurable goroutine workers (default: 5) with batch processing (default: 10) and retry logic (default: 3 retries).
 
 ## API Endpoints
 
-- `POST /api/v1/search` - Semantic meme search (`{"query": "text", "top_k": 20}`)
+- `POST /api/v1/search` - Semantic meme search (`{"query": "text", "top_k": 20, "collection": "emomo"}`)
 - `GET /api/v1/categories` - List categories
 - `GET /api/v1/memes` - List memes (supports `category`, `limit`, `offset`)
 - `GET /api/v1/memes/{id}` - Get meme details
@@ -110,27 +149,30 @@ crawler/                 # Python crawler (requests + BeautifulSoup)
 
 ## Configuration
 
-Environment variables (see `.env.example`):
-- **VLM**: `VLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` - Vision-language model for image descriptions
-- **Embeddings**: `EMBEDDING_MODEL`, `JINA_API_KEY` - Text embedding service
-- **Search**: `QUERY_EXPANSION_MODEL` - Optional VLM for query enhancement
-- **Storage**: `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_PUBLIC_URL` - S3/R2 configuration
-- **Qdrant**: `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_API_KEY`, `QDRANT_USE_TLS` - Vector database
-- **Database**: `DATABASE_DRIVER` (sqlite/postgres), `DATABASE_PATH` or `DATABASE_URL` - Relational DB
-- **Monitoring**: `LOKI_URL`, `LOKI_USERNAME`, `LOKI_PASSWORD`, `CLUSTER_NAME`, `ENVIRONMENT` - Grafana Cloud logging
-
 Config file: `configs/config.yaml`
+Environment variables: See `.env.example`
+
+Key environment variables:
+- **VLM**: `VLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`
+- **Embeddings**: `EMBEDDING_API_KEY`, `JINA_API_KEY`, `MODELSCOPE_API_KEY`
+- **Query Understanding**: `QUERY_EXPANSION_MODEL`, `QUERY_EXPANSION_API_KEY`, `QUERY_EXPANSION_BASE_URL`
+- **Storage**: `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_PUBLIC_URL`
+- **Qdrant**: `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_API_KEY`, `QDRANT_USE_TLS`
+- **Database**: `DATABASE_DRIVER` (sqlite/postgres), `DATABASE_PATH` or `DATABASE_URL`
+- **Monitoring**: `LOKI_URL`, `LOKI_USERNAME`, `LOKI_PASSWORD`, `CLUSTER_NAME`, `ENVIRONMENT`
 
 ## Deployment & Monitoring
 
 - **Compose**: Run `docker-compose.yml` for API + Alloy (Qdrant/S3 are external)
-- **Logging only**: Run `docker-compose.yml` with `alloy` service if you only need log collection
 - **Logging**: Grafana Alloy collects Docker container logs and forwards to Grafana Cloud Loki
 - **Observability**: Alloy UI available at `http://localhost:12345` for pipeline monitoring
 
-## Key Patterns
+## Extended Documentation
 
-- **Source Interface**: New data sources implement `Source` interface in `internal/source/`
-- **Worker Pool**: Ingest service uses goroutine workers with configurable concurrency
-- **Layered Architecture**: Handler → Service → Repository → Storage
-- **Meme Status**: `pending` (awaiting VLM) → `active` (ready) or `failed`
+For detailed design documentation:
+- `docs/QUERY_UNDERSTANDING_DESIGN.md` - Query understanding architecture and hybrid search
+- `docs/MULTI_EMBEDDING.md` - Multi-collection embedding configuration
+- `docs/DATA_INGEST_ARCHITECTURE.md` - Ingestion pipeline details
+- `docs/DATABASE_SCHEMA.md` - Database schema and migrations
+- `docs/DEPLOYMENT.md` - Production deployment guide
+- `docs/QUICK_START.md` - Quick start guide for local development

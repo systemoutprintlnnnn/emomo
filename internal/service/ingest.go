@@ -25,6 +25,23 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
+// generateDeterministicPointID creates a deterministic UUID based on MD5 hash and collection name.
+// This ensures that the same meme in the same collection always gets the same Qdrant point ID,
+// preventing orphaned points when re-processing data.
+//
+// Parameters:
+//   - md5Hash: MD5 hash of the meme content.
+//   - collection: Qdrant collection name.
+//
+// Returns:
+//   - string: deterministic UUID string.
+func generateDeterministicPointID(md5Hash, collection string) string {
+	// Use MD5Hash + Collection as the seed for UUID generation
+	// This ensures idempotency: same input -> same UUID
+	data := md5Hash + ":" + collection
+	return uuid.NewSHA1(uuid.NameSpaceDNS, []byte(data)).String()
+}
+
 // IngestService handles the data ingestion pipeline.
 type IngestService struct {
 	memeRepo   *repository.MemeRepository
@@ -379,8 +396,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			width, height = 0, 0
 		}
 
-		// Upload to storage (use MD5 prefix for bucketing)
-		storageKey = fmt.Sprintf("%s/%s.%s", md5Hash[:2], md5Hash, processedFormat)
+		// Upload to storage (use emomo/ prefix + MD5 prefix for bucketing)
+		storageKey = fmt.Sprintf("emomo/%s/%s.%s", md5Hash[:2], md5Hash, processedFormat)
 		contentType := getContentType(processedFormat)
 
 		// Check if file already exists in storage
@@ -514,8 +531,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
-	// Generate a new point ID for this vector (different from meme ID for multi-collection support)
-	pointID := uuid.New().String()
+	// Generate a deterministic point ID based on MD5 + Collection
+	// This ensures idempotency: re-processing the same meme produces the same point ID
+	pointID := generateDeterministicPointID(md5Hash, s.collection)
 
 	// Upsert to Qdrant
 	payload := &repository.MemePayload{
@@ -878,8 +896,9 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			continue
 		}
 
-		// Generate a new point ID for this vector
-		pointID := uuid.New().String()
+		// Generate a deterministic point ID based on MD5 + Collection
+		// This ensures idempotency: re-processing the same meme produces the same point ID
+		pointID := generateDeterministicPointID(meme.MD5Hash, s.collection)
 
 		// Upsert to Qdrant
 		payload := &repository.MemePayload{

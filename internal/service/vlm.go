@@ -7,61 +7,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-)
-
-// EmotionWords is the shared emotion lexicon used by VLM and query expansion.
-// Keep this list in sync with query_expansion.go.
-var EmotionWords = []string{
-	"无语", "尴尬", "开心", "暴怒", "委屈", "嫌弃", "震惊", "疑惑", "得意", "摆烂",
-	"emo", "社死", "破防", "裂开", "绝望", "狂喜", "阴阳怪气", "幸灾乐祸", "无奈", "崩溃",
-	"感动", "害怕", "可爱", "呆萌", "嘲讽", "鄙视", "期待", "失望", "愤怒", "悲伤",
-}
-
-// InternetMemes is the shared meme-slang lexicon used by VLM and query expansion.
-// Keep this list in sync with query_expansion.go.
-var InternetMemes = []string{
-	"芭比Q了(完蛋了)", "绝绝子(太绝了)", "yyds(永远的神)", "真的栓Q(真的谢谢)",
-	"CPU(被PUA)", "一整个xx住", "xx子", "我不理解", "好耶", "啊这", "6",
-	"笑死", "裂开", "麻了", "蚌埠住了", "绷不住了", "DNA动了",
-}
-
-const (
-	// VLM System Prompt - 定义角色和规则
-	vlmSystemPrompt = `你是表情包语义分析专家，负责生成用于向量搜索的描述文本。你的描述将被转换为向量，用于语义搜索匹配。
-
-【分析步骤】
-1. 文字提取（最高优先级）：完整提取图片中所有文字，理解文字含义和表达意图
-2. 主体识别：识别人物/动物/卡通形象类型（如熊猫头、蘑菇头、柴犬、猫咪等）
-3. 表情动作：描述面部表情和肢体动作
-4. 情绪标签：选择最匹配的情绪词（无语/尴尬/开心/暴怒/委屈/嫌弃/震惊/疑惑/得意/摆烂/emo/社死/破防/裂开/绝望/狂喜/阴阳怪气/幸灾乐祸/无奈/崩溃/感动/害怕/可爱/呆萌）
-5. 网络梗识别：如涉及流行语需解释含义（芭比Q了/绝绝子/yyds/栓Q/一整个xx住等）
-
-【输出要求】
-- 80-150字自然段落，禁止使用序号或分点
-- 优先级：文字内容 > 情绪表达 > 画面描述
-- 必须嵌入搜索关键词（情绪词、动作词、主体类型词）
-- 无文字图片：重点描述表情、动作和情绪，不要写"图中无文字"`
-
-	// VLM User Prompt - 包含Few-shot示例
-	vlmUserPrompt = `请分析这张表情包图片。
-
-【参考示例】
-示例1：一只熊猫头表情包，文字写着"我不理解"，露出一脸疑惑、无语的表情，歪着脑袋眼神空洞，表达对某事完全不理解、懵逼的状态，适合在困惑、震惊、无法理解对方行为时使用。
-
-示例2：柴犬表情包，狗狗露出标志性的微笑，眼睛眯成一条缝，表情开心、得意、满足，像是在说"我就知道会这样"，带有幸灾乐祸、阴阳怪气的感觉，适合表达暗爽或看好戏的心情。
-
-示例3：蘑菇头表情包，小人双手叉腰，配文"就这？"，表情嫌弃、不屑、鄙视，表达对某事物的轻蔑和失望，觉得不过如此、不值一提。
-
-示例4：一只猫咪瘫倒在地，四仰八叉，表情疲惫、无力、摆烂，眼神空洞望向天花板，表达累了、不想动、彻底放弃挣扎的emo状态。
-
-现在请分析图片并生成描述：`
-
-	// OCR System Prompt - 仅识别图片中的文字
-	vlmOCRSystemPrompt = `你是OCR文字识别助手，只负责提取图片中的文字内容。`
-
-	// OCR User Prompt - 只输出识别文本
-	vlmOCRUserPrompt = `请只输出图片中的文字内容，保持原有顺序与换行，不要解释或添加任何前缀。
-如果图片中没有文字，请输出空字符串。`
+	"github.com/timmy/emomo/internal/prompts"
 )
 
 // VLMService handles image description generation using Vision Language Models.
@@ -178,14 +124,14 @@ func (s *VLMService) DescribeImage(ctx context.Context, imageData []byte, format
 		Messages: []openAIMessage{
 			{
 				Role:    "system",
-				Content: vlmSystemPrompt,
+				Content: prompts.VLMSystemPrompt,
 			},
 			{
 				Role: "user",
 				Content: []interface{}{
 					openAITextContent{
 						Type: "text",
-						Text: vlmUserPrompt,
+						Text: prompts.VLMUserPrompt,
 					},
 					openAIImageContent{
 						Type: "image_url",
@@ -263,14 +209,14 @@ func (s *VLMService) ExtractOCRText(ctx context.Context, imageData []byte, forma
 		Messages: []openAIMessage{
 			{
 				Role:    "system",
-				Content: vlmOCRSystemPrompt,
+				Content: prompts.VLMOCRSystemPrompt,
 			},
 			{
 				Role: "user",
 				Content: []interface{}{
 					openAITextContent{
 						Type: "text",
-						Text: vlmOCRUserPrompt,
+						Text: prompts.VLMOCRUserPrompt,
 					},
 					openAIImageContent{
 						Type: "image_url",
@@ -336,14 +282,14 @@ func (s *VLMService) DescribeImageFromURL(ctx context.Context, imageURL string) 
 		Messages: []openAIMessage{
 			{
 				Role:    "system",
-				Content: vlmSystemPrompt,
+				Content: prompts.VLMSystemPrompt,
 			},
 			{
 				Role: "user",
 				Content: []interface{}{
 					openAITextContent{
 						Type: "text",
-						Text: vlmUserPrompt,
+						Text: prompts.VLMUserPrompt,
 					},
 					openAIImageContent{
 						Type: "image_url",
