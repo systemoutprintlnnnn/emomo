@@ -75,8 +75,3 @@ search:
 sources:
   local:
     path: ./data/memes  # 你的表情包文件夹路径
-  chinesebqb:
-    enabled: true
-    repo_path: ./data/ChineseBQB
-  staging:
-    path: ./data/staging

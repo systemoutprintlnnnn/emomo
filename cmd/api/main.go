@@ -15,7 +15,7 @@ import (
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
-	"github.com/timmy/emomo/internal/source/chinesebqb"
+	"github.com/timmy/emomo/internal/source/local"
 	"github.com/timmy/emomo/internal/storage"
 )
 
@@ -169,9 +169,17 @@ func main() {
 		},
 	)
 
-	// Initialize data sources
+	// Initialize data sources (local only)
+	localPath := os.Getenv("SOURCES_LOCAL_PATH")
+	if localPath == "" {
+		localPath = cfg.Sources.Local.Path
+	}
+	if localPath == "" {
+		appLogger.Fatal("Local source path not configured. Set sources.local.path in config.yaml or SOURCES_LOCAL_PATH env var")
+	}
+
 	sources := map[string]source.Source{
-		"chinesebqb": chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath),
+		"local": local.NewAdapter(localPath),
 	}
 
 	// Setup router

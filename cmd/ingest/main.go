@@ -5,7 +5,6 @@ import (
 	"flag"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/timmy/emomo/internal/config"
@@ -13,9 +12,7 @@ import (
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
-	"github.com/timmy/emomo/internal/source/chinesebqb"
 	"github.com/timmy/emomo/internal/source/local"
-	"github.com/timmy/emomo/internal/source/staging"
 	"github.com/timmy/emomo/internal/storage"
 )
 
@@ -212,14 +209,8 @@ func main() {
 			}
 			src = local.NewAdapter(localPath)
 			appLogger.WithField("local_path", localPath).Info("Using local folder source")
-		case *sourceType == "chinesebqb":
-			src = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
-		case strings.HasPrefix(*sourceType, "staging:"):
-			sourceID := strings.TrimPrefix(*sourceType, "staging:")
-			src = staging.NewAdapter(cfg.Sources.Staging.Path, sourceID)
-			appLogger.WithField("staging_source", sourceID).Info("Using staging source")
 		default:
-			appLogger.WithField("source", *sourceType).Fatal("Unknown source type. Use 'local', 'chinesebqb' or 'staging:<source_id>'")
+			appLogger.WithField("source", *sourceType).Fatal("Unknown source type. Only 'local' is supported in this build")
 		}
 
 		stats, err := ingestService.IngestFromSource(ctx, src, *limit, &service.IngestOptions{

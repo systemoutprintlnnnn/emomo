@@ -12,12 +12,12 @@ license: mit
 
 # Emomo - AI 表情包语义搜索
 
-Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，支持多数据源采集、自动描述生成与向量检索。
+Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，当前版本以 **本地文件夹采集（local）** 为主，支持自动描述生成与向量检索。
 
 ## 功能概览
 
 - 语义搜索：输入文字描述即可检索相似表情包。
-- 多源摄入：支持本地仓库、Python 爬虫、分批摄入。
+- 数据摄入：支持从任意本地文件夹批量导入。
 - 向量管理：支持多 Embedding 模型/多集合管理。
 - 存储抽象：兼容 Cloudflare R2、AWS S3 与其他 S3 兼容服务。
 - 可扩展：查询扩展、VLM 描述与多模型配置均可开关。
@@ -50,6 +50,8 @@ cp .env.example .env
 ### 2) 准备依赖服务
 
 本项目不会自动启动 Qdrant 或对象存储，你可以选择云服务或本地服务。
+
+> 说明：当前版本的数据导入仅支持 `local`（从本地文件夹扫描图片导入）。
 
 **推荐：云服务（Qdrant Cloud + Cloudflare R2）**
 
@@ -143,16 +145,7 @@ sources:
 SOURCES_LOCAL_PATH=/path/to/your/memes go run ./cmd/ingest --limit=100 --source=local
 ```
 
-**方式 B：使用 Python 爬虫（写入 data/staging）**
-
-```bash
-cd crawler
-uv sync
-uv run emomo-crawler crawl --source fabiaoqing --limit 100
-
-# staging 摄入（如果需要该流程，建议后续补一个 scripts/import-staging.sh，或直接 go run ingest）
-# go run ./cmd/ingest --source=staging:fabiaoqing --limit=50
-```
+<!-- 当前版本仅保留 local 本地文件夹导入；如需爬虫/staging 流程，后续可再引入独立脚本与数据源适配器。 -->
 
 ### 4) 摄入数据
 
