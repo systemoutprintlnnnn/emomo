@@ -15,7 +15,27 @@ NC='\033[0m' # No Color
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FRONTEND_DIR="$PROJECT_ROOT/../emomo-frontend"
+# Resolve frontend directory: env override > probe candidates
+if [ -z "$FRONTEND_DIR" ]; then
+    FRONTEND_CANDIDATES=(
+        "$PROJECT_ROOT/../frontend"
+        "$PROJECT_ROOT/../emomo-frontend"
+        "$PROJECT_ROOT/../../frontend"
+    )
+    for candidate in "${FRONTEND_CANDIDATES[@]}"; do
+        if [ -f "$candidate/package.json" ]; then
+            FRONTEND_DIR="$(cd "$candidate" && pwd)"
+            break
+        fi
+    done
+    if [ -z "$FRONTEND_DIR" ]; then
+        echo -e "${RED}错误: 未找到前端目录，已尝试以下路径:${NC}"
+        for candidate in "${FRONTEND_CANDIDATES[@]}"; do
+            echo -e "  - $candidate"
+        done
+        exit 1
+    fi
+fi
 
 # PID 文件
 BACKEND_PID_FILE="/tmp/emomo-backend.pid"
@@ -58,7 +78,15 @@ trap cleanup SIGINT SIGTERM
 check_dependencies() {
     echo -e "${BLUE}检查依赖...${NC}"
     
-    # 检查 Go
+    # 检查 Go (probe common install paths if not on PATH)
+    if ! command -v go &> /dev/null; then
+        for gobin in /usr/local/go/bin/go /opt/homebrew/bin/go "$HOME/go/bin/go"; do
+            if [ -x "$gobin" ]; then
+                export PATH="$(dirname "$gobin"):$PATH"
+                break
+            fi
+        done
+    fi
     if ! command -v go &> /dev/null; then
         echo -e "${RED}错误: 未找到 Go，请先安装 Go${NC}"
         exit 1
@@ -82,13 +110,8 @@ check_dependencies() {
 
 # 检查前端目录
 check_frontend() {
-    if [ ! -d "$FRONTEND_DIR" ]; then
-        echo -e "${RED}错误: 未找到前端目录: $FRONTEND_DIR${NC}"
-        exit 1
-    fi
-    
     if [ ! -f "$FRONTEND_DIR/package.json" ]; then
-        echo -e "${RED}错误: 前端目录中未找到 package.json${NC}"
+        echo -e "${RED}错误: 前端目录中未找到 package.json: $FRONTEND_DIR${NC}"
         exit 1
     fi
 }
@@ -112,7 +135,7 @@ start_backend() {
     
     # 等待后端启动
     echo -e "${YELLOW}等待后端服务启动...${NC}"
-    for i in {1..30}; do
+    for i in {1..90}; do
         if curl -s http://localhost:8080/health > /dev/null 2>&1; then
             echo -e "${GREEN}✓ 后端服务已启动 (PID: $BACKEND_PID)${NC}"
             return 0
@@ -191,6 +214,11 @@ main() {
     
     check_dependencies
     check_frontend
+
+    echo -e "${BLUE}清空旧日志文件...${NC}"
+    > /tmp/emomo-backend.log
+    > /tmp/emomo-frontend.log
+
     start_backend
     start_frontend
     show_info
