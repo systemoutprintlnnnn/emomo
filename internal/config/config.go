@@ -123,8 +123,14 @@ type QueryExpansionConfig struct {
 
 // SourcesConfig defines configuration for available data sources.
 type SourcesConfig struct {
+	Local      LocalConfig      `mapstructure:"local"`
 	ChineseBQB ChineseBQBConfig `mapstructure:"chinesebqb"`
 	Staging    StagingConfig    `mapstructure:"staging"`
+}
+
+// LocalConfig defines configuration for the local folder source.
+type LocalConfig struct {
+	Path string `mapstructure:"path"` // Path to local folder containing memes
 }
 
 // ChineseBQBConfig defines configuration for the ChineseBQB source.
@@ -236,6 +242,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ingest.retry_count", 3)
 
 	// Sources defaults
+	v.SetDefault("sources.local.path", "./data/memes")
 	v.SetDefault("sources.chinesebqb.enabled", true)
 	v.SetDefault("sources.chinesebqb.repo_path", "./data/ChineseBQB")
 	v.SetDefault("sources.staging.path", "./data/staging")

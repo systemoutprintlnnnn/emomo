@@ -104,10 +104,43 @@ docker-compose -f deployments/docker-compose.yml up -d
 
 ### 3) 准备数据源
 
-**方式 A：使用 ChineseBQB 本地仓库**
+**方式 A：从任意本地文件夹采集（推荐）**
+
+将你的表情包放入任意本地文件夹，系统会自动扫描并按目录结构分类：
 
 ```bash
-git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+# 配置文件夹路径（编辑 configs/config.yaml 或设置环境变量）
+# 示例：将表情包放在 ./data/memes 文件夹
+# 目录结构示例：
+# ./data/memes/
+# ├── 猫猫表情/
+# │   ├── cat1.jpg
+# │   └── cat2.png
+# ├── 熊猫头/
+# │   └── panda.gif
+# └── 未分类/
+#     └── misc.webp
+```
+
+在 `configs/config.yaml` 中配置路径：
+
+```yaml
+sources:
+  local:
+    path: ./data/memes  # 你的表情包文件夹路径
+```
+
+然后摄入（脚本支持零参数运行）：
+
+```bash
+# 直接导入（使用 configs/config.yaml 的 sources.local.path）
+./scripts/import-data.sh
+
+# 或手动指定文件夹路径导入
+./scripts/import-data.sh -p /path/to/your/memes -l 100
+
+# 或直接 go run
+SOURCES_LOCAL_PATH=/path/to/your/memes go run ./cmd/ingest --limit=100 --source=local
 ```
 
 **方式 B：使用 Python 爬虫（写入 data/staging）**
@@ -116,20 +149,25 @@ git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
 cd crawler
 uv sync
 uv run emomo-crawler crawl --source fabiaoqing --limit 100
+
+# staging 摄入（如果需要该流程，建议后续补一个 scripts/import-staging.sh，或直接 go run ingest）
+# go run ./cmd/ingest --source=staging:fabiaoqing --limit=50
 ```
 
 ### 4) 摄入数据
 
 ```bash
-# 使用导入脚本（推荐，无需预先编译）
-./scripts/import-data.sh -s chinesebqb -l 100
+# 从本地文件夹导入（推荐，零参数即可运行）
+./scripts/import-data.sh
 
-# 摄入 crawler staging 数据
-./scripts/import-data.sh -s staging:fabiaoqing -l 50
+# 手动指定文件夹 + 数量
+./scripts/import-data.sh -p /path/to/your/memes -l 100
 
-# 或使用 go run 直接运行
-go run ./cmd/ingest --source=chinesebqb --limit=100
+# 或使用 go run 直接运行（同样支持 env 覆盖路径）
+SOURCES_LOCAL_PATH=/path/to/your/memes go run ./cmd/ingest --source=local --limit=100
 ```
+
+> 注：当前 `import-data.sh` 已简化为仅负责本地文件夹导入；staging/爬虫导入可后续单独脚本化（或恢复多 source 模式）。
 
 ### 5) 启动 API 服务
 

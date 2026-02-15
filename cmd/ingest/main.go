@@ -14,6 +14,7 @@ import (
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/source/chinesebqb"
+	"github.com/timmy/emomo/internal/source/local"
 	"github.com/timmy/emomo/internal/source/staging"
 	"github.com/timmy/emomo/internal/storage"
 )
@@ -29,7 +30,7 @@ func main() {
 	defer logger.Sync() // Ensure logs are flushed on exit
 
 	// Parse command line flags
-	sourceType := flag.String("source", "chinesebqb", "Data source to ingest from")
+	sourceType := flag.String("source", "local", "Data source to ingest from (default: local)")
 	limit := flag.Int("limit", 100, "Maximum number of items to ingest")
 	retryPending := flag.Bool("retry", false, "Retry pending items instead of ingesting new ones")
 	force := flag.Bool("force", false, "Force re-process items, skip duplicate checks")
@@ -200,6 +201,17 @@ func main() {
 		// Get data source
 		var src source.Source
 		switch {
+		case *sourceType == "local":
+			// Allow environment variable override
+			localPath := os.Getenv("SOURCES_LOCAL_PATH")
+			if localPath == "" {
+				localPath = cfg.Sources.Local.Path
+			}
+			if localPath == "" {
+				appLogger.Fatal("Local source path not configured. Set sources.local.path in config.yaml or SOURCES_LOCAL_PATH env var")
+			}
+			src = local.NewAdapter(localPath)
+			appLogger.WithField("local_path", localPath).Info("Using local folder source")
 		case *sourceType == "chinesebqb":
 			src = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
 		case strings.HasPrefix(*sourceType, "staging:"):
@@ -207,7 +219,7 @@ func main() {
 			src = staging.NewAdapter(cfg.Sources.Staging.Path, sourceID)
 			appLogger.WithField("staging_source", sourceID).Info("Using staging source")
 		default:
-			appLogger.WithField("source", *sourceType).Fatal("Unknown source type. Use 'chinesebqb' or 'staging:<source_id>'")
+			appLogger.WithField("source", *sourceType).Fatal("Unknown source type. Use 'local', 'chinesebqb' or 'staging:<source_id>'")
 		}
 
 		stats, err := ingestService.IngestFromSource(ctx, src, *limit, &service.IngestOptions{
