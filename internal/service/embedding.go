@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/go-resty/resty/v2"
 )
 
 const (
-	jinaEndpoint = "https://api.jina.ai/v1/embeddings"
+	jinaDefaultBaseURL     = "https://api.jina.ai/v1"
+	embeddingDocumentText  = "text"
+	embeddingDocumentImage = "image"
 )
 
 // EmbeddingProvider defines the interface for embedding services.
@@ -20,20 +23,30 @@ type EmbeddingProvider interface {
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 	// EmbedQuery generates an embedding optimized for query/search.
 	EmbedQuery(ctx context.Context, query string) ([]float32, error)
+	// EmbedDocument generates an embedding for an ingest document.
+	EmbedDocument(ctx context.Context, doc EmbeddingDocument) ([]float32, error)
 	// GetModel returns the model name being used.
 	GetModel() string
 	// GetDimensions returns the embedding dimensions.
 	GetDimensions() int
 }
 
+// EmbeddingDocument carries the content needed to generate an ingest-time embedding.
+// Providers can choose the most suitable representation for the configured document mode.
+type EmbeddingDocument struct {
+	Text     string
+	ImageURL string
+}
+
 // EmbeddingProviderConfig holds configuration for creating an embedding provider.
 // This is the minimal configuration needed to instantiate a provider.
 type EmbeddingProviderConfig struct {
-	Provider   string // Provider type: "jina", "modelscope", "openai-compatible"
-	Model      string // Model name/ID
-	APIKey     string // API key for authentication
-	BaseURL    string // Base URL for OpenAI-compatible APIs
-	Dimensions int    // Embedding vector dimensions
+	Provider     string // Provider type: "jina", "modelscope", "openai-compatible"
+	Model        string // Model name/ID
+	APIKey       string // API key for authentication
+	BaseURL      string // Base URL for provider APIs
+	DocumentMode string // Document embedding mode: "text" or "image"
+	Dimensions   int    // Embedding vector dimensions
 }
 
 // NewEmbeddingProvider creates a new embedding provider based on the configuration.
@@ -58,18 +71,25 @@ func NewEmbeddingProvider(cfg *EmbeddingProviderConfig) (EmbeddingProvider, erro
 
 // JinaEmbeddingProvider handles text embedding generation using Jina AI.
 type JinaEmbeddingProvider struct {
-	client     *resty.Client
-	model      string
-	dimensions int
+	client       *resty.Client
+	baseURL      string
+	model        string
+	documentMode string
+	dimensions   int
 }
 
 // Jina API request/response structures
+type jinaInputItem struct {
+	Text  string `json:"text,omitempty"`
+	Image string `json:"image,omitempty"`
+}
+
 type jinaRequest struct {
-	Model         string   `json:"model"`
-	Task          string   `json:"task,omitempty"`
-	Dimensions    int      `json:"dimensions,omitempty"`
-	Input         []string `json:"input"`
-	EmbeddingType string   `json:"embedding_type,omitempty"`
+	Model         string          `json:"model"`
+	Task          string          `json:"task,omitempty"`
+	Dimensions    int             `json:"dimensions,omitempty"`
+	Input         []jinaInputItem `json:"input"`
+	EmbeddingType string          `json:"embedding_type,omitempty"`
 }
 
 type jinaResponse struct {
@@ -89,10 +109,17 @@ func NewJinaEmbeddingProvider(cfg *EmbeddingProviderConfig) *JinaEmbeddingProvid
 	client.SetHeader("Authorization", "Bearer "+cfg.APIKey)
 	client.SetHeader("Content-Type", "application/json")
 
+	baseURL := strings.TrimSuffix(cfg.BaseURL, "/")
+	if baseURL == "" {
+		baseURL = jinaDefaultBaseURL
+	}
+
 	return &JinaEmbeddingProvider{
-		client:     client,
-		model:      cfg.Model,
-		dimensions: cfg.Dimensions,
+		client:       client,
+		baseURL:      baseURL,
+		model:        cfg.Model,
+		documentMode: normalizeEmbeddingDocumentMode(cfg.DocumentMode),
+		dimensions:   cfg.Dimensions,
 	}
 }
 
@@ -104,6 +131,10 @@ func (p *JinaEmbeddingProvider) GetModel() string {
 // GetDimensions returns the embedding dimensions.
 func (p *JinaEmbeddingProvider) GetDimensions() int {
 	return p.dimensions
+}
+
+func (p *JinaEmbeddingProvider) endpoint(path string) string {
+	return p.baseURL + path
 }
 
 // Embed generates an embedding for a single text.
@@ -124,32 +155,23 @@ func (p *JinaEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) 
 		return [][]float32{}, nil
 	}
 
+	input := make([]jinaInputItem, 0, len(texts))
+	for _, text := range texts {
+		input = append(input, jinaInputItem{Text: text})
+	}
+
 	req := jinaRequest{
 		Model:         p.model,
 		Task:          "retrieval.passage", // Optimized for retrieval
 		Dimensions:    p.dimensions,
-		Input:         texts,
+		Input:         input,
 		EmbeddingType: "float",
 	}
 
-	var resp jinaResponse
-	httpResp, err := p.client.R().
-		SetContext(ctx).
-		SetBody(req).
-		SetResult(&resp).
-		Post(jinaEndpoint)
-
+	resp, err := p.doRequest(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call Jina API: %w", err)
+		return nil, err
 	}
-
-	if httpResp.StatusCode() != 200 {
-		if resp.Detail != "" {
-			return nil, fmt.Errorf("Jina API error: %s", resp.Detail)
-		}
-		return nil, fmt.Errorf("Jina API error: status %d", httpResp.StatusCode())
-	}
-
 	if len(resp.Data) != len(texts) {
 		return nil, fmt.Errorf("unexpected number of embeddings: got %d, expected %d", len(resp.Data), len(texts))
 	}
@@ -165,22 +187,60 @@ func (p *JinaEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) 
 	return embeddings, nil
 }
 
+// EmbedDocument generates an embedding optimized for ingestion.
+func (p *JinaEmbeddingProvider) EmbedDocument(ctx context.Context, doc EmbeddingDocument) ([]float32, error) {
+	switch p.documentMode {
+	case embeddingDocumentImage:
+		if doc.ImageURL == "" {
+			return nil, fmt.Errorf("jina image document embedding requires image_url")
+		}
+
+		resp, err := p.doRequest(ctx, jinaRequest{
+			Model:         p.model,
+			Task:          "retrieval.passage",
+			Dimensions:    p.dimensions,
+			Input:         []jinaInputItem{{Image: doc.ImageURL}},
+			EmbeddingType: "float",
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(resp.Data) == 0 {
+			return nil, fmt.Errorf("no embedding returned")
+		}
+		return resp.Data[0].Embedding, nil
+	default:
+		return p.Embed(ctx, doc.Text)
+	}
+}
+
 // EmbedQuery generates an embedding optimized for query/search.
 func (p *JinaEmbeddingProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	req := jinaRequest{
+	resp, err := p.doRequest(ctx, jinaRequest{
 		Model:         p.model,
 		Task:          "retrieval.query", // Optimized for query
 		Dimensions:    p.dimensions,
-		Input:         []string{query},
+		Input:         []jinaInputItem{{Text: query}},
 		EmbeddingType: "float",
+	})
+	if err != nil {
+		return nil, err
 	}
 
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("no embedding returned")
+	}
+
+	return resp.Data[0].Embedding, nil
+}
+
+func (p *JinaEmbeddingProvider) doRequest(ctx context.Context, req jinaRequest) (*jinaResponse, error) {
 	var resp jinaResponse
 	httpResp, err := p.client.R().
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&resp).
-		Post(jinaEndpoint)
+		Post(p.endpoint("/embeddings"))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Jina API: %w", err)
@@ -193,11 +253,7 @@ func (p *JinaEmbeddingProvider) EmbedQuery(ctx context.Context, query string) ([
 		return nil, fmt.Errorf("Jina API error: status %d", httpResp.StatusCode())
 	}
 
-	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("no embedding returned")
-	}
-
-	return resp.Data[0].Embedding, nil
+	return &resp, nil
 }
 
 // =============================================================================
@@ -283,6 +339,12 @@ func (p *OpenAICompatibleEmbeddingProvider) Embed(ctx context.Context, text stri
 	return embeddings[0], nil
 }
 
+// EmbedDocument generates an embedding for an ingest document.
+// OpenAI-compatible providers remain text-only today, so they embed the textual representation.
+func (p *OpenAICompatibleEmbeddingProvider) EmbedDocument(ctx context.Context, doc EmbeddingDocument) ([]float32, error) {
+	return p.Embed(ctx, doc.Text)
+}
+
 // EmbedBatch generates embeddings for multiple texts.
 func (p *OpenAICompatibleEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
@@ -350,4 +412,13 @@ func (p *OpenAICompatibleEmbeddingProvider) EmbedBatch(ctx context.Context, text
 // calls the regular embedding endpoint.
 func (p *OpenAICompatibleEmbeddingProvider) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	return p.Embed(ctx, query)
+}
+
+func normalizeEmbeddingDocumentMode(mode string) string {
+	switch mode {
+	case embeddingDocumentImage:
+		return embeddingDocumentImage
+	default:
+		return embeddingDocumentText
+	}
 }

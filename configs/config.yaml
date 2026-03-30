@@ -28,7 +28,7 @@ storage:
   use_ssl: true
   bucket: emomo
   region: auto
-  # public_url: set via STORAGE_PUBLIC_URL env var
+  # public_url: set via STORAGE_PUBLIC_URL env var; required when document_mode=image needs public image URLs
   public_url: ""
 
 vlm:
@@ -42,10 +42,11 @@ vlm:
 embeddings:
   - name: jina
     provider: jina
-    model: jina-embeddings-v3
+    model: jina-embeddings-v4
     api_key_env: JINA_API_KEY
-    dimensions: 1024
-    collection: emomo
+    document_mode: image
+    dimensions: 2048
+    collection: emomo_jina_v4
 
   - name: qwen3
     provider: modelscope

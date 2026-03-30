@@ -127,6 +127,9 @@ uv run emomo-crawler crawl --source fabiaoqing --limit 100
 # 摄入 crawler staging 数据
 ./scripts/import-data.sh -s staging:fabiaoqing -l 50
 
+# 使用 Jina v4 图像向量配置导入
+./scripts/import-data.sh -s staging:fabiaoqing -e jina -l 50
+
 # 或使用 go run 直接运行
 go run ./cmd/ingest --source=chinesebqb --limit=100
 ```
@@ -190,13 +193,15 @@ curl http://localhost:8080/api/v1/stats
 |--------|----------|------|
 | vlm.api_key | OPENAI_API_KEY | OpenAI-compatible API Key |
 | vlm.base_url | OPENAI_BASE_URL | OpenAI-compatible Base URL |
-| embedding.api_key | EMBEDDING_API_KEY | Embedding API Key |
+| embeddings[].api_key_env | JINA_API_KEY | Jina API Key |
+| embeddings[].api_key_env | MODELSCOPE_API_KEY | ModelScope API Key |
+| embeddings[].base_url_env | MODELSCOPE_BASE_URL | ModelScope API Base URL |
 | storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
 | storage.endpoint | STORAGE_ENDPOINT | 存储端点（不含 bucket） |
 | storage.bucket | STORAGE_BUCKET | 存储桶名称 |
 | storage.region | STORAGE_REGION | 存储区域（R2 使用 `auto`） |
 | storage.use_ssl | STORAGE_USE_SSL | 是否使用 HTTPS |
-| storage.public_url | STORAGE_PUBLIC_URL | 公开访问 URL（R2 推荐） |
+| storage.public_url | STORAGE_PUBLIC_URL | 公开访问 URL（Jina `document_mode=image` 时需要公网可访问） |
 | qdrant.host | QDRANT_HOST | Qdrant 地址 |
 | qdrant.port | QDRANT_PORT | Qdrant gRPC 端口（默认 6334） |
 | qdrant.api_key | QDRANT_API_KEY | Qdrant Cloud API Key |

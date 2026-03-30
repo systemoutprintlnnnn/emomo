@@ -149,11 +149,12 @@ func main() {
 
 	// Create embedding provider
 	embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingProviderConfig{
-		Provider:   embeddingCfg.Provider,
-		Model:      embeddingCfg.Model,
-		APIKey:     embeddingCfg.APIKey,
-		BaseURL:    embeddingCfg.BaseURL,
-		Dimensions: embeddingCfg.Dimensions,
+		Provider:     embeddingCfg.Provider,
+		Model:        embeddingCfg.Model,
+		APIKey:       embeddingCfg.APIKey,
+		BaseURL:      embeddingCfg.BaseURL,
+		DocumentMode: embeddingCfg.GetDocumentMode(),
+		Dimensions:   embeddingCfg.Dimensions,
 	})
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to create embedding provider")

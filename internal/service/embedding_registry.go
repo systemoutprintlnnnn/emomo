@@ -72,11 +72,12 @@ func NewEmbeddingRegistry(cfg *EmbeddingRegistryConfig) (*EmbeddingRegistry, err
 
 		// Create embedding provider
 		provider, err := NewEmbeddingProvider(&EmbeddingProviderConfig{
-			Provider:   embCfg.Provider,
-			Model:      embCfg.Model,
-			APIKey:     embCfg.APIKey,
-			BaseURL:    embCfg.BaseURL,
-			Dimensions: embCfg.Dimensions,
+			Provider:     embCfg.Provider,
+			Model:        embCfg.Model,
+			APIKey:       embCfg.APIKey,
+			BaseURL:      embCfg.BaseURL,
+			DocumentMode: embCfg.GetDocumentMode(),
+			Dimensions:   embCfg.Dimensions,
 		})
 		if err != nil {
 			logger.Warn("Failed to create embedding provider, skipping: name=%s, error=%v",
