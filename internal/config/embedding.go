@@ -8,16 +8,17 @@ import (
 // EmbeddingConfig defines configuration for a single embedding provider.
 // This is the unified configuration structure used across the application.
 type EmbeddingConfig struct {
-	Name       string `mapstructure:"name"`         // Unique identifier for this embedding config
-	Provider   string `mapstructure:"provider"`     // Provider type: "jina", "modelscope", "openai-compatible"
-	Model      string `mapstructure:"model"`        // Model name/ID
-	APIKey     string `mapstructure:"api_key"`      // API key (can be set directly or via env var)
-	APIKeyEnv  string `mapstructure:"api_key_env"`  // Environment variable name for API key
-	BaseURL    string `mapstructure:"base_url"`     // Base URL for OpenAI-compatible APIs
-	BaseURLEnv string `mapstructure:"base_url_env"` // Environment variable name for base URL
-	Dimensions int    `mapstructure:"dimensions"`   // Embedding vector dimensions
-	Collection string `mapstructure:"collection"`   // Qdrant collection name for this embedding
-	IsDefault  bool   `mapstructure:"is_default"`   // Whether this is the default embedding config
+	Name         string `mapstructure:"name"`          // Unique identifier for this embedding config
+	Provider     string `mapstructure:"provider"`      // Provider type: "jina", "modelscope", "openai-compatible"
+	Model        string `mapstructure:"model"`         // Model name/ID
+	APIKey       string `mapstructure:"api_key"`       // API key (can be set directly or via env var)
+	APIKeyEnv    string `mapstructure:"api_key_env"`   // Environment variable name for API key
+	BaseURL      string `mapstructure:"base_url"`      // Base URL for OpenAI-compatible APIs
+	BaseURLEnv   string `mapstructure:"base_url_env"`  // Environment variable name for base URL
+	DocumentMode string `mapstructure:"document_mode"` // Document embedding mode: "text" or "image"
+	Dimensions   int    `mapstructure:"dimensions"`    // Embedding vector dimensions
+	Collection   string `mapstructure:"collection"`    // Qdrant collection name for this embedding
+	IsDefault    bool   `mapstructure:"is_default"`    // Whether this is the default embedding config
 }
 
 // ResolveEnvVars resolves environment variable references in the configuration.
@@ -63,6 +64,13 @@ func (c *EmbeddingConfig) Validate() error {
 		return fmt.Errorf("embedding %q: unknown provider %q", c.Name, c.Provider)
 	}
 
+	switch c.GetDocumentMode() {
+	case "text", "image":
+		// Valid document modes
+	default:
+		return fmt.Errorf("embedding %q: unknown document_mode %q", c.Name, c.DocumentMode)
+	}
+
 	return nil
 }
 
@@ -87,18 +95,28 @@ func (c *EmbeddingConfig) GetCollection(defaultCollection string) string {
 	return defaultCollection
 }
 
+// GetDocumentMode returns the document embedding mode for this config.
+// The zero value defaults to "text" for backwards compatibility.
+func (c *EmbeddingConfig) GetDocumentMode() string {
+	if c.DocumentMode == "" {
+		return "text"
+	}
+	return c.DocumentMode
+}
+
 // Clone creates a deep copy of the embedding configuration.
 func (c *EmbeddingConfig) Clone() *EmbeddingConfig {
 	return &EmbeddingConfig{
-		Name:       c.Name,
-		Provider:   c.Provider,
-		Model:      c.Model,
-		APIKey:     c.APIKey,
-		APIKeyEnv:  c.APIKeyEnv,
-		BaseURL:    c.BaseURL,
-		BaseURLEnv: c.BaseURLEnv,
-		Dimensions: c.Dimensions,
-		Collection: c.Collection,
-		IsDefault:  c.IsDefault,
+		Name:         c.Name,
+		Provider:     c.Provider,
+		Model:        c.Model,
+		APIKey:       c.APIKey,
+		APIKeyEnv:    c.APIKeyEnv,
+		BaseURL:      c.BaseURL,
+		BaseURLEnv:   c.BaseURLEnv,
+		DocumentMode: c.GetDocumentMode(),
+		Dimensions:   c.Dimensions,
+		Collection:   c.Collection,
+		IsDefault:    c.IsDefault,
 	}
 }

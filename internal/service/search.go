@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/timmy/emomo/internal/domain"
 	"github.com/timmy/emomo/internal/logger"
@@ -13,7 +14,7 @@ import (
 // SearchConfig holds configuration for search service.
 type SearchConfig struct {
 	ScoreThreshold    float32
-	DefaultCollection string // Default collection name for search
+	DefaultCollection string // Default search collection key (embedding config name)
 }
 
 // CollectionConfig holds configuration for a single collection.
@@ -95,21 +96,40 @@ func (s *SearchService) RegisterCollection(name string, qdrantRepo *repository.Q
 	}
 }
 
-// GetAvailableCollections returns the list of available collection names.
+// GetAvailableCollections returns the list of available collection keys.
 // Parameters: none.
 // Returns:
-//   - []string: collection names including default and registered ones.
+//   - []string: collection keys including default and registered ones.
 func (s *SearchService) GetAvailableCollections() []string {
 	collections := make([]string, 0, len(s.collections)+1)
 	if s.defaultCollection != "" {
 		collections = append(collections, s.defaultCollection)
 	}
+
+	remaining := make([]string, 0, len(s.collections))
 	for name := range s.collections {
 		if name != s.defaultCollection {
-			collections = append(collections, name)
+			remaining = append(remaining, name)
 		}
 	}
+
+	sort.Strings(remaining)
+	collections = append(collections, remaining...)
+
 	return collections
+}
+
+func (s *SearchService) resolveCollection(name string) (*repository.QdrantRepository, EmbeddingProvider, string, error) {
+	if name == "" {
+		return s.defaultQdrantRepo, s.defaultEmbedding, s.defaultCollection, nil
+	}
+
+	cfg, ok := s.collections[name]
+	if !ok {
+		return nil, nil, "", fmt.Errorf("unknown collection: %s", name)
+	}
+
+	return cfg.QdrantRepo, cfg.Embedding, name, nil
 }
 
 // log returns a logger from context if available, otherwise returns the default logger
@@ -178,25 +198,9 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		req.TopK = 100
 	}
 
-	// Determine which collection, embedding, and qdrant repo to use
-	var qdrantRepo *repository.QdrantRepository
-	var embedding EmbeddingProvider
-	var collectionName string
-
-	if req.Collection != "" {
-		// Use specified collection
-		if cfg, ok := s.collections[req.Collection]; ok {
-			qdrantRepo = cfg.QdrantRepo
-			embedding = cfg.Embedding
-			collectionName = req.Collection
-		} else {
-			return nil, fmt.Errorf("unknown collection: %s", req.Collection)
-		}
-	} else {
-		// Use default collection
-		qdrantRepo = s.defaultQdrantRepo
-		embedding = s.defaultEmbedding
-		collectionName = s.defaultCollection
+	qdrantRepo, embedding, collectionName, err := s.resolveCollection(req.Collection)
+	if err != nil {
+		return nil, err
 	}
 
 	originalQuery := req.Query
@@ -334,23 +338,9 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 		req.TopK = 100
 	}
 
-	// Determine which collection, embedding, and qdrant repo to use
-	var qdrantRepo *repository.QdrantRepository
-	var embedding EmbeddingProvider
-	var collectionName string
-
-	if req.Collection != "" {
-		if cfg, ok := s.collections[req.Collection]; ok {
-			qdrantRepo = cfg.QdrantRepo
-			embedding = cfg.Embedding
-			collectionName = req.Collection
-		} else {
-			return nil, fmt.Errorf("unknown collection: %s", req.Collection)
-		}
-	} else {
-		qdrantRepo = s.defaultQdrantRepo
-		embedding = s.defaultEmbedding
-		collectionName = s.defaultCollection
+	qdrantRepo, embedding, collectionName, err := s.resolveCollection(req.Collection)
+	if err != nil {
+		return nil, err
 	}
 
 	originalQuery := req.Query

@@ -35,7 +35,7 @@ storage:
   use_ssl: true                                     # R2 使用 HTTPS
   bucket: memes                                     # Bucket 名称
   region: auto                                      # R2 使用 "auto"
-  public_url: https://pub-xxx.r2.dev                # R2.dev 公开访问 URL（可选）
+  public_url: https://pub-xxx.r2.dev                # R2.dev 公开访问 URL（Jina image mode 需要公网可访问）
 
 # 如果使用 AWS S3，配置示例：
 # storage:
@@ -57,10 +57,19 @@ vlm:
 embeddings:
   - name: jina
     provider: jina
-    model: jina-embeddings-v3
+    model: jina-embeddings-v4
     api_key_env: JINA_API_KEY
-    dimensions: 1024
-    collection: emomo
+    document_mode: image
+    dimensions: 2048
+    collection: emomo_jina_v4
+
+  - name: qwen3
+    provider: modelscope
+    model: Qwen/Qwen3-Embedding-8B
+    api_key_env: MODELSCOPE_API_KEY
+    base_url_env: MODELSCOPE_BASE_URL
+    dimensions: 4096
+    collection: emomo_v2
     is_default: true
 
 ingest:

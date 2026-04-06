@@ -505,7 +505,10 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		extractEmotionWords(vlmDescription),
 	)
 	bm25Text := buildBM25Text(ocrText, compactDesc, item.Tags)
-	embedding, err := s.embedding.Embed(ctx, embeddingText)
+	embedding, err := s.embedding.EmbedDocument(ctx, EmbeddingDocument{
+		Text:     embeddingText,
+		ImageURL: storageURL,
+	})
 	if err != nil {
 		// Rollback: clean up description, meme record and storage if we created them
 		rollbackDescription()
@@ -871,7 +874,10 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			extractEmotionWords(description),
 		)
 		bm25Text := buildBM25Text(ocrText, compactDesc, meme.Tags)
-		embedding, err := s.embedding.Embed(ctx, embeddingText)
+		embedding, err := s.embedding.EmbedDocument(ctx, EmbeddingDocument{
+			Text:     embeddingText,
+			ImageURL: s.storage.GetURL(meme.StorageKey),
+		})
 		if err != nil {
 			logger.CtxWarn(ctx, "Failed to generate embedding: error=%v", err)
 			stats.FailedItems++

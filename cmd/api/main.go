@@ -91,6 +91,8 @@ func main() {
 
 	// Get default embedding provider and Qdrant repo
 	defaultProvider, defaultQdrantRepo := embeddingRegistry.Default()
+	defaultEmbeddingName := embeddingRegistry.DefaultName()
+	defaultQdrantCollection := defaultQdrantRepo.GetCollectionName()
 
 	// Initialize query expansion service
 	// Use Query Expansion's own APIKey/BaseURL if configured, otherwise fall back to VLM's
@@ -115,9 +117,6 @@ func main() {
 		}).Info("Query expansion enabled")
 	}
 
-	// Get default collection name from registry default
-	defaultCollection := defaultQdrantRepo.GetCollectionName()
-
 	// Create search service
 	searchService := service.NewSearchService(
 		memeRepo,
@@ -129,7 +128,7 @@ func main() {
 		appLogger,
 		&service.SearchConfig{
 			ScoreThreshold:    cfg.Search.ScoreThreshold,
-			DefaultCollection: defaultCollection,
+			DefaultCollection: defaultEmbeddingName,
 		},
 	)
 
@@ -140,8 +139,9 @@ func main() {
 	}
 
 	appLogger.WithFields(logger.Fields{
-		"available_collections": embeddingRegistry.Names(),
-		"default":               embeddingRegistry.DefaultName(),
+		"available_collections": searchService.GetAvailableCollections(),
+		"default_collection":    defaultEmbeddingName,
+		"default_qdrant":        defaultQdrantCollection,
 	}).Info("Embedding collections registered")
 
 	// Initialize VLM service
@@ -165,7 +165,7 @@ func main() {
 		&service.IngestConfig{
 			Workers:    cfg.Ingest.Workers,
 			BatchSize:  cfg.Ingest.BatchSize,
-			Collection: defaultCollection,
+			Collection: defaultQdrantCollection,
 		},
 	)
 
@@ -188,7 +188,8 @@ func main() {
 		appLogger.WithFields(logger.Fields{
 			"port":                  cfg.Server.Port,
 			"mode":                  cfg.Server.Mode,
-			"default_collection":    defaultCollection,
+			"default_collection":    defaultEmbeddingName,
+			"default_qdrant":        defaultQdrantCollection,
 			"available_collections": searchService.GetAvailableCollections(),
 		}).Info("Starting API server")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

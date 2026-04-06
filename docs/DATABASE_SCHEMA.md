@@ -444,10 +444,10 @@ const (
 │                          Qdrant Collections                              │
 │  (向量数据库)                                                            │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  Collection: emomo (dim: 1024)                                          │
-│    └── Points: [id, vector[1024], payload{meme_id, source_type, ...}]   │
+│  Collection: emomo_jina_v4 (dim: 2048)                                  │
+│    └── Points: [id, vector[2048], payload{meme_id, source_type, ...}]   │
 │                                                                          │
-│  Collection: emomo-qwen3-embedding-8b (dim: 4096)                       │
+│  Collection: emomo_v2 (dim: 4096)                                       │
 │    └── Points: [id, vector[4096], payload{meme_id, source_type, ...}]   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -511,8 +511,8 @@ type MemePayload struct {
 
 | Collection 名称 | Embedding 模型 | 向量维度 |
 |----------------|----------------|----------|
-| `emomo` | jina-embeddings-v3 | 1024 |
-| `emomo-qwen3-embedding-8b` | Qwen/Qwen3-Embedding-8B | 4096 |
+| `emomo_jina_v4` | jina-embeddings-v4 | 2048 |
+| `emomo_v2` | Qwen/Qwen3-Embedding-8B | 4096 |
 
 ---
 
