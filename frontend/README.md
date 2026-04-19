@@ -1,0 +1,126 @@
+# Emomo Frontend
+
+Emomo is a meme search engine application that allows users to find memes using semantic search queries. This frontend application provides a responsive and interactive user interface for searching, browsing, and viewing memes.
+
+## Features
+
+- **Semantic Search**: Find memes by describing them in natural language (e.g., "happy cat", "surprised dog").
+- **Meme Grid**: Browse search results or recommended memes in a responsive grid layout.
+- **Detailed View**: View high-resolution memes in a modal with metadata (tags, source, description).
+- **Interactive UI**: Animated transitions and hover effects using Framer Motion.
+- **Recommendations**: Displays recommended memes on the home page.
+- **Copy & Download**: Easily copy image links or download memes directly.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- [Node.js](https://nodejs.org/) (v16 or higher recommended)
+- [npm](https://www.npmjs.com/) (usually comes with Node.js)
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd emomo-frontend-temp
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Configure environment variables:
+   Copy `.env.example` to `.env` and update the values if necessary.
+   ```bash
+   cp .env.example .env
+   ```
+
+   - `VITE_API_BASE`: The base URL of the backend API (default: `http://localhost:8080/api/v1`).
+   - `VITE_API_TOKEN`: (Optional) API token for authentication.
+
+## Usage
+
+### Development
+
+To start the development server with Hot Module Replacement (HMR):
+
+```bash
+npm run dev
+```
+
+Open your browser and navigate to `http://localhost:5173` (or the port shown in the terminal).
+
+### Build
+
+To build the application for production:
+
+```bash
+npm run build
+```
+
+The output will be in the `dist/` directory.
+
+### Preview
+
+To preview the production build locally:
+
+```bash
+npm run preview
+```
+
+### Linting
+
+To run ESLint and check for code quality issues:
+
+```bash
+npm run lint
+```
+
+### Testing
+
+To run End-to-End (E2E) tests using Playwright:
+
+```bash
+# Run tests in headless mode
+npm run test
+
+# Run tests with UI runner
+npm run test:ui
+
+# Run tests in headed browser mode
+npm run test:headed
+```
+
+## Project Structure
+
+```
+src/
+├── api/            # API client and service functions
+├── assets/         # Static assets (images, icons)
+├── components/     # React components
+│   ├── Header.tsx      # App header
+│   ├── SearchHero.tsx  # Search bar section
+│   ├── MemeCard.tsx    # Individual meme card
+│   ├── MemeGrid.tsx    # Grid of meme cards
+│   ├── MemeModal.tsx   # Detail view modal
+│   └── ...
+├── types/          # TypeScript type definitions
+├── App.tsx         # Main application component
+├── main.tsx        # Entry point
+└── ...
+```
+
+## Contributing
+
+1. Fork the repository.
+2. Create a new branch (`git checkout -b feature/amazing-feature`).
+3. Make your changes.
+4. Commit your changes (`git commit -m 'feat: Add some amazing feature'`).
+5. Push to the branch (`git push origin feature/amazing-feature`).
+6. Open a Pull Request.
+
+## License
+
+[MIT](LICENSE)

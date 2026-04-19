@@ -1,0 +1,119 @@
+/* Header - Top navigation bar */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: rgba(253, 248, 243, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--bg-secondary);
+}
+
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-md) var(--space-lg);
+}
+
+/* Logo */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  margin: calc(-1 * var(--space-sm));
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+
+.logo:hover {
+  background: var(--bg-secondary);
+}
+
+.logoIcon {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.logoText {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+}
+
+.logoBeta {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-lavender);
+  color: white;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Right section */
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+/* Stats */
+.stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+
+.statNumber {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--accent-coral);
+}
+
+.statLabel {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+/* GitHub button */
+.githubBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.githubBtn:hover {
+  background: var(--text-primary);
+  color: var(--bg-card);
+}
+
+.githubBtn svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .container {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .logoText {
+    font-size: var(--text-xl);
+  }
+
+  .stats {
+    display: none;
+  }
+}

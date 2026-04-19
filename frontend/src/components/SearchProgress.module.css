@@ -1,0 +1,209 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
+  margin: 0 auto;
+  max-width: 600px;
+  overflow: hidden;
+}
+
+/* Progress Steps */
+.progressSteps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  position: relative;
+}
+
+.stepDot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s var(--ease-out-expo);
+  flex-shrink: 0;
+}
+
+.stepDot svg {
+  width: 12px;
+  height: 12px;
+  color: var(--text-inverse);
+}
+
+.stepPulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-inverse);
+}
+
+.stepActive .stepDot {
+  background: var(--accent-coral);
+}
+
+.stepCurrent .stepDot {
+  box-shadow: 0 0 0 4px var(--accent-coral-light);
+}
+
+.stepLabel {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  transition: color 0.3s ease;
+  white-space: nowrap;
+}
+
+.stepActive .stepLabel {
+  color: var(--text-primary);
+}
+
+.stepCurrent .stepLabel {
+  color: var(--accent-coral);
+  font-weight: 500;
+}
+
+.stepLine {
+  width: 20px;
+  height: 2px;
+  background: var(--bg-tertiary);
+  margin: 0 var(--space-xs);
+  transition: background 0.3s ease;
+}
+
+.stepActive .stepLine {
+  background: var(--accent-coral);
+}
+
+/* Message */
+.message {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Thinking Bubble */
+.thinkingContainer {
+  width: 100%;
+  max-width: 500px;
+  overflow: hidden;
+}
+
+.thinkingBubble {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, var(--accent-lavender-light) 0%, var(--accent-mint-light) 100%);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(162, 155, 254, 0.2);
+}
+
+.thinkingIcon {
+  font-size: var(--text-xl);
+  flex-shrink: 0;
+}
+
+.thinkingContent {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.thinkingPlaceholder {
+  color: var(--text-tertiary);
+}
+
+.cursor {
+  color: var(--accent-coral);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* Expanded Query */
+.expandedQuery {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  max-width: 500px;
+  overflow: hidden;
+}
+
+.expandedLabel {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.expandedText {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Cancel Button */
+.cancelBtn {
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancelBtn:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-tertiary);
+  background: var(--bg-secondary);
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .container {
+    padding: var(--space-md);
+  }
+
+  .progressSteps {
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .stepLine {
+    display: none;
+  }
+
+  .stepLabel {
+    font-size: var(--text-xs);
+  }
+
+  .stepDot {
+    width: 20px;
+    height: 20px;
+  }
+
+  .stepDot svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .thinkingBubble {
+    padding: var(--space-sm) var(--space-md);
+  }
+}
+

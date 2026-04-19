@@ -1,0 +1,170 @@
+/* MemeGrid - Masonry-style grid layout for memes */
+
+.container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-lg) var(--space-3xl);
+}
+
+/* Section title (for recommended section) */
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-lg);
+}
+
+/* Results info */
+.resultsInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
+  flex-wrap: wrap;
+}
+
+.resultsQuery {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--accent-coral);
+}
+
+.resultsCount {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}
+
+/* Grid - CSS Columns for Masonry effect */
+.grid {
+  column-count: 5;
+  column-gap: var(--space-md);
+}
+
+.grid > * {
+  break-inside: avoid;
+  margin-bottom: var(--space-md);
+}
+
+/* Skeleton card */
+.skeletonCard {
+  break-inside: avoid;
+  margin-bottom: var(--space-md);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.skeletonImage {
+  width: 100%;
+  /* Random heights for visual variety */
+  aspect-ratio: 1;
+}
+
+.skeletonCard:nth-child(2n) .skeletonImage {
+  aspect-ratio: 4/5;
+}
+
+.skeletonCard:nth-child(3n) .skeletonImage {
+  aspect-ratio: 3/4;
+}
+
+.skeletonCard:nth-child(5n) .skeletonImage {
+  aspect-ratio: 1/1;
+}
+
+/* Empty state */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl) var(--space-lg);
+  text-align: center;
+}
+
+.emptyIcon {
+  font-size: 4rem;
+  margin-bottom: var(--space-lg);
+}
+
+.emptyTitle {
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.emptyText {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  max-width: 400px;
+  margin: 0;
+}
+
+/* End indicator */
+.endIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  margin-top: var(--space-2xl);
+  padding: var(--space-lg) 0;
+}
+
+.endLine {
+  flex: 1;
+  max-width: 100px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--bg-tertiary),
+    transparent
+  );
+}
+
+.endText {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* Responsive breakpoints */
+@media (max-width: 1200px) {
+  .grid {
+    column-count: 4;
+  }
+}
+
+@media (max-width: 900px) {
+  .grid {
+    column-count: 3;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: var(--space-md) var(--space-md) var(--space-2xl);
+  }
+
+  .grid {
+    column-count: 2;
+    column-gap: var(--space-sm);
+  }
+
+  .grid > * {
+    margin-bottom: var(--space-sm);
+  }
+
+  .resultsInfo {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+  }
+}
+
+@media (max-width: 400px) {
+  .grid {
+    column-count: 2;
+  }
+}
