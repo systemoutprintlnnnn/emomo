@@ -83,6 +83,21 @@ func buildEmbeddingText(ocrText, description string, tags, emotions []string) st
 	return strings.Join(segments, "\n")
 }
 
+func buildBM25Text(ocrText, description string, tags []string) string {
+	segments := make([]string, 0, 3)
+	if ocrText != "" {
+		segments = append(segments, ocrText)
+	}
+	if description != "" {
+		segments = append(segments, description)
+	}
+	tags = dedupeStrings(tags)
+	if len(tags) > 0 {
+		segments = append(segments, strings.Join(tags, " "))
+	}
+	return strings.Join(segments, "\n")
+}
+
 func dedupeStrings(items []string) []string {
 	seen := make(map[string]struct{}, len(items))
 	result := make([]string, 0, len(items))

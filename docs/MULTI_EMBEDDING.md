@@ -45,15 +45,15 @@
                 ▼                               ▼
 ┌───────────────────────────┐   ┌───────────────────────────────────┐
 │   JinaEmbeddingProvider   │   │ OpenAICompatibleEmbeddingProvider │
-│   (jina-embeddings-v3)    │   │    (Qwen3-Embedding-8B)           │
-│   dim: 1024               │   │    dim: 4096                      │
+│   (jina-embeddings-v4)    │   │    (Qwen3-Embedding-8B)           │
+│   dim: 2048               │   │    dim: 4096                      │
 └───────────────┬───────────┘   └───────────────┬───────────────────┘
                 │                               │
                 ▼                               ▼
 ┌───────────────────────────┐   ┌───────────────────────────────────┐
 │   Qdrant Collection       │   │      Qdrant Collection            │
-│   "emomo"                 │   │   "emomo-qwen3-embedding-8b"      │
-│   dim: 1024               │   │      dim: 4096                    │
+│   "emomo_jina_v4"         │   │   "emomo_v2"                      │
+│   dim: 2048               │   │      dim: 4096                    │
 └───────────────────────────┘   └───────────────────────────────────┘
                 │                               │
                 └───────────────┬───────────────┘
@@ -122,26 +122,23 @@ CREATE INDEX idx_meme_vectors_meme ON meme_vectors(meme_id);
 ### config.yaml 配置
 
 ```yaml
-# 默认 Embedding 配置（向后兼容）
-embedding:
-  provider: jina
-  model: jina-embeddings-v3
-  dimensions: 1024
-  collection: emomo
-
-# 命名 Embedding 配置（新增）
 embeddings:
-  jina:
+  - name: jina
     provider: jina
-    model: jina-embeddings-v3
-    dimensions: 1024
-    collection: emomo
-  qwen3:
+    model: jina-embeddings-v4
+    api_key_env: JINA_API_KEY
+    document_mode: image
+    dimensions: 2048
+    collection: emomo_jina_v4
+
+  - name: qwen3
     provider: modelscope
     model: Qwen/Qwen3-Embedding-8B
-    base_url: ""      # via MODELSCOPE_BASE_URL
+    api_key_env: MODELSCOPE_API_KEY
+    base_url_env: MODELSCOPE_BASE_URL
     dimensions: 4096
-    collection: emomo-qwen3-embedding-8b
+    collection: emomo_v2
+    is_default: true
 ```
 
 ### 环境变量
@@ -151,18 +148,25 @@ embeddings:
 | `JINA_API_KEY` | Jina API Key |
 | `MODELSCOPE_API_KEY` | ModelScope API Key |
 | `MODELSCOPE_BASE_URL` | ModelScope API Base URL |
-| `EMBEDDING_BASE_URL` | 默认 Embedding Base URL |
+| `STORAGE_PUBLIC_URL` | Jina `document_mode=image` 时图片的公网访问地址 |
 
 ### EmbeddingConfig 字段说明
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| `name` | string | Embedding 配置名称，也是 Search API 使用的 `collection` 参数值 |
 | `provider` | string | 提供商类型：`jina`, `modelscope`, `openai-compatible` |
 | `model` | string | 模型名称/ID |
 | `api_key` | string | API 认证密钥 |
+| `api_key_env` | string | 从环境变量读取 API Key |
 | `base_url` | string | API 基础 URL（OpenAI 兼容 API 需要）|
+| `base_url_env` | string | 从环境变量读取 Base URL |
+| `document_mode` | string | 文档嵌入模式：`text` 或 `image`；Jina v4 图像检索使用 `image` |
 | `dimensions` | int | 向量维度 |
 | `collection` | string | 对应的 Qdrant collection 名称 |
+| `is_default` | bool | 是否作为默认搜索/导入配置 |
+
+`collection` 这个 Search API 字段使用的是 embedding 配置名称，如 `jina`、`qwen3`；Qdrant 实际 collection 名称仍然来自配置里的 `collection` 值，如 `emomo_jina_v4`、`emomo_v2`。
 
 ---
 
@@ -188,8 +192,11 @@ embeddings:
 ### 使用示例
 
 ```bash
-# 使用默认 Jina Embedding
+# 使用默认 Embedding（当前示例中为 qwen3）
 ./ingest --source=staging:fabiaoqing --limit=50
+
+# 使用 Jina v4 图像 Embedding
+./ingest --source=staging:fabiaoqing --limit=50 --embedding=jina
 
 # 使用 Qwen3 Embedding
 ./ingest --source=staging:fabiaoqing --limit=50 --embedding=qwen3
@@ -208,7 +215,7 @@ embeddings:
   "embedding": "qwen3",
   "embedding_model": "Qwen/Qwen3-Embedding-8B",
   "embedding_dim": 4096,
-  "qdrant_collection": "emomo-qwen3-embedding-8b",
+  "qdrant_collection": "emomo_v2",
   "msg": "Starting ingestion"
 }
 ```
@@ -269,7 +276,7 @@ embeddings:
   "total_active": 1000,
   "total_pending": 5,
   "total_categories": 10,
-  "available_collections": ["emomo", "qwen3"]
+  "available_collections": ["qwen3", "jina"]
 }
 ```
 
@@ -307,6 +314,7 @@ type EmbeddingProvider interface {
     Embed(ctx context.Context, text string) ([]float32, error)
     EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
     EmbedQuery(ctx context.Context, query string) ([]float32, error)
+    EmbedDocument(ctx context.Context, doc EmbeddingDocument) ([]float32, error)
     GetModel() string
     GetDimensions() int
 }
@@ -381,19 +389,22 @@ MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1
 对于大量数据，建议分批导入：
 
 ```bash
-# 先使用默认 Jina 导入所有数据
+# 先使用默认 Embedding 导入所有数据
 ./ingest --source=staging:fabiaoqing --limit=1000
 
-# 再使用 Qwen3 为已有数据生成新向量
+# 再使用 Jina v4 图像 Embedding 为已有数据生成新向量
+./ingest --source=staging:fabiaoqing --limit=1000 --embedding=jina
+
+# 或使用 Qwen3 为已有数据生成新向量
 ./ingest --source=staging:fabiaoqing --limit=1000 --embedding=qwen3
 ```
 
 ### 3. Collection 命名规范
 
-建议使用清晰的命名规范：
+建议将两层命名分开：
 
-- `emomo` - 默认 collection（Jina）
-- `emomo-<model>-<version>` - 其他模型，如 `emomo-qwen3-embedding-8b`
+- Search API 的 `collection` 使用 embedding 配置名，如 `jina`、`qwen3`
+- Qdrant 的实际 collection 使用存储名，如 `emomo_jina_v4`、`emomo_v2`
 
 ### 4. 监控与调试
 
@@ -402,8 +413,9 @@ MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1
 ```json
 {
   "port": 8080,
-  "default_collection": "emomo",
-  "available_collections": ["emomo", "qwen3"]
+  "default_collection": "qwen3",
+  "default_qdrant": "emomo_v2",
+  "available_collections": ["qwen3", "jina"]
 }
 ```
 
@@ -436,5 +448,5 @@ WHERE meme_id = 'xxx';
 
 ### Q: 如何删除某个 collection 的所有向量？
 
-1. 删除 Qdrant collection：`curl -X DELETE "http://localhost:6333/collections/emomo-qwen3-embedding-8b"`
-2. 删除数据库记录：`DELETE FROM meme_vectors WHERE collection = 'emomo-qwen3-embedding-8b'`
+1. 删除 Qdrant collection：`curl -X DELETE "http://localhost:6333/collections/emomo_v2"`
+2. 删除数据库记录：`DELETE FROM meme_vectors WHERE collection = 'emomo_v2'`

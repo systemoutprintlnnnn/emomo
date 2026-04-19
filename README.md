@@ -55,11 +55,23 @@ uv sync
 uv run emomo-crawler crawl --source fabiaoqing --limit 100
 ```
 
+### Jina v4 图像向量摄入（可选）
+
+使用配置中的 Jina embedding 做摄入时，在 `backend/` 下执行，例如：
+
+```bash
+cd backend
+./scripts/import-data.sh -s staging:fabiaoqing -e jina -l 50
+# 或: go run ./cmd/ingest --source=staging:fabiaoqing --embedding=jina --limit=50
+```
+
+详见 [docs/MULTI_EMBEDDING.md](docs/MULTI_EMBEDDING.md) 与 [backend/configs/config.yaml](backend/configs/config.yaml)。
+
 ## 技术栈速览
 
 | 子项目 | 关键技术 |
 |--------|---------|
-| backend | Go 1.24, Gin, GORM, Qdrant (gRPC), S3/R2, OpenAI-compatible VLM, Jina/ModelScope embeddings, Grafana Alloy + Loki |
+| backend | Go 1.24, Gin, GORM, Qdrant (gRPC), S3/R2, OpenAI-compatible VLM, Jina v4 / ModelScope embeddings, BM25 hybrid 检索, Grafana Alloy + Loki |
 | frontend | React 19, TypeScript, Vite 7, Framer Motion, Playwright e2e |
 | crawler | Python 3.12, uv, requests, BeautifulSoup |
 
@@ -75,6 +87,13 @@ uv run emomo-crawler crawl --source fabiaoqing --limit 100
 - 提交信息使用 Conventional Commits（`feat:`、`fix:`、`chore:` 等）；跨子项目的改动在正文里按目录分点说明。
 - AI agents 协作约定见各子项目的 [AGENTS.md](backend/AGENTS.md) / [frontend/AGENTS.md](frontend/AGENTS.md) 与本仓库根的 [AGENTS.md](AGENTS.md)。
 - 不提交 secrets，使用各子项目下的 `.env` 与 `.env.example`。
+
+## 更多文档
+
+- [docs/QUICK_START.md](docs/QUICK_START.md)
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- [docs/MULTI_EMBEDDING.md](docs/MULTI_EMBEDDING.md)
+- [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
 
 ## License
 

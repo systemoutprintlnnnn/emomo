@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	pb "github.com/qdrant/go-client/qdrant"
@@ -16,6 +17,9 @@ import (
 const (
 	// DefaultVectorDimension is the default embedding dimension (Jina)
 	DefaultVectorDimension = 1024
+	DenseVectorName        = "dense"
+	SparseVectorName       = "bm25"
+	SparseVectorModel      = "qdrant/bm25"
 )
 
 // QdrantConnectionConfig holds configuration for Qdrant connection.
@@ -117,24 +121,40 @@ func (r *QdrantRepository) Close() error {
 //   - error: non-nil if the collection check/create fails.
 func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 	// Check if collection exists
-	_, err := r.collectClient.Get(ctx, &pb.GetCollectionInfoRequest{
+	info, err := r.collectClient.Get(ctx, &pb.GetCollectionInfoRequest{
 		CollectionName: r.collectionName,
 	})
 	if err == nil {
-		return nil // Collection exists
+		if info != nil && info.Result != nil {
+			var sparseConfig *pb.SparseVectorConfig
+			if config := info.Result.GetConfig(); config != nil {
+				if params := config.GetParams(); params != nil {
+					sparseConfig = params.GetSparseVectorsConfig()
+				}
+			}
+			return r.ensureSparseConfig(ctx, sparseConfig)
+		}
+		return nil
 	}
 
-	// Create collection with dynamic vector dimension
+	// Create collection with named vectors (dense + sparse)
 	_, err = r.collectClient.Create(ctx, &pb.CreateCollection{
 		CollectionName: r.collectionName,
 		VectorsConfig: &pb.VectorsConfig{
-			Config: &pb.VectorsConfig_Params{
-				Params: &pb.VectorParams{
-					Size:     uint64(r.vectorDimension),
-					Distance: pb.Distance_Cosine,
+			Config: &pb.VectorsConfig_ParamsMap{
+				ParamsMap: &pb.VectorParamsMap{
+					Map: map[string]*pb.VectorParams{
+						DenseVectorName: {
+							Size:     uint64(r.vectorDimension),
+							Distance: pb.Distance_Cosine,
+						},
+					},
 				},
 			},
 		},
+		SparseVectorsConfig: pb.NewSparseVectorsConfig(map[string]*pb.SparseVectorParams{
+			SparseVectorName: {},
+		}),
 		HnswConfig: &pb.HnswConfigDiff{
 			M:                 optionalUint64(16),
 			EfConstruct:       optionalUint64(128),
@@ -143,6 +163,32 @@ func (r *QdrantRepository) EnsureCollection(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create collection: %w", err)
+	}
+
+	return nil
+}
+
+func (r *QdrantRepository) ensureSparseConfig(ctx context.Context, existing *pb.SparseVectorConfig) error {
+	if existing != nil {
+		if _, ok := existing.GetMap()[SparseVectorName]; ok {
+			return nil
+		}
+	}
+
+	paramsMap := make(map[string]*pb.SparseVectorParams)
+	if existing != nil {
+		for name, params := range existing.GetMap() {
+			paramsMap[name] = params
+		}
+	}
+	paramsMap[SparseVectorName] = &pb.SparseVectorParams{}
+
+	_, err := r.collectClient.Update(ctx, &pb.UpdateCollection{
+		CollectionName:      r.collectionName,
+		SparseVectorsConfig: pb.NewSparseVectorsConfig(paramsMap),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update sparse vectors config: %w", err)
 	}
 
 	return nil
@@ -165,6 +211,14 @@ func (r *QdrantRepository) GetVectorDimension() int {
 }
 
 func optionalUint64(v uint64) *uint64 {
+	return &v
+}
+
+func optionalUint32(v uint32) *uint32 {
+	return &v
+}
+
+func optionalString(v string) *string {
 	return &v
 }
 
@@ -203,13 +257,9 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 					Uuid: uid.String(),
 				},
 			},
-			Vectors: &pb.Vectors{
-				VectorsOptions: &pb.Vectors_Vector{
-					Vector: &pb.Vector{
-						Data: vector,
-					},
-				},
-			},
+			Vectors: pb.NewVectorsMap(map[string]*pb.Vector{
+				DenseVectorName: pb.NewVectorDense(vector),
+			}),
 			Payload: map[string]*pb.Value{
 				"meme_id":         {Kind: &pb.Value_StringValue{StringValue: payload.MemeID}},
 				"source_type":     {Kind: &pb.Value_StringValue{StringValue: payload.SourceType}},
@@ -234,6 +284,111 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 	return nil
 }
 
+// UpsertHybrid inserts a dense vector and sparse BM25 vector in a single atomic operation.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - pointID: UUID string for the vector point.
+//   - vector: dense embedding vector values.
+//   - bm25Text: text used for server-side BM25 sparse vector generation.
+//   - payload: metadata payload stored with the vector.
+//
+// Returns:
+//   - error: non-nil if the upsert fails.
+func (r *QdrantRepository) UpsertHybrid(ctx context.Context, pointID string, vector []float32, bm25Text string, payload *MemePayload) error {
+	uid, err := uuid.Parse(pointID)
+	if err != nil {
+		return fmt.Errorf("invalid point ID: %w", err)
+	}
+
+	// Build named vectors map
+	vectorsMap := map[string]*pb.Vector{
+		DenseVectorName: pb.NewVectorDense(vector),
+	}
+
+	// Add sparse BM25 vector if text provided
+	bm25Text = strings.TrimSpace(bm25Text)
+	if bm25Text != "" {
+		doc := &pb.Document{
+			Text:  bm25Text,
+			Model: SparseVectorModel,
+		}
+		vectorsMap[SparseVectorName] = pb.NewVectorDocument(doc)
+	}
+
+	points := []*pb.PointStruct{
+		{
+			Id: &pb.PointId{
+				PointIdOptions: &pb.PointId_Uuid{
+					Uuid: uid.String(),
+				},
+			},
+			Vectors: pb.NewVectorsMap(vectorsMap),
+			Payload: map[string]*pb.Value{
+				"meme_id":         {Kind: &pb.Value_StringValue{StringValue: payload.MemeID}},
+				"source_type":     {Kind: &pb.Value_StringValue{StringValue: payload.SourceType}},
+				"category":        {Kind: &pb.Value_StringValue{StringValue: payload.Category}},
+				"is_animated":     {Kind: &pb.Value_BoolValue{BoolValue: payload.IsAnimated}},
+				"vlm_description": {Kind: &pb.Value_StringValue{StringValue: payload.VLMDescription}},
+				"ocr_text":        {Kind: &pb.Value_StringValue{StringValue: payload.OCRText}},
+				"storage_url":     {Kind: &pb.Value_StringValue{StringValue: payload.StorageURL}},
+				"tags":            tagsToValue(payload.Tags),
+			},
+		},
+	}
+
+	_, err = r.pointsClient.Upsert(ctx, &pb.UpsertPoints{
+		CollectionName: r.collectionName,
+		Points:         points,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upsert point: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateSparseVector updates the BM25 sparse vector for an existing point.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - pointID: UUID string for the vector point.
+//   - text: BM25 document text.
+//
+// Returns:
+//   - error: non-nil if the update fails.
+func (r *QdrantRepository) UpdateSparseVector(ctx context.Context, pointID string, text string) error {
+	uid, err := uuid.Parse(pointID)
+	if err != nil {
+		return fmt.Errorf("invalid point ID: %w", err)
+	}
+
+	doc := &pb.Document{
+		Text:  text,
+		Model: SparseVectorModel,
+	}
+	vectors := pb.NewVectorsMap(map[string]*pb.Vector{
+		SparseVectorName: pb.NewVectorDocument(doc),
+	})
+
+	_, err = r.pointsClient.UpdateVectors(ctx, &pb.UpdatePointVectors{
+		CollectionName: r.collectionName,
+		Points: []*pb.PointVectors{
+			{
+				Id: &pb.PointId{
+					PointIdOptions: &pb.PointId_Uuid{
+						Uuid: uid.String(),
+					},
+				},
+				Vectors: vectors,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update sparse vector: %w", err)
+	}
+
+	return nil
+}
+
 func tagsToValue(tags []string) *pb.Value {
 	values := make([]*pb.Value, len(tags))
 	for i, tag := range tags {
@@ -253,6 +408,15 @@ type SearchResult struct {
 	Payload *MemePayload
 }
 
+// HybridSearchPlan defines the prefetch limits and routing for hybrid search.
+type HybridSearchPlan struct {
+	UseDense    bool
+	UseSparse   bool
+	DenseLimit  int
+	SparseLimit int
+	RRFK        uint32
+}
+
 // Search performs a vector similarity search.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
@@ -267,6 +431,7 @@ func (r *QdrantRepository) Search(ctx context.Context, vector []float32, topK in
 	req := &pb.SearchPoints{
 		CollectionName: r.collectionName,
 		Vector:         vector,
+		VectorName:     optionalString(DenseVectorName),
 		Limit:          uint64(topK),
 		WithPayload: &pb.WithPayloadSelector{
 			SelectorOptions: &pb.WithPayloadSelector_Enable{Enable: true},
@@ -295,6 +460,90 @@ func (r *QdrantRepository) Search(ctx context.Context, vector []float32, topK in
 	return results, nil
 }
 
+// HybridSearch performs a hybrid search using dense embeddings and BM25 sparse vectors with RRF fusion.
+// Parameters:
+//   - ctx: context for cancellation and deadlines.
+//   - denseVector: dense embedding vector for semantic search.
+//   - sparseQuery: query text for BM25 sparse search.
+//   - topK: maximum number of results to return.
+//   - plan: hybrid query plan (prefetch limits and routing).
+//   - filters: optional filter criteria for the search.
+//
+// Returns:
+//   - []SearchResult: ranked search results.
+//   - error: non-nil if the search fails.
+func (r *QdrantRepository) HybridSearch(
+	ctx context.Context,
+	denseVector []float32,
+	sparseQuery string,
+	topK int,
+	plan *HybridSearchPlan,
+	filters *SearchFilters,
+) ([]SearchResult, error) {
+	if plan == nil {
+		return nil, fmt.Errorf("hybrid search plan is required")
+	}
+	if topK <= 0 {
+		topK = 20
+	}
+
+	filter := buildFilter(filters)
+	prefetch := make([]*pb.PrefetchQuery, 0, 2)
+
+	if plan.UseDense && len(denseVector) > 0 {
+		prefetch = append(prefetch, &pb.PrefetchQuery{
+			Query:  pb.NewQueryDense(denseVector),
+			Using:  optionalString(DenseVectorName),
+			Filter: filter,
+			Limit:  optionalUint64(uint64(plan.DenseLimit)),
+		})
+	}
+
+	sparseQuery = strings.TrimSpace(sparseQuery)
+	if plan.UseSparse && sparseQuery != "" {
+		doc := &pb.Document{
+			Text:  sparseQuery,
+			Model: SparseVectorModel,
+		}
+		prefetch = append(prefetch, &pb.PrefetchQuery{
+			Query:  pb.NewQueryDocument(doc),
+			Using:  optionalString(SparseVectorName),
+			Filter: filter,
+			Limit:  optionalUint64(uint64(plan.SparseLimit)),
+		})
+	}
+
+	if len(prefetch) == 0 {
+		return nil, fmt.Errorf("hybrid search requires at least one prefetch query")
+	}
+
+	query := pb.NewQueryRRF(&pb.Rrf{K: optionalUint32(plan.RRFK)})
+
+	req := &pb.QueryPoints{
+		CollectionName: r.collectionName,
+		Prefetch:       prefetch,
+		Query:          query,
+		Limit:          optionalUint64(uint64(topK)),
+		WithPayload:    pb.NewWithPayload(true),
+	}
+
+	resp, err := r.pointsClient.Query(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query: %w", err)
+	}
+
+	results := make([]SearchResult, len(resp.Result))
+	for i, scored := range resp.Result {
+		results[i] = SearchResult{
+			ID:      scored.Id.GetUuid(),
+			Score:   scored.Score,
+			Payload: parsePayload(scored.Payload),
+		}
+	}
+
+	return results, nil
+}
+
 // SearchFilters defines optional filters for search.
 type SearchFilters struct {
 	Category   *string
@@ -303,6 +552,10 @@ type SearchFilters struct {
 }
 
 func buildFilter(filters *SearchFilters) *pb.Filter {
+	if filters == nil {
+		return nil
+	}
+
 	var conditions []*pb.Condition
 
 	if filters.Category != nil && *filters.Category != "" {

@@ -593,11 +593,11 @@ uv run emomo-crawler staging clean --source fabiaoqing
 embeddings:
   - name: jina
     provider: jina
-    model: jina-embeddings-v3
+    model: jina-embeddings-v4
     api_key_env: JINA_API_KEY
-    dimensions: 1024
-    collection: emomo
-    is_default: true
+    document_mode: image
+    dimensions: 2048
+    collection: emomo_jina_v4
 
   - name: qwen3
     provider: modelscope
@@ -605,7 +605,8 @@ embeddings:
     api_key_env: MODELSCOPE_API_KEY
     base_url_env: MODELSCOPE_BASE_URL
     dimensions: 4096
-    collection: emomo-qwen3-embedding-8b
+    collection: emomo_v2
+    is_default: true
 ```
 
 ### 6.2 EmbeddingConfig 结构体
@@ -614,16 +615,17 @@ embeddings:
 // internal/config/embedding.go
 
 type EmbeddingConfig struct {
-    Name       string `mapstructure:"name"`
-    Provider   string `mapstructure:"provider"`
-    Model      string `mapstructure:"model"`
-    APIKey     string `mapstructure:"api_key"`
-    APIKeyEnv  string `mapstructure:"api_key_env"`   // 环境变量名
-    BaseURL    string `mapstructure:"base_url"`
-    BaseURLEnv string `mapstructure:"base_url_env"`
-    Dimensions int    `mapstructure:"dimensions"`
-    Collection string `mapstructure:"collection"`
-    IsDefault  bool   `mapstructure:"is_default"`
+    Name         string `mapstructure:"name"`
+    Provider     string `mapstructure:"provider"`
+    Model        string `mapstructure:"model"`
+    APIKey       string `mapstructure:"api_key"`
+    APIKeyEnv    string `mapstructure:"api_key_env"`   // 环境变量名
+    BaseURL      string `mapstructure:"base_url"`
+    BaseURLEnv   string `mapstructure:"base_url_env"`
+    DocumentMode string `mapstructure:"document_mode"` // text / image
+    Dimensions   int    `mapstructure:"dimensions"`
+    Collection   string `mapstructure:"collection"`
+    IsDefault    bool   `mapstructure:"is_default"`
 }
 
 func (c *EmbeddingConfig) ResolveEnvVars() {
@@ -1113,11 +1115,11 @@ vlm:
 embeddings:
   - name: jina
     provider: jina
-    model: jina-embeddings-v3
+    model: jina-embeddings-v4
     api_key_env: JINA_API_KEY
-    dimensions: 1024
-    collection: emomo
-    is_default: true
+    document_mode: image
+    dimensions: 2048
+    collection: emomo_jina_v4
 
   - name: qwen3
     provider: modelscope
@@ -1125,7 +1127,8 @@ embeddings:
     api_key_env: MODELSCOPE_API_KEY
     base_url_env: MODELSCOPE_BASE_URL
     dimensions: 4096
-    collection: emomo-qwen3-embedding-8b
+    collection: emomo_v2
+    is_default: true
 
 ingest:
   workers: 8
@@ -1157,7 +1160,7 @@ MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1
 STORAGE_ENDPOINT=xxx.r2.cloudflarestorage.com
 STORAGE_ACCESS_KEY=...
 STORAGE_SECRET_KEY=...
-STORAGE_PUBLIC_URL=https://cdn.example.com
+STORAGE_PUBLIC_URL=https://cdn.example.com  # Jina image mode 需要公网可访问
 
 # Qdrant
 QDRANT_HOST=localhost

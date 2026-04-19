@@ -497,14 +497,18 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 	}
 
-	// Generate embedding for the current embedding model
+	compactDesc := compactDescription(vlmDescription)
 	embeddingText := buildEmbeddingText(
 		ocrText,
-		compactDescription(vlmDescription),
+		compactDesc,
 		item.Tags,
 		extractEmotionWords(vlmDescription),
 	)
-	embedding, err := s.embedding.Embed(ctx, embeddingText)
+	bm25Text := buildBM25Text(ocrText, compactDesc, item.Tags)
+	embedding, err := s.embedding.EmbedDocument(ctx, EmbeddingDocument{
+		Text:     embeddingText,
+		ImageURL: storageURL,
+	})
 	if err != nil {
 		// Rollback: clean up description, meme record and storage if we created them
 		rollbackDescription()
@@ -528,7 +532,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		StorageURL:     storageURL,
 	}
 
-	if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
+	if err := s.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
 		// Rollback: clean up description, meme record and storage if we created them
 		rollbackDescription()
 		rollbackMeme()
@@ -862,14 +866,18 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			}
 		}
 
-		// Generate embedding
+		compactDesc := compactDescription(description)
 		embeddingText := buildEmbeddingText(
 			ocrText,
-			compactDescription(description),
+			compactDesc,
 			meme.Tags,
 			extractEmotionWords(description),
 		)
-		embedding, err := s.embedding.Embed(ctx, embeddingText)
+		bm25Text := buildBM25Text(ocrText, compactDesc, meme.Tags)
+		embedding, err := s.embedding.EmbedDocument(ctx, EmbeddingDocument{
+			Text:     embeddingText,
+			ImageURL: s.storage.GetURL(meme.StorageKey),
+		})
 		if err != nil {
 			logger.CtxWarn(ctx, "Failed to generate embedding: error=%v", err)
 			stats.FailedItems++
@@ -891,7 +899,7 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			StorageURL:     s.storage.GetURL(meme.StorageKey),
 		}
 
-		if err := s.qdrantRepo.Upsert(ctx, pointID, embedding, payload); err != nil {
+		if err := s.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
 			logger.CtxError(ctx, "Failed to upsert to Qdrant: error=%v", err)
 			stats.FailedItems++
 			continue
