@@ -1,6 +1,8 @@
-# CLAUDE.md
+# CLAUDE.md (frontend/)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working in the React frontend of the emomo monorepo. For repo-wide context see [../CLAUDE.md](../CLAUDE.md); for the Go backend see [../backend/CLAUDE.md](../backend/CLAUDE.md).
+
+All commands below assume `cd frontend`.
 
 ## Project Overview
 

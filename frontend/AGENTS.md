@@ -1,4 +1,7 @@
-# Repository Guidelines
+# Repository Guidelines (frontend/)
+
+> Frontend subproject of the emomo monorepo. Repo-wide conventions: [../AGENTS.md](../AGENTS.md). Backend conventions: [../backend/AGENTS.md](../backend/AGENTS.md).
+> All commands below assume `cd frontend`.
 
 ## Project Structure & Module Organization
 - `src/main.tsx` is the app entry; `src/App.tsx` is the root component.

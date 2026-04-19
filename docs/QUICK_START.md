@@ -1,5 +1,7 @@
 # 快速部署指南
 
+> **monorepo 提示**：本文档原本针对纯后端仓库编写。后端代码已下沉到 `backend/`，所有形如 `./scripts/...` 或 `go run ./cmd/...` 的命令请先 `cd backend` 再执行（例如 `cd backend && ./scripts/import-data.sh -s chinesebqb -l 100`）。
+
 ## 前置要求
 
 - OpenAI Compatible API Key（用于 VLM/查询扩展，支持 OpenAI, OpenRouter 等）

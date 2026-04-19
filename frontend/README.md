@@ -1,5 +1,7 @@
 # Emomo Frontend
 
+> This directory is the frontend subproject of the emomo monorepo. See the root [../README.md](../README.md) for repo-wide context. The Go backend lives in [../backend](../backend).
+
 Emomo is a meme search engine application that allows users to find memes using semantic search queries. This frontend application provides a responsive and interactive user interface for searching, browsing, and viewing memes.
 
 ## Features
@@ -20,10 +22,10 @@ Before you begin, ensure you have the following installed:
 
 ## Installation
 
-1. Clone the repository:
+1. Clone the monorepo and move into this subproject:
    ```bash
-   git clone <repository-url>
-   cd emomo-frontend-temp
+   git clone https://github.com/systemoutprintlnnnn/emomo.git
+   cd emomo/frontend
    ```
 
 2. Install dependencies:

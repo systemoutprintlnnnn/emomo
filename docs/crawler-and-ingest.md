@@ -1,5 +1,7 @@
 # 爬虫与数据导入指南
 
+> **monorepo 提示**：爬虫在仓库根的 `crawler/`，后端导入命令在 `backend/`。文档中形如 `./scripts/import-data.sh ...` 的命令请先 `cd backend` 再执行；`uv run emomo-crawler ...` 请在 `crawler/` 下执行。
+
 本文档介绍如何使用 Python 爬虫抓取表情包,并导入到 Emomo 系统。
 
 ## 整体流程

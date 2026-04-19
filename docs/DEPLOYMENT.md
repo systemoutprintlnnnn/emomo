@@ -1,5 +1,7 @@
 # Emomo 免费资源部署指南
 
+> **monorepo 提示**：本文档原本针对纯后端仓库编写。后端代码已下沉到 `backend/`，所有形如 `./scripts/...` 或 `go run ./cmd/...` 的命令请先 `cd backend` 再执行。Render / Railway / Hugging Face 部署元数据已在仓库根更新（见根 [README.md](../README.md) 的"部署"章节）。
+
 本文档介绍如何使用免费资源完整部署 Emomo 项目。
 
 ## 架构概览

@@ -1,5 +1,8 @@
 # EMOMO Frontend
 
+> Frontend subproject of the emomo monorepo. Repo-wide context: [../GEMINI.md](../GEMINI.md). Backend context: [../backend/GEMINI.md](../backend/GEMINI.md).
+> All commands below assume `cd frontend`.
+
 ## Project Overview
 `emomo-frontend` is a React-based web application designed for searching, viewing, and discovering memes. It serves as the frontend for the Emomo platform, interacting with a backend API to fetch meme data based on semantic search queries (likely powered by VLM descriptions).
 

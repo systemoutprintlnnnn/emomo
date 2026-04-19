@@ -1,5 +1,7 @@
 # Hugging Face Spaces 部署指南
 
+> **monorepo 提示**：HF Space 通过 GitHub Actions 同步的是 `backend/` 子树（见仓库根 `.github/workflows/sync_to_hf.yml`），所以 Space 文件系统的根 = 当前仓库的 `backend/`。本文中提到的 `Dockerfile`、`configs/`、`scripts/` 等路径在 Space 内仍然在根目录有效。
+
 ## 问题说明
 
 Hugging Face Spaces 只运行单个 Docker 容器，**不包含 Qdrant 和对象存储服务**。因此需要配置外部服务。

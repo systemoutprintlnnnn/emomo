@@ -1,245 +1,81 @@
----
-title: Emomo
-emoji: 🔥
-colorFrom: green
-colorTo: indigo
-sdk: docker
-pinned: true
-license: mit
----
+# Emomo
 
----
+> AI 表情包语义搜索系统 — 多语言 monorepo
 
-# Emomo - AI 表情包语义搜索
+Emomo 让你用自然语言搜表情包。系统由三块组成：Go 后端（搜索 + 摄入）、React 前端（用户界面）、Python 爬虫（数据采集）。本仓库是把它们集中管理的 monorepo。
 
-Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，支持多数据源采集、自动描述生成与向量检索。
+## 仓库结构
 
-## 功能概览
-
-- 语义搜索：输入文字描述即可检索相似表情包。
-- 多源摄入：支持本地仓库、Python 爬虫、分批摄入。
-- 向量管理：支持多 Embedding 模型/多集合管理。
-- 存储抽象：兼容 Cloudflare R2、AWS S3 与其他 S3 兼容服务。
-- 可扩展：查询扩展、VLM 描述与多模型配置均可开关。
-
-## 技术栈
-
-- **后端**: Go + Gin + GORM
-- **向量数据库**: Qdrant (gRPC)
-- **元数据存储**: SQLite (本地) / PostgreSQL (生产)
-- **对象存储**: S3 兼容存储（Cloudflare R2、AWS S3 等）
-- **VLM**: OpenAI-compatible API (图片描述生成)
-- **Text Embedding**: Jina Embeddings / OpenAI-compatible Embeddings
-
-## 环境要求
-
-- Go 1.24.6（见 `go.mod`）
-- Python >= 3.10（用于 crawler）
-- uv（crawler 依赖管理）
-- Docker（可选，用于本地 Qdrant/MinIO 或日志采集）
-
-## 快速开始（本地开发）
-
-### 1) 准备环境变量
-
-```bash
-cp .env.example .env
-# 编辑 .env 填入 API Keys 和服务地址
+```
+emomo/
+├── backend/      # Go + Gin + Qdrant + GORM，REST API + 摄入流水线
+├── frontend/     # React 19 + Vite + Framer Motion，单页应用
+├── crawler/      # Python (uv)，requests + BeautifulSoup
+├── deployments/  # 跨服务的 Docker Compose 编排（API + Grafana Alloy）
+├── docs/         # 跨服务设计与使用文档
+├── scripts/
+│   └── start.sh  # 本机一键起后端 + 前端
+├── render.yaml   # Render 部署配置（rootDir: backend）
+└── railway.json  # Railway 部署配置（dockerfilePath: backend/Dockerfile）
 ```
 
-### 2) 准备依赖服务
+每个子项目都有自己的 `README.md` / `AGENTS.md` / `CLAUDE.md` / `GEMINI.md`，说明该子项目的本地开发与约定：
 
-本项目不会自动启动 Qdrant 或对象存储，你可以选择云服务或本地服务。
+- 后端：[backend/README.md](backend/README.md)
+- 前端：[frontend/README.md](frontend/README.md)
+- 爬虫：[crawler/README.md](crawler/README.md)
 
-**推荐：云服务（Qdrant Cloud + Cloudflare R2）**
+## 快速上手
+
+### 一键起前后端
 
 ```bash
-# Qdrant Cloud (gRPC)
-QDRANT_HOST=your-cluster.qdrant.io
-QDRANT_PORT=6334
-QDRANT_API_KEY=your-qdrant-api-key
-QDRANT_USE_TLS=true
-
-# Cloudflare R2
-STORAGE_TYPE=r2
-STORAGE_ENDPOINT=your-account-id.r2.cloudflarestorage.com
-STORAGE_ACCESS_KEY=your-r2-access-key
-STORAGE_SECRET_KEY=your-r2-secret-key
-STORAGE_BUCKET=memes
-STORAGE_REGION=auto
-STORAGE_USE_SSL=true
-STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev
+./scripts/start.sh
 ```
 
-**本地体验：Qdrant + MinIO（S3 兼容）**
+脚本会先启 backend（`go run ./cmd/api`，端口 8080），再启 frontend（`npm run dev`，端口 5173）。需要先在 [backend/.env](backend/.env.example) 填好 API keys（Qdrant、对象存储、VLM、embedding 等）。
+
+### 单独运行某一块
 
 ```bash
-# Qdrant
-docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:latest
+# 后端
+cd backend
+cp .env.example .env   # 首次：填好 API keys
+go run ./cmd/api
 
-# 本地 Qdrant 配置
-QDRANT_HOST=localhost
-QDRANT_PORT=6334
-QDRANT_USE_TLS=false
+# 前端
+cd frontend
+cp .env.example .env   # 首次：默认指向 http://localhost:8080/api/v1
+npm install
+npm run dev
 
-# MinIO
-docker run -d --name minio -p 9000:9000 -p 9001:9001 \
-  -e MINIO_ROOT_USER=accesskey -e MINIO_ROOT_PASSWORD=secretkey \
-  quay.io/minio/minio server /data --console-address ":9001"
-
-# 本地存储配置
-STORAGE_TYPE=s3compatible
-STORAGE_ENDPOINT=localhost:9000
-STORAGE_ACCESS_KEY=accesskey
-STORAGE_SECRET_KEY=secretkey
-STORAGE_BUCKET=memes
-STORAGE_USE_SSL=false
-```
-
-**可选：使用 Docker Compose 启动 API + 日志采集（Grafana Alloy）**
-
-```bash
-docker-compose -f deployments/docker-compose.yml up -d
-```
-
-### 3) 准备数据源
-
-**方式 A：使用 ChineseBQB 本地仓库**
-
-```bash
-git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
-```
-
-**方式 B：使用 Python 爬虫（写入 data/staging）**
-
-```bash
+# 爬虫（采集到 backend/data/staging/）
 cd crawler
 uv sync
 uv run emomo-crawler crawl --source fabiaoqing --limit 100
 ```
 
-### 4) 摄入数据
+## 技术栈速览
 
-```bash
-# 使用导入脚本（推荐，无需预先编译）
-./scripts/import-data.sh -s chinesebqb -l 100
+| 子项目 | 关键技术 |
+|--------|---------|
+| backend | Go 1.24, Gin, GORM, Qdrant (gRPC), S3/R2, OpenAI-compatible VLM, Jina/ModelScope embeddings, Grafana Alloy + Loki |
+| frontend | React 19, TypeScript, Vite 7, Framer Motion, Playwright e2e |
+| crawler | Python 3.12, uv, requests, BeautifulSoup |
 
-# 摄入 crawler staging 数据
-./scripts/import-data.sh -s staging:fabiaoqing -l 50
+## 部署
 
-# 或使用 go run 直接运行
-go run ./cmd/ingest --source=chinesebqb --limit=100
-```
+- **Docker Compose（本机）**：`docker compose -f deployments/docker-compose.yml up -d`，会起 API 容器 + Grafana Alloy 日志采集（Qdrant 与对象存储需自备）。
+- **Render**：根的 [render.yaml](render.yaml) 把后端服务的 rootDir 设为 `backend/`。
+- **Railway**：根的 [railway.json](railway.json) 指向 `backend/Dockerfile`。
+- **Hugging Face Space**：[`.github/workflows/sync_to_hf.yml`](.github/workflows/sync_to_hf.yml) 在每次 push 到 main 时把 `backend/` 子树拆出来 force-push 到 Space 的 `main` 分支，所以 Space 看到的根就是 `backend/`。
 
-### 5) 启动 API 服务
+## 贡献约定
 
-```bash
-# 直接运行
-go run ./cmd/api
-
-# 或构建二进制
-go build -o api ./cmd/api
-./api
-```
-
-服务默认运行在 `http://localhost:8080`，健康检查 `http://localhost:8080/health`。
-
-## API 示例
-
-### 文本搜索
-
-```bash
-curl -X POST http://localhost:8080/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "无语", "top_k": 20}'
-```
-
-### 获取分类列表
-
-```bash
-curl http://localhost:8080/api/v1/categories
-```
-
-### 获取表情包列表
-
-```bash
-curl "http://localhost:8080/api/v1/memes?category=猫猫表情&limit=20"
-```
-
-### 获取单个表情包
-
-```bash
-curl http://localhost:8080/api/v1/memes/{id}
-```
-
-### 获取统计信息
-
-```bash
-curl http://localhost:8080/api/v1/stats
-```
-
-## 配置说明
-
-- 默认配置文件：`configs/config.yaml`
-- 可通过 `CONFIG_PATH` 指定配置文件路径（默认 `configs/config.yaml`）
-- `.env` 用于注入 API keys 与运行时环境变量
-
-常用环境变量：
-
-| 配置项 | 环境变量 | 说明 |
-|--------|----------|------|
-| vlm.api_key | OPENAI_API_KEY | OpenAI-compatible API Key |
-| vlm.base_url | OPENAI_BASE_URL | OpenAI-compatible Base URL |
-| embedding.api_key | EMBEDDING_API_KEY | Embedding API Key |
-| storage.type | STORAGE_TYPE | 存储类型：r2, s3, s3compatible |
-| storage.endpoint | STORAGE_ENDPOINT | 存储端点（不含 bucket） |
-| storage.bucket | STORAGE_BUCKET | 存储桶名称 |
-| storage.region | STORAGE_REGION | 存储区域（R2 使用 `auto`） |
-| storage.use_ssl | STORAGE_USE_SSL | 是否使用 HTTPS |
-| storage.public_url | STORAGE_PUBLIC_URL | 公开访问 URL（R2 推荐） |
-| qdrant.host | QDRANT_HOST | Qdrant 地址 |
-| qdrant.port | QDRANT_PORT | Qdrant gRPC 端口（默认 6334） |
-| qdrant.api_key | QDRANT_API_KEY | Qdrant Cloud API Key |
-| qdrant.use_tls | QDRANT_USE_TLS | Qdrant TLS（Cloud 建议 true） |
-
-## 开发与测试
-
-```bash
-# 运行 Go 测试
-go test ./...
-
-# 启动 API（热更新自行使用 air/其他工具）
-go run ./cmd/api
-```
-
-## 项目结构
-
-```
-emomo/
-├── cmd/                 # Go 入口（api/ingest）
-├── crawler/             # Python 爬虫（uv 管理）
-├── internal/            # Go 应用核心逻辑
-│   ├── api/             # API 层
-│   ├── config/          # 配置管理
-│   ├── domain/          # 领域模型
-│   ├── repository/      # 数据访问层
-│   ├── service/         # 业务逻辑层
-│   ├── source/          # 数据源适配器
-│   └── storage/         # 对象存储
-├── configs/             # 配置文件
-├── deployments/         # 部署配置
-├── data/                # 本地数据目录
-├── docs/                # 设计与使用文档
-└── scripts/             # 辅助脚本
-```
-
-## 更多文档
-
-- `docs/QUICK_START.md`
-- `docs/DEPLOYMENT.md`
-- `docs/MULTI_EMBEDDING.md`
-- `docs/DATABASE_SCHEMA.md`
+- 提交信息使用 Conventional Commits（`feat:`、`fix:`、`chore:` 等）；跨子项目的改动在正文里按目录分点说明。
+- AI agents 协作约定见各子项目的 [AGENTS.md](backend/AGENTS.md) / [frontend/AGENTS.md](frontend/AGENTS.md) 与本仓库根的 [AGENTS.md](AGENTS.md)。
+- 不提交 secrets，使用各子项目下的 `.env` 与 `.env.example`。
 
 ## License
 
-MIT
+[MIT](LICENSE)
