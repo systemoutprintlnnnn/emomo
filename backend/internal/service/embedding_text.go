@@ -98,6 +98,23 @@ func buildBM25Text(ocrText, description string, tags []string) string {
 	return strings.Join(segments, "\n")
 }
 
+// BuildBM25Text exposes the BM25 sparse-vector text builder used by ingest, so
+// out-of-package tools (e.g. cmd/reembed) can reproduce identical sparse input
+// when re-creating Qdrant points from existing PG records.
+func BuildBM25Text(ocrText, description string, tags []string) string {
+	return buildBM25Text(ocrText, description, tags)
+}
+
+// CompactDescription exposes the description-truncation helper used by ingest.
+func CompactDescription(text string) string {
+	return compactDescription(text)
+}
+
+// NormalizeOCRText exposes the OCR-text normalizer used by ingest.
+func NormalizeOCRText(text string) string {
+	return normalizeOCRText(text)
+}
+
 func dedupeStrings(items []string) []string {
 	seen := make(map[string]struct{}, len(items))
 	result := make([]string, 0, len(items))

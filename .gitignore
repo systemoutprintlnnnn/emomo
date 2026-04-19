@@ -74,3 +74,9 @@ backend/scripts/clear-qdrant.sh
 emoji_images/
 
 .env.backup
+backend/r2list
+backend/reembed
+backend/.wrangler
+
+# Agent / local tooling
+.claude/

@@ -47,6 +47,7 @@ embeddings:
     document_mode: image
     dimensions: 2048
     collection: emomo_jina_v4
+    is_default: true
 
   - name: qwen3
     provider: modelscope
@@ -55,7 +56,6 @@ embeddings:
     base_url_env: MODELSCOPE_BASE_URL
     dimensions: 4096
     collection: emomo_v2
-    is_default: true
 
 ingest:
   workers: 5
