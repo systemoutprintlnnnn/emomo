@@ -74,4 +74,3 @@ backend/scripts/clear-qdrant.sh
 emoji_images/
 
 .env.backup
-.mcp.json
