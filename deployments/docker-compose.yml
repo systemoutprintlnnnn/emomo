@@ -7,17 +7,17 @@ services:
   # API 服务
   api:
     build:
-      context: ..
+      context: ../backend
       dockerfile: Dockerfile
     container_name: emomo-api
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
       # Mount data directory (must contain ChineseBQB subdirectory)
-      # On host: <project-root>/data/ChineseBQB should exist with image files
+      # On host: <project-root>/backend/data/ChineseBQB should exist with image files
       # In container: /root/data/ChineseBQB will be accessible
-      - ../data:/root/data
-      - ../configs:/root/configs
+      - ../backend/data:/root/data
+      - ../backend/configs:/root/configs
     environment:
       # API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY}

@@ -2,13 +2,16 @@ name: Sync to Hugging Face hub
 on:
   push:
     branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/sync_to_hf.yml'
   workflow_dispatch:
 
 jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           lfs: true
@@ -16,19 +19,19 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Sync to Hugging Face
+      - name: Split backend/ subtree
+        # Reduce the monorepo to just the contents of backend/, so the HF Space
+        # sees a flat Go project layout (Dockerfile / configs / scripts at root)
+        # exactly like before the monorepo migration.
+        run: |
+          git subtree split --prefix=backend -b hf-backend
+      - name: Push backend subtree to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           HF_REPO="https://TINGJUNN:$HF_TOKEN@huggingface.co/spaces/TINGJUNN/emomo"
-          # 添加远程仓库
-          git remote add hf $HF_REPO || git remote set-url hf $HF_REPO
-          # 获取远程更改
-          git fetch hf main || echo "No remote branch found, will create new"
-          # 尝试合并远程更改（如果存在）
-          if git ls-remote --heads $HF_REPO main | grep -q main; then
-            git merge hf/main --allow-unrelated-histories -X theirs -m "Merge from Hugging Face" || true
-          fi
-          # 推送到 Hugging Face
-          git push $HF_REPO main --force-with-lease || git push $HF_REPO main --force
-
+          # Force-push the split subtree as the HF Space's main branch.
+          # We force-push because the subtree split history is disjoint from
+          # whatever the Space might already have; the Space is a deployment
+          # mirror, not a development fork.
+          git push "$HF_REPO" hf-backend:main --force

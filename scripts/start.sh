@@ -15,7 +15,8 @@ NC='\033[0m' # No Color
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FRONTEND_DIR="$PROJECT_ROOT/../emomo-frontend"
+BACKEND_DIR="$PROJECT_ROOT/backend"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
 
 # PID 文件
 BACKEND_PID_FILE="/tmp/emomo-backend.pid"
@@ -96,17 +97,17 @@ check_frontend() {
 # 启动后端服务
 start_backend() {
     echo -e "\n${BLUE}启动后端服务...${NC}"
-    cd "$PROJECT_ROOT"
+    cd "$BACKEND_DIR"
     
     # 检查配置文件
-    if [ ! -f "$PROJECT_ROOT/configs/config.yaml" ]; then
-        echo -e "${RED}错误: 未找到配置文件 configs/config.yaml${NC}"
+    if [ ! -f "$BACKEND_DIR/configs/config.yaml" ]; then
+        echo -e "${RED}错误: 未找到配置文件 backend/configs/config.yaml${NC}"
         exit 1
     fi
     
     # 启动后端（后台运行）
     echo -e "${GREEN}后端服务启动中... (端口: 8080)${NC}"
-    go run cmd/api/main.go > /tmp/emomo-backend.log 2>&1 &
+    go run ./cmd/api > /tmp/emomo-backend.log 2>&1 &
     BACKEND_PID=$!
     echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
     

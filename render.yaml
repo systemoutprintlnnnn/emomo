@@ -2,6 +2,7 @@ services:
   - type: web
     name: emomo-api
     env: go
+    rootDir: backend
     buildCommand: go build -o api ./cmd/api
     startCommand: ./api
     envVars:

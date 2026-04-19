@@ -20,6 +20,13 @@ dist/
 /backend/vendor/
 node_modules/
 
+# Frontend (Vite + Playwright) — see frontend/.gitignore for local-scope rules
+/frontend/dist/
+/frontend/dist-ssr/
+/frontend/playwright-report/
+/frontend/test-results/
+/frontend/playwright/.cache/
+
 # IDE
 .idea/
 .vscode/
