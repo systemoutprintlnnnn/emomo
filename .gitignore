@@ -4,9 +4,9 @@
 *.dll
 *.so
 *.dylib
-/emomo
-/api
-/ingest
+/backend/emomo
+/backend/api
+/backend/ingest
 bin/
 dist/
 
@@ -17,7 +17,7 @@ dist/
 *.out
 
 # Dependency directories
-/vendor/
+/backend/vendor/
 node_modules/
 
 # IDE
@@ -31,11 +31,13 @@ node_modules/
 .env
 *.env
 !.env.example
-configs/*.env
-!configs/*.env.example
+backend/configs/*.env
+!backend/configs/*.env.example
 
 # Local data
 /data/
+/backend/data/*
+!/backend/data/.gitkeep
 *.db
 *.sqlite
 
@@ -61,7 +63,7 @@ logs/
 
 # Misc
 .mcp.json
-scripts/clear-qdrant.sh
+backend/scripts/clear-qdrant.sh
 emoji_images/
 
 .env.backup
