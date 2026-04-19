@@ -118,7 +118,7 @@ func (a *Adapter) loadItems() error {
 	if _, err := os.Stat(a.repoPath); os.IsNotExist(err) {
 		return fmt.Errorf("ChineseBQB repository path does not exist: %s. "+
 			"Please ensure the directory is mounted correctly in Docker. "+
-			"In docker-compose.yml, ensure '../data:/root/data' volume mount includes the ChineseBQB subdirectory",
+			"In deployments/docker-compose.yml, ensure '../backend/data:/root/data' volume mount includes the ChineseBQB subdirectory",
 			a.repoPath)
 	}
 
