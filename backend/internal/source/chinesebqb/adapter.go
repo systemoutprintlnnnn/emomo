@@ -29,6 +29,7 @@ type Adapter struct {
 // NewAdapter creates a new ChineseBQB adapter.
 // Parameters:
 //   - repoPath: filesystem path to the ChineseBQB repository.
+//
 // Returns:
 //   - *Adapter: initialized adapter instance.
 func NewAdapter(repoPath string) *Adapter {
@@ -66,6 +67,7 @@ func (a *Adapter) SupportsIncremental() bool {
 //   - ctx: context for cancellation and deadlines (unused for local reads).
 //   - cursor: pagination cursor as an index string.
 //   - limit: maximum number of items to fetch.
+//
 // Returns:
 //   - []source.MemeItem: batch of meme items.
 //   - string: next cursor or empty if no more items.
