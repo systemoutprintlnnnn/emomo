@@ -72,6 +72,12 @@ export default function MemeGrid({
   searchQuery,
   title,
 }: MemeGridProps) {
+  const scoredMemes = memes.filter((meme) => typeof meme.score === 'number');
+  const topScore = scoredMemes.length > 0
+    ? Math.max(...scoredMemes.map((meme) => meme.score ?? 0))
+    : null;
+  const hasLowConfidence = !!searchQuery && topScore !== null && topScore < 0.15;
+
   // Show loading skeletons
   if (isLoading) {
     return (
@@ -125,28 +131,28 @@ export default function MemeGrid({
 
   return (
     <section className={styles.container}>
-      {/* Section title (for recommended section) */}
-      {title && (
-        <motion.h2
-          className={styles.sectionTitle}
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          {title}
-        </motion.h2>
-      )}
+      <motion.header
+        className={styles.resultsHeader}
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        {title && (
+          <h2 className={styles.sectionTitle}>{title}</h2>
+        )}
 
-      {/* Results count */}
-      {searchQuery && (
-        <motion.div
-          className={styles.resultsInfo}
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <span className={styles.resultsQuery}>「{searchQuery}」</span>
-          <span className={styles.resultsCount}>找到 {memes.length} 个表情包</span>
-        </motion.div>
-      )}
+        {searchQuery && (
+          <div className={styles.resultsInfo}>
+            <span className={styles.resultsQuery}>「{searchQuery}」</span>
+            <span className={styles.resultsCount}>找到 {memes.length} 个表情包</span>
+          </div>
+        )}
+
+        {hasLowConfidence && (
+          <p className={styles.qualityNotice}>
+            匹配度偏低，当前结果更像相近情绪或相近语境。
+          </p>
+        )}
+      </motion.header>
 
       {/* Grid */}
       <motion.div

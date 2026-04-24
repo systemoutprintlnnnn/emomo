@@ -80,3 +80,6 @@ backend/.wrangler
 
 # Agent / local tooling
 .claude/
+.agents/
+.wrangler/
+skills-lock.json

@@ -155,3 +155,17 @@ export interface MemesListResponse {
   /** The offset used for pagination. */
   offset: number;
 }
+
+/**
+ * Represents aggregate system stats returned by the backend.
+ */
+export interface StatsResponse {
+  /** Number of active memes available for search and browsing. */
+  total_active: number;
+  /** Number of memes still pending ingestion. */
+  total_pending: number;
+  /** Number of categories currently available. */
+  total_categories: number;
+  /** Names of search collections exposed by the backend. */
+  available_collections?: string[];
+}

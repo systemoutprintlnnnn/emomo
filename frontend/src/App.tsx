@@ -2,7 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Header, SearchHero, MemeGrid, MemeModal } from './components';
 import SearchProgress from './components/SearchProgress';
-import { searchMemesStream, getMemes, type SearchStage, type SearchProgressEvent } from './api';
+import {
+  searchMemesStream,
+  getMemes,
+  getStats,
+  type SearchStage,
+  type SearchProgressEvent,
+} from './api';
 import { curatedMemes } from './data/curatedMemes';
 import type { Meme } from './types';
 import './App.css';
@@ -20,7 +26,9 @@ function App() {
   const [memes, setMemes] = useState<Meme[]>([]);
   const [recommendedMemes, setRecommendedMemes] = useState<Meme[]>(curatedMemes);
   const [isLoading, setIsLoading] = useState(false);
+  const [inputQuery, setInputQuery] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [memeCount, setMemeCount] = useState(5791);
   const [selectedMeme, setSelectedMeme] = useState<Meme | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchState, setSearchState] = useState<SearchState | null>(null);
@@ -42,7 +50,20 @@ function App() {
         console.error('Failed to load recommended memes:', error);
       }
     };
+
+    const loadStats = async () => {
+      try {
+        const stats = await getStats();
+        if (stats.total_active > 0) {
+          setMemeCount(stats.total_active);
+        }
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      }
+    };
+
     loadRecommendedMemes();
+    loadStats();
   }, []);
 
   // Handle cancel search
@@ -65,6 +86,7 @@ function App() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
+    setInputQuery(query);
     setSearchQuery(query);
     setIsLoading(true);
     setHasSearched(true);
@@ -86,6 +108,10 @@ function App() {
         query,
         20,
         (event: SearchProgressEvent) => {
+          if (abortController.signal.aborted) {
+            return;
+          }
+
           // Update search state based on event
           if (event.stage === 'thinking') {
             // Accumulate thinking text for typewriter effect
@@ -156,8 +182,8 @@ function App() {
     } finally {
       if (abortControllerRef.current === abortController) {
         abortControllerRef.current = null;
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
   }, []);
 
@@ -169,6 +195,7 @@ function App() {
       abortControllerRef.current = null;
     }
     setMemes([]);
+    setInputQuery('');
     setSearchQuery('');
     setHasSearched(false);
     setSelectedMeme(null);
@@ -188,12 +215,15 @@ function App() {
 
   return (
     <div className="app">
-      <Header onLogoClick={handleLogoClick} />
+      <Header memeCount={memeCount} onLogoClick={handleLogoClick} />
 
       <main className="main">
         <SearchHero
+          value={inputQuery}
+          onValueChange={setInputQuery}
           onSearch={handleSearch}
           isLoading={isLoading}
+          compact={hasSearched}
         />
 
         {/* Search Progress */}

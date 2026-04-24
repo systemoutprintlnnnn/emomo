@@ -4,7 +4,16 @@
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
-  padding: var(--space-lg) var(--space-lg) var(--space-3xl);
+  padding: var(--space-md) var(--space-lg) var(--space-3xl);
+}
+
+.resultsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
 }
 
 /* Section title (for recommended section) */
@@ -13,7 +22,7 @@
   font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--space-lg);
+  margin-bottom: 0;
 }
 
 /* Results info */
@@ -21,7 +30,6 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin-bottom: var(--space-xl);
   flex-wrap: wrap;
 }
 
@@ -34,6 +42,17 @@
 .resultsCount {
   font-size: var(--text-base);
   color: var(--text-secondary);
+}
+
+.qualityNotice {
+  width: 100%;
+  margin: calc(-1 * var(--space-xs)) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid rgba(245, 176, 65, 0.28);
+  border-radius: var(--radius-md);
+  background: rgba(255, 234, 167, 0.34);
+  color: #7a5b13;
+  font-size: var(--text-sm);
 }
 
 /* Grid - CSS Columns for Masonry effect */
@@ -160,6 +179,10 @@
     flex-direction: column;
     align-items: flex-start;
     gap: var(--space-xs);
+  }
+
+  .resultsHeader {
+    align-items: flex-start;
   }
 }
 

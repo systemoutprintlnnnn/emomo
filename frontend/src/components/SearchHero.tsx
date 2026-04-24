@@ -6,6 +6,10 @@ import styles from './SearchHero.module.css';
  * Props for the SearchHero component.
  */
 interface SearchHeroProps {
+  /** Current search box value. */
+  value: string;
+  /** Callback triggered when the search box value changes. */
+  onValueChange: (value: string) => void;
   /**
    * Callback function triggered when a search is performed.
    * @param query - The search query string.
@@ -17,6 +21,11 @@ interface SearchHeroProps {
    * @default false
    */
   isLoading?: boolean;
+  /**
+   * Uses a denser layout after a search has been performed.
+   * @default false
+   */
+  compact?: boolean;
   /**
    * A list of suggested tags to display below the search bar.
    * @default ['开心', '无语', '狗头', '猫咪', '熊猫头', '沙雕']
@@ -43,18 +52,20 @@ const placeholders = [
  * @returns The rendered SearchHero component.
  */
 export default function SearchHero({
+  value,
+  onValueChange,
   onSearch,
   isLoading = false,
+  compact = false,
   suggestedTags = ['开心', '无语', '狗头', '猫咪', '熊猫头', '沙雕']
 }: SearchHeroProps) {
-  const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Rotate placeholders
   useEffect(() => {
-    if (!isFocused && !query) {
+    if (!isFocused && !value) {
       const timer = setInterval(() => {
         setPlaceholderIndex((prev) => (prev + 1) % placeholders.length);
       }, 3000);
@@ -62,22 +73,22 @@ export default function SearchHero({
     }
     // Explicitly return undefined when condition is false
     return undefined;
-  }, [isFocused, query]);
+  }, [isFocused, value]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) {
-      onSearch(query.trim());
+    if (value.trim()) {
+      onSearch(value.trim());
     }
   };
 
   const handleTagClick = (tag: string) => {
-    setQuery(tag);
+    onValueChange(tag);
     onSearch(tag); // 自动触发搜索
   };
 
   return (
-    <section className={styles.hero}>
+    <section className={`${styles.hero} ${compact ? styles.compact : ''}`}>
       {/* Decorative elements */}
       <div className={styles.decorations}>
         <motion.div
@@ -176,22 +187,24 @@ export default function SearchHero({
             <input
               ref={inputRef}
               type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={value}
+              onChange={(e) => onValueChange(e.target.value)}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               placeholder={placeholders[placeholderIndex]}
               className={styles.input}
               disabled={isLoading}
+              aria-label="搜索表情包"
             />
 
             {/* Clear button */}
             <AnimatePresence>
-              {query && (
+              {value && (
                 <motion.button
                   type="button"
                   className={styles.clearBtn}
-                  onClick={() => setQuery('')}
+                  onClick={() => onValueChange('')}
+                  aria-label="清空搜索"
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
@@ -209,7 +222,7 @@ export default function SearchHero({
             <motion.button
               type="submit"
               className={styles.submitBtn}
-              disabled={!query.trim() || isLoading}
+              disabled={!value.trim() || isLoading}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -231,8 +244,9 @@ export default function SearchHero({
               <motion.button
                 key={tag}
                 type="button"
-                className={styles.tag}
+                className={`${styles.tag} ${value === tag ? styles.tagActive : ''}`}
                 onClick={() => handleTagClick(tag)}
+                aria-pressed={value === tag}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.8 + index * 0.05 }}

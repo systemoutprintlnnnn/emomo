@@ -21,6 +21,22 @@ interface MemeCardProps {
   onClick?: (meme: Meme) => void;
 }
 
+function formatCategory(category: string | undefined): string | null {
+  if (!category) return null;
+
+  let parsed = category.replace(/^\d+/, '').replace(/BQB$/i, '');
+
+  if (parsed.includes('_')) {
+    const parts = parsed.split('_');
+    const chinesePart = parts.find((part) => /[\u4e00-\u9fa5]/.test(part));
+    parsed = chinesePart || parts.filter((part) => part.trim()).pop() || parsed;
+  }
+
+  parsed = parsed.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '').trim();
+
+  return parsed.length >= 2 ? parsed : null;
+}
+
 /**
  * A component that displays a single meme card with an image, hover effects, and quick actions.
  *
@@ -34,6 +50,8 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const description = meme.vlm_description || meme.description || '';
+  const categoryLabel = formatCategory(meme.category);
 
   const handleClick = () => {
     onClick?.(meme);
@@ -45,10 +63,19 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
   };
 
   // Format score as percentage
-  const scorePercent = meme.score ? Math.round(meme.score * 100) : null;
+  const scorePercent = typeof meme.score === 'number' && meme.score > 0
+    ? Math.round(meme.score * 100)
+    : null;
+  const scoreTone = scorePercent === null
+    ? ''
+    : scorePercent < 15
+      ? styles.scoreLow
+      : scorePercent < 45
+        ? styles.scoreMedium
+        : styles.scoreHigh;
 
   return (
-    <motion.div
+    <motion.article
       className={styles.card}
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -60,41 +87,47 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
       whileHover={{ y: -4 }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={handleClick}
       layout
     >
       {/* Image container */}
       <div className={styles.imageWrapper}>
-        {/* Loading skeleton */}
-        {!isLoaded && !imageError && <div className={`${styles.skeleton} skeleton`} />}
+        <button
+          type="button"
+          className={styles.openButton}
+          onClick={handleClick}
+          aria-label={description ? `查看表情详情：${description}` : '查看表情详情'}
+        >
+          {/* Loading skeleton */}
+          {!isLoaded && !imageError && <div className={`${styles.skeleton} skeleton`} />}
 
-        {/* Error placeholder */}
-        {imageError && (
-          <div className={styles.imageError}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-          </div>
-        )}
+          {/* Error placeholder */}
+          {imageError && (
+            <div className={styles.imageError}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+          )}
 
-        {/* Meme image */}
-        {!imageError && (
-          <motion.img
-            src={meme.url || meme.original_url}
-            alt={meme.vlm_description || 'Meme'}
-            className={styles.image}
-            loading="lazy"
-            onLoad={() => setIsLoaded(true)}
-            onError={handleImageError}
-            animate={{
-              scale: isHovered ? 1.05 : 1,
-              opacity: isLoaded ? 1 : 0,
-            }}
-            transition={{ duration: 0.3 }}
-          />
-        )}
+          {/* Meme image */}
+          {!imageError && (
+            <motion.img
+              src={meme.url || meme.original_url}
+              alt={description || 'Meme'}
+              className={styles.image}
+              loading="lazy"
+              onLoad={() => setIsLoaded(true)}
+              onError={handleImageError}
+              animate={{
+                scale: isHovered ? 1.05 : 1,
+                opacity: isLoaded ? 1 : 0,
+              }}
+              transition={{ duration: 0.3 }}
+            />
+          )}
+        </button>
 
         {/* Hover overlay */}
         <motion.div
@@ -117,6 +150,7 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
                     navigator.clipboard.writeText(meme.url);
                   }
                 }}
+                aria-label="复制表情链接"
                 title="复制链接"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -138,6 +172,7 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
                     a.click();
                   }
                 }}
+                aria-label="下载表情"
                 title="下载"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -149,10 +184,10 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
             </div>
 
             {/* Description preview */}
-            {meme.vlm_description && (
+            {description && (
               <p className={styles.description}>
-                {meme.vlm_description.slice(0, 60)}
-                {meme.vlm_description.length > 60 ? '...' : ''}
+                {description.slice(0, 60)}
+                {description.length > 60 ? '...' : ''}
               </p>
             )}
           </div>
@@ -166,7 +201,7 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
         {/* Score badge */}
         {scorePercent !== null && (
           <motion.div
-            className={styles.scoreBadge}
+            className={`${styles.scoreBadge} ${scoreTone}`}
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: index * 0.05 + 0.2, type: 'spring' }}
@@ -175,6 +210,21 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
           </motion.div>
         )}
       </div>
-    </motion.div>
+      {(description || categoryLabel) && (
+        <button
+          type="button"
+          className={styles.cardBody}
+          onClick={handleClick}
+          aria-label={description ? `查看表情详情：${description}` : '查看表情详情'}
+        >
+          {description && (
+            <p className={styles.cardDescription}>{description}</p>
+          )}
+          {categoryLabel && (
+            <span className={styles.categoryChip}>{categoryLabel}</span>
+          )}
+        </button>
+      )}
+    </motion.article>
   );
 }

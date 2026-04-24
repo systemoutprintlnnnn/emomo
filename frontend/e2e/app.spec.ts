@@ -31,7 +31,7 @@ test.describe('Emomo 表情包搜索应用', () => {
     await searchInput.fill('猫咪');
 
     // 点击搜索按钮
-    await page.getByRole('button', { name: '搜索' }).click();
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
 
     // 等待加载完成（检查没有 loading 状态）
     await expect(searchInput).not.toBeDisabled({ timeout: 10000 });
@@ -57,6 +57,7 @@ test.describe('Emomo 表情包搜索应用', () => {
 
     // 检查清除按钮出现
     const clearButton = page.locator('button[type="button"]').filter({ has: page.locator('svg') }).first();
+    await expect(clearButton).toBeVisible();
 
     // 清除内容
     await searchInput.clear();
