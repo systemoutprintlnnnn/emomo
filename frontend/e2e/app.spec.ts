@@ -31,7 +31,7 @@ test.describe('Emomo 表情包搜索应用', () => {
     await searchInput.fill('猫咪');
 
     // 点击搜索按钮
-    await page.getByRole('button', { name: '搜索' }).click();
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
 
     // 等待加载完成（检查没有 loading 状态）
     await expect(searchInput).not.toBeDisabled({ timeout: 10000 });
@@ -57,24 +57,69 @@ test.describe('Emomo 表情包搜索应用', () => {
 
     // 检查清除按钮出现
     const clearButton = page.locator('button[type="button"]').filter({ has: page.locator('svg') }).first();
+    await expect(clearButton).toBeVisible();
 
     // 清除内容
     await searchInput.clear();
     await expect(searchInput).toHaveValue('');
   });
 
-  test('推荐表情区域显示', async ({ page }) => {
-    // 检查推荐表情标题或表情网格
+  test('清空搜索后返回随便逛逛', async ({ page }) => {
+    await page.route('**/api/v1/search/stream', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          'event: complete',
+          `data: ${JSON.stringify({
+            stage: 'complete',
+            results: [
+              {
+                id: 'search-cat-1',
+                url: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22 viewBox=%220 0 120 120%22%3E%3Crect width=%22120%22 height=%22120%22 fill=%22%23fff4dc%22/%3E%3Ctext x=%2260%22 y=%2268%22 text-anchor=%22middle%22 font-size=%2232%22%3Ecat%3C/text%3E%3C/svg%3E',
+                score: 0.04,
+                description: '猫咪测试表情',
+                category: '测试',
+                tags: ['猫咪'],
+                is_animated: false,
+                width: 120,
+                height: 120,
+              },
+            ],
+            total: 1,
+          })}`,
+          '',
+        ].join('\n'),
+      });
+    });
+
+    const searchInput = page.locator('input[type="text"]');
+    await searchInput.fill('猫咪');
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
+
+    await expect(page.getByText('找到 1 个表情包')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('匹配度偏低')).toBeVisible();
+
+    await page.getByRole('button', { name: '清空搜索' }).click();
+
+    await expect(searchInput).toHaveValue('');
+    await expect(page.getByRole('heading', { name: '随便逛逛' })).toBeVisible();
+    await expect(page.getByText('找到 1 个表情包')).toBeHidden();
+    await expect(page.getByText('匹配度偏低')).toBeHidden();
+  });
+
+  test('随便逛逛区域显示', async ({ page }) => {
+    // 检查随便逛逛标题或表情网格
     // 等待初始加载
     await page.waitForTimeout(2000);
 
-    // 检查页面有表情卡片或者推荐区域
+    // 检查页面有表情卡片或者随便逛逛区域
     const hasMemes = await page.locator('img').count() > 0;
-    expect(hasMemes || await page.getByText('推荐表情').isVisible()).toBeTruthy();
+    expect(hasMemes || await page.getByText('随便逛逛').isVisible()).toBeTruthy();
   });
 
   test('表情卡片可以点击', async ({ page }) => {
-    // 等待推荐表情加载
+    // 等待随便逛逛表情加载
     await page.waitForTimeout(2000);
 
     // 找到一个表情卡片

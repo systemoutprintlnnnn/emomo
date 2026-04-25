@@ -100,28 +100,47 @@ function formatTags(tags: string[] | undefined): string[] {
 export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
   const [copied, setCopied] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
+  const [imageErrorState, setImageErrorState] = useState<{
+    memeId?: string;
+    hasError: boolean;
+  }>({ hasError: false });
   const timeoutRefs = useRef<{
     copied?: ReturnType<typeof setTimeout>;
     downloaded?: ReturnType<typeof setTimeout>;
   }>({});
+  const modalRef = useRef<HTMLDivElement>(null);
+  const activeMemeId = meme?.id;
+  const imageError = imageErrorState.hasError && imageErrorState.memeId === activeMemeId;
+  const description = meme?.vlm_description || meme?.description || '';
+  const scorePercent = typeof meme?.score === 'number' && meme.score > 0
+    ? Math.round(meme.score * 100)
+    : null;
+  const scoreTone = scorePercent === null
+    ? ''
+    : scorePercent < 15
+      ? styles.scoreLow
+      : scorePercent < 45
+        ? styles.scoreMedium
+        : styles.scoreHigh;
 
   // 格式化标签
   const displayTags = useMemo(() => formatTags(meme?.tags), [meme?.tags]);
 
-  // Reset image error when meme changes
   useEffect(() => {
-    setImageError(false);
-  }, [meme?.id]);
+    if (isOpen) {
+      modalRef.current?.focus();
+    }
+  }, [isOpen, activeMemeId]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
+    const timeouts = timeoutRefs.current;
     return () => {
-      if (timeoutRefs.current.copied) {
-        clearTimeout(timeoutRefs.current.copied);
+      if (timeouts.copied) {
+        clearTimeout(timeouts.copied);
       }
-      if (timeoutRefs.current.downloaded) {
-        clearTimeout(timeoutRefs.current.downloaded);
+      if (timeouts.downloaded) {
+        clearTimeout(timeouts.downloaded);
       }
     };
   }, []);
@@ -183,14 +202,14 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
         clearTimeout(timeoutRefs.current.copied);
       }
       timeoutRefs.current.copied = setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch {
       // Fallback to copying URL
       handleCopyLink();
     }
   };
 
   const handleImageError = () => {
-    setImageError(true);
+    setImageErrorState({ memeId: activeMemeId, hasError: true });
   };
 
   return (
@@ -204,7 +223,12 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
           onClick={onClose}
         >
           <motion.div
+            ref={modalRef}
             className={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="meme-modal-title"
+            tabIndex={-1}
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -215,6 +239,7 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
             <motion.button
               className={styles.closeBtn}
               onClick={onClose}
+              aria-label="关闭详情"
               whileHover={{ scale: 1.1, rotate: 90 }}
               whileTap={{ scale: 0.9 }}
             >
@@ -237,7 +262,7 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
               ) : (
                 <motion.img
                   src={meme.url || meme.original_url}
-                  alt={meme.vlm_description || 'Meme'}
+                  alt={description || 'Meme'}
                   className={styles.image}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -252,20 +277,23 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
               )}
 
               {/* Score badge */}
-              {meme.score && (
-                <div className={styles.scoreBadge}>
-                  匹配度 {Math.round(meme.score * 100)}%
+              {scorePercent !== null && (
+                <div className={`${styles.scoreBadge} ${scoreTone}`}>
+                  匹配度 {scorePercent}%
                 </div>
               )}
             </div>
 
             {/* Info section */}
             <div className={styles.infoSection}>
+              <h3 id="meme-modal-title" className={styles.modalTitle}>表情详情</h3>
+
               {/* Actions */}
               <div className={styles.actions}>
                 <motion.button
                   className={`${styles.actionBtn} ${styles.primary}`}
                   onClick={handleCopyImage}
+                  aria-label="复制图片到剪贴板"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -290,6 +318,7 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
                 <motion.button
                   className={styles.actionBtn}
                   onClick={handleDownload}
+                  aria-label="下载表情图片"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -315,6 +344,7 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
                 <motion.button
                   className={styles.actionBtn}
                   onClick={handleCopyLink}
+                  aria-label="复制图片链接"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -327,7 +357,7 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
               </div>
 
               {/* Description */}
-              {meme.vlm_description && (
+              {description && (
                 <div className={styles.descriptionBox}>
                   <h4 className={styles.descriptionTitle}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -337,7 +367,7 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
                     </svg>
                     AI 识别描述
                   </h4>
-                  <p className={styles.description}>{meme.vlm_description}</p>
+                  <p className={styles.description}>{description}</p>
                 </div>
               )}
 

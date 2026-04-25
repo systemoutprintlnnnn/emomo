@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Meme } from '../types';
 import styles from './MemeCard.module.css';
@@ -34,6 +34,16 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const animationDelay = (index % 12) * 0.025;
+  const description = meme.vlm_description || meme.description || '';
+  const detailLabel = description
+    ? `查看表情详情：${description.slice(0, 80)}`
+    : '查看表情详情';
+  const hasKnownSize = typeof meme.width === 'number' && meme.width > 0
+    && typeof meme.height === 'number' && meme.height > 0;
+  const imageStyle = {
+    '--meme-aspect-ratio': hasKnownSize ? `${meme.width} / ${meme.height}` : '1 / 1',
+  } as CSSProperties;
 
   const handleClick = () => {
     onClick?.(meme);
@@ -44,57 +54,59 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
     setIsLoaded(true); // Stop showing skeleton
   };
 
-  // Format score as percentage
-  const scorePercent = meme.score ? Math.round(meme.score * 100) : null;
-
   return (
-    <motion.div
+    <motion.article
       className={styles.card}
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.4,
-        delay: index * 0.05,
+        duration: 0.24,
+        delay: animationDelay,
         ease: [0.16, 1, 0.3, 1],
       }}
       whileHover={{ y: -4 }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={handleClick}
-      layout
     >
       {/* Image container */}
-      <div className={styles.imageWrapper}>
-        {/* Loading skeleton */}
-        {!isLoaded && !imageError && <div className={`${styles.skeleton} skeleton`} />}
+      <div className={styles.imageWrapper} style={imageStyle}>
+        <button
+          type="button"
+          className={styles.openButton}
+          onClick={handleClick}
+          aria-label={detailLabel}
+        >
+          {/* Loading skeleton */}
+          {!isLoaded && !imageError && <div className={`${styles.skeleton} skeleton`} />}
 
-        {/* Error placeholder */}
-        {imageError && (
-          <div className={styles.imageError}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-          </div>
-        )}
+          {/* Error placeholder */}
+          {imageError && (
+            <div className={styles.imageError}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+          )}
 
-        {/* Meme image */}
-        {!imageError && (
-          <motion.img
-            src={meme.url || meme.original_url}
-            alt={meme.vlm_description || 'Meme'}
-            className={styles.image}
-            loading="lazy"
-            onLoad={() => setIsLoaded(true)}
-            onError={handleImageError}
-            animate={{
-              scale: isHovered ? 1.05 : 1,
-              opacity: isLoaded ? 1 : 0,
-            }}
-            transition={{ duration: 0.3 }}
-          />
-        )}
+          {/* Meme image */}
+          {!imageError && (
+            <motion.img
+              src={meme.url || meme.original_url}
+              alt={description || 'Meme'}
+              className={styles.image}
+              loading="lazy"
+              onLoad={() => setIsLoaded(true)}
+              onError={handleImageError}
+              animate={{
+                scale: isHovered ? 1.05 : 1,
+                opacity: isLoaded ? 1 : 0,
+              }}
+              transition={{ duration: 0.3 }}
+            />
+          )}
+        </button>
 
         {/* Hover overlay */}
         <motion.div
@@ -117,6 +129,7 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
                     navigator.clipboard.writeText(meme.url);
                   }
                 }}
+                aria-label="复制表情链接"
                 title="复制链接"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -138,6 +151,7 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
                     a.click();
                   }
                 }}
+                aria-label="下载表情"
                 title="下载"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -147,14 +161,6 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
                 </svg>
               </motion.button>
             </div>
-
-            {/* Description preview */}
-            {meme.vlm_description && (
-              <p className={styles.description}>
-                {meme.vlm_description.slice(0, 60)}
-                {meme.vlm_description.length > 60 ? '...' : ''}
-              </p>
-            )}
           </div>
         </motion.div>
 
@@ -162,19 +168,7 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
         {meme.is_animated && (
           <span className={styles.gifBadge}>GIF</span>
         )}
-
-        {/* Score badge */}
-        {scorePercent !== null && (
-          <motion.div
-            className={styles.scoreBadge}
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: index * 0.05 + 0.2, type: 'spring' }}
-          >
-            {scorePercent}%
-          </motion.div>
-        )}
       </div>
-    </motion.div>
+    </motion.article>
   );
 }

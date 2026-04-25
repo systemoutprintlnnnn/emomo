@@ -6,6 +6,10 @@ import styles from './Header.module.css';
  */
 interface HeaderProps {
   /**
+   * Number of active memes available in the backend.
+   */
+  memeCount?: number;
+  /**
    * Callback function triggered when the logo is clicked.
    * Typically used to reset the view or navigate home.
    */
@@ -20,7 +24,9 @@ interface HeaderProps {
  * @param props.onLogoClick - Handler for logo click events.
  * @returns The rendered Header component.
  */
-export default function Header({ onLogoClick }: HeaderProps) {
+export default function Header({ memeCount = 5791, onLogoClick }: HeaderProps) {
+  const formattedCount = new Intl.NumberFormat('en-US').format(memeCount);
+
   return (
     <motion.header
       className={styles.header}
@@ -33,6 +39,7 @@ export default function Header({ onLogoClick }: HeaderProps) {
         <motion.button
           className={styles.logo}
           onClick={onLogoClick}
+          aria-label="返回首页"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >
@@ -52,7 +59,7 @@ export default function Header({ onLogoClick }: HeaderProps) {
         <div className={styles.right}>
           {/* Stats */}
           <div className={styles.stats}>
-            <span className={styles.statNumber}>5,791</span>
+            <span className={styles.statNumber}>{formattedCount}</span>
             <span className={styles.statLabel}>表情包</span>
           </div>
 
@@ -64,6 +71,7 @@ export default function Header({ onLogoClick }: HeaderProps) {
             className={styles.githubBtn}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            aria-label="打开 GitHub 仓库"
             title="GitHub"
           >
             <svg viewBox="0 0 24 24" fill="currentColor">

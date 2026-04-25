@@ -1,4 +1,12 @@
-import type { Meme, SearchResponse, Category, CategoriesResponse, MemesListResponse, SearchResult } from '../types';
+import type {
+  Meme,
+  SearchResponse,
+  Category,
+  CategoriesResponse,
+  MemesListResponse,
+  SearchResult,
+  StatsResponse,
+} from '../types';
 
 /**
  * The base URL for the API, loaded from environment variables.
@@ -167,6 +175,24 @@ export async function getMeme(id: string): Promise<Meme> {
 
   if (!response.ok) {
     throw new Error(`Failed to fetch meme: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieves aggregate backend stats for the header and system status.
+ *
+ * @returns A promise that resolves to aggregate stats.
+ * @throws An error if the request fails.
+ */
+export async function getStats(): Promise<StatsResponse> {
+  const response = await fetch(`${API_BASE}/stats`, {
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch stats: ${response.statusText}`);
   }
 
   return response.json();
