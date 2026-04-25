@@ -171,7 +171,7 @@ gorm.Open(postgres.New(postgres.Config{
 | 字段 | 类型 | 约束 | 描述 |
 |------|------|------|------|
 | `id` | TEXT | PRIMARY KEY | UUID 格式主键 |
-| `source_type` | TEXT | NOT NULL, UNIQUE (with source_id) | 数据来源类型 (如 `chinesebqb`, `fabiaoqing`) |
+| `source_type` | TEXT | NOT NULL, UNIQUE (with source_id) | 数据来源类型 (如 `chinesebqb`) |
 | `source_id` | TEXT | NOT NULL, UNIQUE (with source_type) | 在来源中的唯一标识 |
 | `storage_key` | TEXT | - | S3/R2 存储路径 |
 | `local_path` | TEXT | - | 本地文件路径 (用于调试) |
@@ -327,7 +327,7 @@ type MemeVector struct {
 |------|------|------|------|
 | `id` | TEXT | PRIMARY KEY | UUID 格式主键 |
 | `name` | TEXT | NOT NULL | 数据源名称 |
-| `type` | TEXT | NOT NULL | 数据源类型: `static`, `api`, `crawler` |
+| `type` | TEXT | NOT NULL | 数据源类型: `static`, `api` |
 | `config` | TEXT (JSON) | - | 数据源配置 (JSON 格式) |
 | `last_sync_at` | TIMESTAMP | - | 上次同步时间 |
 | `last_sync_cursor` | TEXT | - | 上次同步位置 (用于增量同步) |
@@ -340,9 +340,8 @@ type MemeVector struct {
 
 ```go
 const (
-    SourceTypeStatic  SourceType = "static"   // 静态文件系统
-    SourceTypeAPI     SourceType = "api"      // API 数据源
-    SourceTypeCrawler SourceType = "crawler"  // 爬虫数据源
+    SourceTypeStatic SourceType = "static"   // 静态文件系统
+    SourceTypeAPI    SourceType = "api"      // API 数据源
 )
 ```
 

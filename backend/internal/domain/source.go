@@ -8,13 +8,12 @@ import (
 )
 
 // SourceType represents the type of data source.
-// Values include SourceTypeStatic, SourceTypeAPI, and SourceTypeCrawler.
+// Values include SourceTypeStatic and SourceTypeAPI.
 type SourceType string
 
 const (
-	SourceTypeStatic  SourceType = "static"
-	SourceTypeAPI     SourceType = "api"
-	SourceTypeCrawler SourceType = "crawler"
+	SourceTypeStatic SourceType = "static"
+	SourceTypeAPI    SourceType = "api"
 )
 
 // SourceConfig is a custom type for storing JSON config in the database.

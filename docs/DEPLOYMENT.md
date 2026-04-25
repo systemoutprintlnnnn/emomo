@@ -486,7 +486,7 @@ curl -X POST http://localhost:8080/api/v1/ingest \
 # http://localhost:8080/
 ```
 
-**说明**：API 摄入目前仅支持 `chinesebqb`，`staging:*` 来源请使用 CLI 工具。
+**说明**：API 和 CLI 摄入目前仅支持 `chinesebqb`。
 
 ### 方式二：使用命令行工具摄入
 

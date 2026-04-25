@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/timmy/emomo/internal/config"
@@ -14,9 +14,18 @@ import (
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
 	"github.com/timmy/emomo/internal/source/chinesebqb"
-	"github.com/timmy/emomo/internal/source/staging"
 	"github.com/timmy/emomo/internal/storage"
 )
+
+func selectSource(cfg *config.Config, sourceType string) (source.Source, error) {
+	if sourceType != "chinesebqb" {
+		return nil, fmt.Errorf("unsupported source type %q; supported source: chinesebqb", sourceType)
+	}
+	if !cfg.Sources.ChineseBQB.Enabled {
+		return nil, fmt.Errorf("source %q is disabled", sourceType)
+	}
+	return chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath), nil
+}
 
 func main() {
 	// Initialize logger first (with defaults)
@@ -198,17 +207,9 @@ func main() {
 			"failed":    stats.FailedItems,
 		}).Info("Retry completed")
 	} else {
-		// Get data source
-		var src source.Source
-		switch {
-		case *sourceType == "chinesebqb":
-			src = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
-		case strings.HasPrefix(*sourceType, "staging:"):
-			sourceID := strings.TrimPrefix(*sourceType, "staging:")
-			src = staging.NewAdapter(cfg.Sources.Staging.Path, sourceID)
-			appLogger.WithField("staging_source", sourceID).Info("Using staging source")
-		default:
-			appLogger.WithField("source", *sourceType).Fatal("Unknown source type. Use 'chinesebqb' or 'staging:<source_id>'")
+		src, err := selectSource(cfg, *sourceType)
+		if err != nil {
+			appLogger.WithError(err).WithField("source", *sourceType).Fatal("Failed to select source")
 		}
 
 		stats, err := ingestService.IngestFromSource(ctx, src, *limit, &service.IngestOptions{

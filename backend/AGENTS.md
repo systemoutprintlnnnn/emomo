@@ -9,18 +9,17 @@
 - `configs/`: YAML config files and examples.
 - `migrations/`: SQL migrations.
 - `scripts/`: Backend-only helper scripts (`import-data.sh`, `check-data-dir.sh`, `setup.sh`, `clear-qdrant.sh`).
-- `data/`: Local data and staging directories (gitignored except for `.gitkeep`).
+- `data/`: Local data directories (gitignored except for `.gitkeep`).
 - `Dockerfile`, `.dockerignore`: Container build definition (also pushed to Hugging Face Space via subtree split).
 
-Sibling directories at repo root: `../frontend/` (React/Vite UI), `../crawler/` (Python crawler), `../deployments/` (cross-service compose), `../docs/`, `../scripts/start.sh`.
+Sibling directories at repo root: `../frontend/` (React/Vite UI), `../deployments/` (cross-service compose), `../docs/`, `../scripts/start.sh`.
 
 ## Build, Test, and Development Commands
 - `cd backend && go run ./cmd/api`: run the API server locally (port 8080 by default).
 - `cd backend && go build ./... && go test ./...`: build and test all Go packages.
-- `cd backend && ./scripts/import-data.sh -s staging:fabiaoqing -l 50`: ingest staged memes (recommended).
-- `cd backend && go run ./cmd/ingest --source=staging:fabiaoqing --limit=50`: ingest staged memes (alternative).
+- `cd backend && ./scripts/import-data.sh -s chinesebqb -l 50`: ingest ChineseBQB memes (recommended).
+- `cd backend && go run ./cmd/ingest --source=chinesebqb --limit=50`: ingest ChineseBQB memes (alternative).
 - `docker compose -f deployments/docker-compose.yml up -d` (from repo root): start API + Grafana Alloy.
-- `cd crawler && uv sync && uv run emomo-crawler crawl --source fabiaoqing --limit 100`: populate `backend/data/staging/`.
 
 ## Coding Style & Naming Conventions
 - Go: follow `gofmt` defaults (tabs for indentation); package names short and lowercase.

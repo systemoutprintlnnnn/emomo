@@ -1,12 +1,11 @@
 # Repository Guidelines
 
-This is the emomo monorepo containing three sibling subprojects. This file captures repo-wide conventions; subproject-specific details live in each directory.
+This is the emomo monorepo containing two sibling subprojects. This file captures repo-wide conventions; subproject-specific details live in each directory.
 
 ## Subproject Map
 
 - [backend/AGENTS.md](backend/AGENTS.md) — Go 后端（API + 摄入流水线）
 - [frontend/AGENTS.md](frontend/AGENTS.md) — React + Vite 前端
-- `crawler/` — Python 爬虫（`uv` 管理；约定见 `crawler/README.md`）
 
 When in doubt about which conventions apply to a file, follow the AGENTS.md nearest to that file.
 
@@ -15,7 +14,6 @@ When in doubt about which conventions apply to a file, follow the AGENTS.md near
 ```
 backend/      Go application (cmd/, internal/, configs/, migrations/, Dockerfile)
 frontend/    React + Vite SPA (src/, e2e/, public/)
-crawler/     Python crawler managed by uv
 deployments/ Docker Compose orchestration (referenced by both backend and ops)
 docs/        Cross-service design and ops documentation
 scripts/     Cross-service helpers (currently: scripts/start.sh)
@@ -28,14 +26,13 @@ Single-language helpers (e.g. `import-data.sh`, Vite config) live inside their r
 - `./scripts/start.sh` — start backend (8080) + frontend (5173) for local development.
 - `cd backend && go test ./... && go build ./...` — backend build + tests.
 - `cd frontend && npm install && npm run lint && npm run build` — frontend lint + build.
-- `cd crawler && uv sync && uv run emomo-crawler crawl --source fabiaoqing --limit 100` — populate `backend/data/staging/`.
+- `cd backend && ./scripts/import-data.sh -s chinesebqb -l 50` — ingest ChineseBQB data.
 - `docker compose -f deployments/docker-compose.yml up -d` — run API container + Grafana Alloy locally.
 
 ## Coding Style & Naming
 
 - Go: `gofmt` defaults (tabs for indentation); short, lowercase package names.
 - TypeScript / React: 2 spaces, semicolons, single quotes; `PascalCase.tsx` + `PascalCase.module.css` per component.
-- Python: 4-space indentation, `snake_case` modules.
 - Configuration: keep new keys grouped by subsystem, in the subproject's own config file.
 
 ## Commit & Pull Request Guidelines

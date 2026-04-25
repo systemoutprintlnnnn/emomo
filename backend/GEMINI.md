@@ -6,16 +6,15 @@ All commands below assume `cd backend` unless noted.
 
 ## 1. Project Overview
 
-**Emomo** is a meme search engine that ingests memes from various sources, indexes them using vector embeddings and visual language models (VLM), and provides a semantic search API.
+**Emomo** is a meme search engine that ingests memes from ChineseBQB, indexes them using vector embeddings and visual language models (VLM), and provides a semantic search API.
 
 ### Core Components
-*   **Crawler (Python, `../crawler/`):** fetches memes from websites (e.g. fabiaoqing) into a local staging area.
-*   **Ingestion (Go, `cmd/ingest`):** consumes staging or local repos, generates VLM descriptions and embeddings, uploads images to object storage (S3/R2), and indexes them in Qdrant + a relational DB.
+*   **Ingestion (Go, `cmd/ingest`):** consumes ChineseBQB local repo data, generates VLM descriptions and embeddings, uploads images to object storage (S3/R2), and indexes them in Qdrant + a relational DB.
 *   **API (Go, `cmd/api`):** REST API (Gin) for searching memes; uses query expansion + vector search.
 
 ## 2. Technology Stack
 
-*   **Languages:** Go 1.24+ (this directory), Python 3.12+ (`../crawler`, via `uv`).
+*   **Languages:** Go 1.24+ (this directory).
 *   **Web Framework:** Gin (Go).
 *   **Databases:** PostgreSQL (primary metadata, GORM) and Qdrant (vector search).
 *   **Storage:** S3-compatible object storage (Cloudflare R2, AWS S3, or MinIO).
@@ -26,9 +25,7 @@ All commands below assume `cd backend` unless noted.
 
 ```mermaid
 graph LR
-    Web[Web Sources] -->|Crawler| Staging[Staging Dir]
-    Local[Local Repos] --> Ingest[Ingest Service]
-    Staging --> Ingest
+    Local[ChineseBQB Local Repo] --> Ingest[Ingest Service]
 
     Ingest -->|Upload| S3[Object Storage]
     Ingest -->|VLM and Embed| AI[AI Services]
@@ -48,7 +45,7 @@ graph LR
 *   `internal/api/`: HTTP handlers and routers.
 *   `internal/service/`: Business logic (search, ingest, VLM, embedding, query expansion).
 *   `internal/repository/`: Data access layer (DB, Qdrant).
-*   `internal/source/`: Adapters for different data sources (staging, ChineseBQB).
+*   `internal/source/`: Adapters for ingestion sources (ChineseBQB).
 *   `configs/`: `config.yaml`, `config.cloud.yaml.example`, `huggingface-spaces.env.example`.
 *   `migrations/`: SQL migrations.
 
@@ -57,22 +54,15 @@ graph LR
 ### Prerequisites
 *   Go 1.24+
 *   Docker & Docker Compose
-*   `uv` (Python package manager) — only needed for the crawler
 
 ### Local Setup
 1.  Configuration: `cp .env.example .env` and fill in API keys.
 2.  Optional infra: `docker compose -f ../deployments/docker-compose.yml up -d` (from repo root) to start API + Alloy.
-3.  Crawl into staging:
+3.  Prepare ChineseBQB data:
     ```bash
-    cd ../crawler && uv sync
-    uv run emomo-crawler crawl --source fabiaoqing --limit 100
+    git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
     ```
-4.  Ingest:
-    ```bash
-    cd ../backend
-    ./scripts/import-data.sh -s staging:fabiaoqing -l 50
-    # or: go run ./cmd/ingest --source=staging:fabiaoqing --limit=50
-    ```
+4.  Ingest: `./scripts/import-data.sh -s chinesebqb -l 50`.
 5.  API server: `go run ./cmd/api`. Defaults to `http://localhost:8080`.
 
 ### Common Tasks
@@ -88,4 +78,3 @@ graph LR
 ## 6. Testing
 
 *   **Go Tests:** `go test ./...`.
-*   **Crawler Tests:** see `../crawler/`.

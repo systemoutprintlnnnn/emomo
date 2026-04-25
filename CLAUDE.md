@@ -4,18 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Subproject Map
 
-This is a multi-language monorepo. Open the nearest CLAUDE.md to whatever you are touching:
+Open the nearest CLAUDE.md to whatever you are touching:
 
 - [backend/CLAUDE.md](backend/CLAUDE.md) — Go backend (REST API + ingestion pipeline + Qdrant/storage integration)
 - [frontend/CLAUDE.md](frontend/CLAUDE.md) — React 19 + Vite frontend
-- `crawler/` — Python crawler (no dedicated CLAUDE.md yet; see `crawler/README.md`)
 
 ## Repo Layout
 
 ```
 backend/      Go application (cmd/, internal/, configs/, migrations/, Dockerfile)
 frontend/    React + Vite SPA
-crawler/     Python crawler managed by uv
 deployments/ Docker Compose orchestration
 docs/        Cross-service docs
 scripts/     Cross-service helpers (start.sh)
@@ -33,8 +31,8 @@ cd backend && go build ./... && go test ./...
 # Frontend lint / build
 cd frontend && npm install && npm run lint && npm run build
 
-# Crawler
-cd crawler && uv sync && uv run emomo-crawler crawl --source fabiaoqing --limit 100
+# Ingest ChineseBQB data
+cd backend && ./scripts/import-data.sh -s chinesebqb -l 50
 
 # Containerized API + Grafana Alloy
 docker compose -f deployments/docker-compose.yml up -d
