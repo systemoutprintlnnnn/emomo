@@ -1,7 +1,10 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
 import type { Meme } from '../types';
 import MemeCard from './MemeCard';
 import styles from './MemeGrid.module.css';
+
+const countFormatter = new Intl.NumberFormat('en-US');
 
 /**
  * Props for the MemeGrid component.
@@ -29,6 +32,18 @@ interface MemeGridProps {
   searchQuery?: string;
   /** An optional title for the grid section (e.g., "Recommended"). */
   title?: string;
+  /** Total number of available memes for non-search browsing. */
+  total?: number | null;
+  /** Whether more memes can be loaded. */
+  hasMore?: boolean;
+  /** Whether the next page is currently loading. */
+  isLoadingMore?: boolean;
+  /** Optional error message for loading the next page. */
+  loadMoreError?: string;
+  /** Callback triggered by the footer button or near-bottom auto loading. */
+  onLoadMore?: () => void;
+  /** Message shown when all items have been loaded. */
+  endMessage?: string;
 }
 
 /**
@@ -71,12 +86,58 @@ export default function MemeGrid({
   emptyMessage = '暂无表情包',
   searchQuery,
   title,
+  total,
+  hasMore = false,
+  isLoadingMore = false,
+  loadMoreError = '',
+  onLoadMore,
+  endMessage = '已展示全部结果',
 }: MemeGridProps) {
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const lastAutoLoadCountRef = useRef(-1);
+  const hasLeftLoadZoneRef = useRef(true);
   const scoredMemes = memes.filter((meme) => typeof meme.score === 'number');
   const topScore = scoredMemes.length > 0
     ? Math.max(...scoredMemes.map((meme) => meme.score ?? 0))
     : null;
   const hasLowConfidence = !!searchQuery && topScore !== null && topScore < 0.15;
+  const isBrowseMode = !searchQuery && !!onLoadMore;
+  const loadedCountText = typeof total === 'number'
+    ? `已展示 ${countFormatter.format(memes.length)} / ${countFormatter.format(total)} 个表情包`
+    : `已展示 ${countFormatter.format(memes.length)} 个表情包`;
+
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || isLoading || isLoadingMore || loadMoreError) {
+      return;
+    }
+
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) {
+          hasLeftLoadZoneRef.current = true;
+          return;
+        }
+
+        if (hasLeftLoadZoneRef.current && lastAutoLoadCountRef.current !== memes.length) {
+          lastAutoLoadCountRef.current = memes.length;
+          hasLeftLoadZoneRef.current = false;
+          onLoadMore();
+        }
+      },
+      {
+        rootMargin: '180px 0px',
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, isLoadingMore, loadMoreError, memes.length, onLoadMore]);
 
   // Show loading skeletons
   if (isLoading) {
@@ -137,7 +198,12 @@ export default function MemeGrid({
         animate={{ opacity: 1, y: 0 }}
       >
         {title && (
-          <h2 className={styles.sectionTitle}>{title}</h2>
+          <div className={styles.titleGroup}>
+            <h2 className={styles.sectionTitle}>{title}</h2>
+            {isBrowseMode && (
+              <span className={styles.browseCount}>{loadedCountText}</span>
+            )}
+          </div>
         )}
 
         {searchQuery && (
@@ -155,24 +221,54 @@ export default function MemeGrid({
       </motion.header>
 
       {/* Grid */}
-      <motion.div
-        className={styles.grid}
-        layout
-      >
-        <AnimatePresence mode="popLayout">
-          {memes.map((meme, index) => (
-            <MemeCard
-              key={meme.id}
-              meme={meme}
-              index={index}
-              onClick={onMemeClick}
-            />
-          ))}
-        </AnimatePresence>
-      </motion.div>
+      <div className={styles.grid}>
+        {memes.map((meme, index) => (
+          <MemeCard
+            key={meme.id}
+            meme={meme}
+            index={index}
+            onClick={onMemeClick}
+          />
+        ))}
+      </div>
 
-      {/* Load more indicator */}
-      {memes.length > 0 && (
+      {onLoadMore && (
+        <motion.div
+          ref={loadMoreRef}
+          className={styles.loadMore}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+        >
+          {loadMoreError && (
+            <p className={styles.loadMoreError}>{loadMoreError}</p>
+          )}
+
+          {hasMore ? (
+            <button
+              type="button"
+              className={styles.loadMoreButton}
+              onClick={onLoadMore}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? (
+                <span className={styles.loadingInline}>
+                  <span className={styles.loadingDot} aria-hidden="true" />
+                  加载中...
+                </span>
+              ) : loadMoreError ? '重试加载' : '加载更多'}
+            </button>
+          ) : (
+            <div className={styles.endIndicator}>
+              <span className={styles.endLine} />
+              <span className={styles.endText}>{endMessage}</span>
+              <span className={styles.endLine} />
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {!onLoadMore && memes.length > 0 && (
         <motion.div
           className={styles.endIndicator}
           initial={{ opacity: 0 }}
@@ -180,7 +276,7 @@ export default function MemeGrid({
           transition={{ delay: 0.5 }}
         >
           <span className={styles.endLine} />
-          <span className={styles.endText}>已展示全部结果</span>
+          <span className={styles.endText}>{endMessage}</span>
           <span className={styles.endLine} />
         </motion.div>
       )}

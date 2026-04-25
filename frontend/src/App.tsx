@@ -22,9 +22,16 @@ interface SearchState {
   expandedQuery?: string;
 }
 
+const FEED_PAGE_SIZE = 12;
+
 function App() {
   const [memes, setMemes] = useState<Meme[]>([]);
-  const [recommendedMemes, setRecommendedMemes] = useState<Meme[]>(curatedMemes);
+  const [feedMemes, setFeedMemes] = useState<Meme[]>(curatedMemes.slice(0, FEED_PAGE_SIZE));
+  const [feedTotal, setFeedTotal] = useState<number | null>(null);
+  const [hasFeedMore, setHasFeedMore] = useState(true);
+  const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const [isFeedLoadingMore, setIsFeedLoadingMore] = useState(false);
+  const [feedError, setFeedError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [inputQuery, setInputQuery] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,37 +41,79 @@ function App() {
   const [searchState, setSearchState] = useState<SearchState | null>(null);
   const hasFetchedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const feedAbortControllerRef = useRef<AbortController | null>(null);
+  const isFeedRequestInFlightRef = useRef(false);
+  const feedOffsetRef = useRef(0);
 
-  // 加载推荐表情（首屏）
+  const loadFeedPage = useCallback(async (offset: number) => {
+    if (isFeedRequestInFlightRef.current) return;
+
+    const abortController = new AbortController();
+    feedAbortControllerRef.current = abortController;
+    isFeedRequestInFlightRef.current = true;
+    setFeedError('');
+
+    if (offset === 0) {
+      setIsFeedLoading(true);
+    } else {
+      setIsFeedLoadingMore(true);
+    }
+
+    try {
+      const response = await getMemes(FEED_PAGE_SIZE, offset, undefined, abortController.signal);
+
+      if (abortController.signal.aborted) {
+        return;
+      }
+
+      setFeedMemes((currentMemes) => {
+        if (offset === 0) {
+          return response.results.length > 0 ? response.results : currentMemes;
+        }
+
+        const existingIds = new Set(currentMemes.map((meme) => meme.id));
+        const newMemes = response.results.filter((meme) => !existingIds.has(meme.id));
+        return [...currentMemes, ...newMemes];
+      });
+      setHasFeedMore(response.results.length === FEED_PAGE_SIZE);
+      feedOffsetRef.current = offset + response.results.length;
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        return;
+      }
+
+      console.error('Failed to load browse memes:', error);
+      setFeedError(offset === 0 ? '随便逛逛加载失败，正在显示本地兜底内容。' : '加载失败，可以点按钮重试。');
+    } finally {
+      if (feedAbortControllerRef.current === abortController) {
+        feedAbortControllerRef.current = null;
+      }
+      isFeedRequestInFlightRef.current = false;
+      setIsFeedLoading(false);
+      setIsFeedLoadingMore(false);
+    }
+  }, []);
+
+  // 加载随便逛逛首屏
   useEffect(() => {
     if (hasFetchedRef.current) return;
     hasFetchedRef.current = true;
-
-    const loadRecommendedMemes = async () => {
-      try {
-        const response = await getMemes(12, 0);
-        if (response.results.length > 0) {
-          setRecommendedMemes(response.results);
-        }
-      } catch (error) {
-        console.error('Failed to load recommended memes:', error);
-      }
-    };
 
     const loadStats = async () => {
       try {
         const stats = await getStats();
         if (stats.total_active > 0) {
           setMemeCount(stats.total_active);
+          setFeedTotal(stats.total_active);
         }
       } catch (error) {
         console.error('Failed to load stats:', error);
       }
     };
 
-    loadRecommendedMemes();
+    loadFeedPage(0);
     loadStats();
-  }, []);
+  }, [loadFeedPage]);
 
   // Handle cancel search
   const handleCancelSearch = useCallback(() => {
@@ -187,8 +236,7 @@ function App() {
     }
   }, []);
 
-  // Handle logo click - reset to home
-  const handleLogoClick = useCallback(() => {
+  const resetToBrowse = useCallback(() => {
     // Cancel any ongoing search
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -203,6 +251,25 @@ function App() {
     setIsLoading(false);
   }, []);
 
+  const handleInputQueryChange = useCallback((value: string) => {
+    if (value) {
+      setInputQuery(value);
+      return;
+    }
+
+    resetToBrowse();
+  }, [resetToBrowse]);
+
+  const handleLoadMoreFeed = useCallback(() => {
+    if (hasSearched) return;
+
+    if (!hasFeedMore || (feedTotal !== null && feedOffsetRef.current >= feedTotal)) {
+      return;
+    }
+
+    loadFeedPage(feedOffsetRef.current);
+  }, [feedTotal, hasFeedMore, hasSearched, loadFeedPage]);
+
   // Handle meme click
   const handleMemeClick = useCallback((meme: Meme) => {
     setSelectedMeme(meme);
@@ -215,12 +282,12 @@ function App() {
 
   return (
     <div className="app">
-      <Header memeCount={memeCount} onLogoClick={handleLogoClick} />
+      <Header memeCount={memeCount} onLogoClick={resetToBrowse} />
 
       <main className="main">
         <SearchHero
           value={inputQuery}
-          onValueChange={setInputQuery}
+          onValueChange={handleInputQueryChange}
           onSearch={handleSearch}
           isLoading={isLoading}
           compact={hasSearched}
@@ -249,12 +316,18 @@ function App() {
           />
         ) : (
           <MemeGrid
-            memes={recommendedMemes}
-            isLoading={false}
+            memes={feedMemes}
+            isLoading={isFeedLoading}
             onMemeClick={handleMemeClick}
             searchQuery=""
             emptyMessage=""
-            title="推荐表情"
+            title="随便逛逛"
+            total={feedTotal}
+            hasMore={hasFeedMore && (feedTotal === null || feedMemes.length < feedTotal)}
+            isLoadingMore={isFeedLoadingMore}
+            loadMoreError={feedError}
+            onLoadMore={handleLoadMoreFeed}
+            endMessage="已经刷完全部表情"
           />
         )}
       </main>
