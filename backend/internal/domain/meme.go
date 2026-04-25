@@ -69,7 +69,7 @@ type Meme struct {
 	Width          int         `json:"width"`
 	Height         int         `json:"height"`
 	Format         string      `json:"format"`
-	IsAnimated     bool        `json:"is_animated"`
+	IsAnimated     bool        `json:"is_animated"` // Kept for schema compatibility; new ingestion stores false.
 	FileSize       int64       `json:"file_size"`
 	MD5Hash        string      `gorm:"uniqueIndex:idx_memes_md5" json:"md5_hash"`
 	PerceptualHash string      `gorm:"type:text" json:"perceptual_hash,omitempty"`

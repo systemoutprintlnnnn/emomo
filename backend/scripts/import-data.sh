@@ -1,6 +1,6 @@
 #!/bin/sh
 # 数据导入脚本
-# 用于从 ChineseBQB 导入数据到数据库和向量库
+# 用于从本地静态图片目录导入数据到数据库和向量库
 # 使用 go run 直接运行，无需预先编译
 
 set -e
@@ -18,6 +18,7 @@ fi
 # 默认配置
 DEFAULT_CONFIG="${CONFIG_PATH:-./configs/config.yaml}"
 DEFAULT_LIMIT=100
+DEFAULT_SOURCE=localdir
 
 # 颜色输出
 RED='\033[0;31m'
@@ -49,8 +50,9 @@ usage() {
 用法: $0 [选项]
 
 选项:
-    -s, --source SOURCE         数据源类型
-                                - chinesebqb: 从 ChineseBQB 仓库导入
+    -s, --source SOURCE         数据源类型（默认: ${DEFAULT_SOURCE}）
+                                - localdir: 从本地静态图片目录导入
+    -p, --path PATH             本地静态图片目录，覆盖配置中的 sources.localdir.root_path
     -l, --limit LIMIT           导入数量限制（默认: ${DEFAULT_LIMIT}）
     -e, --embedding NAME        使用的 embedding 配置名称（如 jina, qwen3）
                                 留空则使用默认配置
@@ -61,14 +63,14 @@ usage() {
     -h, --help                  显示此帮助信息
 
 示例:
-    # 从 ChineseBQB 导入 50 条数据
-    $0 -s chinesebqb -l 50
+    # 从本地目录导入 50 条数据
+    $0 -p ./data/memes -l 50
 
     # 使用 jina embedding 导入
-    $0 -s chinesebqb -e jina -l 100
+    $0 -p ./data/memes -e jina -l 100
 
     # 强制重新处理（跳过重复检查）
-    $0 -s chinesebqb -f
+    $0 -p ./data/memes -f
 
     # 重试 pending 状态的数据
     $0 -r -l 50
@@ -92,7 +94,8 @@ run_ingest() {
 
 # 主函数
 main() {
-    local source_type=""
+    local source_type="$DEFAULT_SOURCE"
+    local source_path=""
     local limit="$DEFAULT_LIMIT"
     local embedding=""
     local config_path="$DEFAULT_CONFIG"
@@ -105,6 +108,10 @@ main() {
         case "$1" in
             -s|--source)
                 source_type="$2"
+                shift 2
+                ;;
+            -p|--path)
+                source_path="$2"
                 shift 2
                 ;;
             -l|--limit)
@@ -173,16 +180,9 @@ main() {
         exit 0
     fi
 
-    # 检查数据源
-    if [ -z "$source_type" ]; then
-        error "请指定数据源类型 (-s/--source)"
-        usage
-        exit 1
-    fi
-
-    if [ "$source_type" != "chinesebqb" ]; then
+    if [ "$source_type" != "localdir" ]; then
         error "不支持的数据源类型: $source_type"
-        error "支持的类型: chinesebqb"
+        error "支持的类型: localdir"
         exit 1
     fi
 
@@ -192,6 +192,9 @@ main() {
     info "开始数据导入"
     info "=========================================="
     info "数据源: $source_type"
+    if [ -n "$source_path" ]; then
+        info "本地目录: $source_path"
+    fi
     info "限制数量: $limit"
     info "配置文件: $config_path"
     if [ -n "$embedding" ]; then
@@ -211,6 +214,9 @@ main() {
     # 构建参数
     local args="--source=$source_type --limit=$limit --config=$config_path"
 
+    if [ -n "$source_path" ]; then
+        args="$args --path=$source_path"
+    fi
     if [ -n "$embedding" ]; then
         args="$args --embedding=$embedding"
     fi
@@ -227,6 +233,7 @@ main() {
 
     # 执行导入
     run_ingest --source="$source_type" --limit="$limit" --config="$config_path" \
+        $([ -n "$source_path" ] && echo "--path=$source_path") \
         $([ -n "$embedding" ] && echo "--embedding=$embedding") \
         $([ "$force" = true ] && echo "--force") \
         $([ "$auto_migrate" = true ] && echo "--auto-migrate")

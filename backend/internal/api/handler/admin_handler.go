@@ -236,12 +236,12 @@ func (h *AdminHandler) AdminPage(c *gin.Context) {
             <p class="subtitle">表情包语义搜索系统管理面板</p>
 
             <form id="ingestForm">
-                <div class="form-group">
-                    <label for="source">数据源</label>
-                    <select id="source" name="source">
-                        <option value="chinesebqb">ChineseBQB (中文表情包)</option>
-                    </select>
-                </div>
+	                <div class="form-group">
+	                    <label for="source">数据源</label>
+	                    <select id="source" name="source">
+	                        <option value="localdir">本地静态图片目录</option>
+	                    </select>
+	                </div>
 
                 <div class="form-group">
                     <label for="limit">导入数量</label>

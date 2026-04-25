@@ -123,13 +123,16 @@ type QueryExpansionConfig struct {
 
 // SourcesConfig defines configuration for available data sources.
 type SourcesConfig struct {
-	ChineseBQB ChineseBQBConfig `mapstructure:"chinesebqb"`
+	LocalDir LocalDirConfig `mapstructure:"localdir"`
 }
 
-// ChineseBQBConfig defines configuration for the ChineseBQB source.
-type ChineseBQBConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	RepoPath string `mapstructure:"repo_path"`
+// LocalDirConfig defines configuration for the local static directory source.
+type LocalDirConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	RootPath     string `mapstructure:"root_path"`
+	SourceID     string `mapstructure:"source_id"`
+	ManifestPath string `mapstructure:"manifest_path"`
+	QueuePath    string `mapstructure:"queue_path"`
 }
 
 // Load reads configuration from file/environment and returns a Config.
@@ -230,8 +233,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ingest.retry_count", 3)
 
 	// Sources defaults
-	v.SetDefault("sources.chinesebqb.enabled", true)
-	v.SetDefault("sources.chinesebqb.repo_path", "./data/ChineseBQB")
+	v.SetDefault("sources.localdir.enabled", true)
+	v.SetDefault("sources.localdir.root_path", "./data/memes")
+	v.SetDefault("sources.localdir.source_id", "localdir")
+	v.SetDefault("sources.localdir.manifest_path", "")
+	v.SetDefault("sources.localdir.queue_path", "")
 
 	// Search defaults
 	v.SetDefault("search.score_threshold", 0.0)
@@ -283,6 +289,12 @@ func bindEnvVars(v *viper.Viper) {
 	v.BindEnv("search.query_expansion.model", "QUERY_EXPANSION_MODEL")
 	v.BindEnv("search.query_expansion.api_key", "QUERY_EXPANSION_API_KEY")
 	v.BindEnv("search.query_expansion.base_url", "QUERY_EXPANSION_BASE_URL")
+
+	// Sources
+	v.BindEnv("sources.localdir.root_path", "LOCAL_MEMES_DIR")
+	v.BindEnv("sources.localdir.source_id", "LOCALDIR_SOURCE_ID")
+	v.BindEnv("sources.localdir.manifest_path", "LOCALDIR_MANIFEST_PATH")
+	v.BindEnv("sources.localdir.queue_path", "LOCALDIR_QUEUE_PATH")
 }
 
 // GetStorageConfig returns the storage configuration.

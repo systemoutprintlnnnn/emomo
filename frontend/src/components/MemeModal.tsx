@@ -270,12 +270,6 @@ export default function MemeModal({ meme, isOpen, onClose }: MemeModalProps) {
                   onError={handleImageError}
                 />
               )}
-
-              {/* GIF badge */}
-              {meme.is_animated && (
-                <span className={styles.gifBadge}>GIF</span>
-              )}
-
               {/* Score badge */}
               {scorePercent !== null && (
                 <div className={`${styles.scoreBadge} ${scoreTone}`}>

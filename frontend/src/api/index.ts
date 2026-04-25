@@ -54,7 +54,6 @@ function normalizeResults(results: SearchResult[]): Meme[] {
     vlm_description: result.description, // keep for backward compatibility
     category: result.category,
     tags: result.tags,
-    is_animated: result.is_animated,
     width: result.width,
     height: result.height,
   }));

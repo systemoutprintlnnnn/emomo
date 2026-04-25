@@ -15,14 +15,19 @@ import (
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
-	"github.com/timmy/emomo/internal/source/chinesebqb"
+	"github.com/timmy/emomo/internal/source/localdir"
 	"github.com/timmy/emomo/internal/storage"
 )
 
 func buildSources(cfg *config.Config) map[string]source.Source {
 	sources := make(map[string]source.Source)
-	if cfg.Sources.ChineseBQB.Enabled {
-		sources["chinesebqb"] = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
+	if cfg.Sources.LocalDir.Enabled {
+		sources["localdir"] = localdir.NewAdapter(localdir.Options{
+			RootPath:     cfg.Sources.LocalDir.RootPath,
+			SourceID:     cfg.Sources.LocalDir.SourceID,
+			ManifestPath: cfg.Sources.LocalDir.ManifestPath,
+			QueuePath:    cfg.Sources.LocalDir.QueuePath,
+		})
 	}
 	return sources
 }

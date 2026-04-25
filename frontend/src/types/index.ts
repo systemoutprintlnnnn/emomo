@@ -20,8 +20,6 @@ export interface Meme {
   category?: string;
   /** A list of tags associated with the meme. */
   tags?: string[];
-  /** Indicates if the meme is animated (e.g., GIF). */
-  is_animated: boolean;
   /** The width of the meme image in pixels. */
   width?: number;
   /** The height of the meme image in pixels. */
@@ -87,8 +85,6 @@ export interface SearchResult {
   category: string;
   /** Tags associated with the result. */
   tags: string[];
-  /** Indicates if the result is animated. */
-  is_animated: boolean;
   /** The width of the result image. */
   width?: number;
   /** The height of the result image. */

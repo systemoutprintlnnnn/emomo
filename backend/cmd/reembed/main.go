@@ -332,10 +332,10 @@ func (w *worker) processOne(ctx context.Context, meme domain.Meme, stats *runSta
 	if w.dryRun {
 		atomic.AddInt64(&stats.Reembedded, 1)
 		w.log.WithFields(logger.Fields{
-			"meme_id":     meme.ID,
-			"md5":         meme.MD5Hash,
-			"image_url":   imageURL,
-			"has_desc":    desc != nil,
+			"meme_id":   meme.ID,
+			"md5":       meme.MD5Hash,
+			"image_url": imageURL,
+			"has_desc":  desc != nil,
 		}).Info("[dry-run] would re-embed meme")
 		return
 	}
@@ -361,7 +361,6 @@ func (w *worker) processOne(ctx context.Context, meme domain.Meme, stats *runSta
 		MemeID:         meme.ID,
 		SourceType:     meme.SourceType,
 		Category:       meme.Category,
-		IsAnimated:     meme.IsAnimated,
 		Tags:           meme.Tags,
 		VLMDescription: vlmDescription,
 		OCRText:        ocrText,

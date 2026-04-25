@@ -171,14 +171,14 @@ gorm.Open(postgres.New(postgres.Config{
 | 字段 | 类型 | 约束 | 描述 |
 |------|------|------|------|
 | `id` | TEXT | PRIMARY KEY | UUID 格式主键 |
-| `source_type` | TEXT | NOT NULL, UNIQUE (with source_id) | 数据来源类型 (如 `chinesebqb`) |
+| `source_type` | TEXT | NOT NULL, UNIQUE (with source_id) | 数据来源类型 (如 `localdir`) |
 | `source_id` | TEXT | NOT NULL, UNIQUE (with source_type) | 在来源中的唯一标识 |
 | `storage_key` | TEXT | - | S3/R2 存储路径 |
 | `local_path` | TEXT | - | 本地文件路径 (用于调试) |
 | `width` | INT | - | 图片宽度 (像素) |
 | `height` | INT | - | 图片高度 (像素) |
-| `format` | TEXT | - | 图片格式 (jpeg, png, gif, webp) |
-| `is_animated` | BOOL | - | 是否为动态图 |
+| `format` | TEXT | - | 图片格式 (jpeg, png, webp；GIF 不再摄入) |
+| `is_animated` | BOOL | - | 历史兼容字段；新摄入始终为 `false` |
 | `file_size` | BIGINT | - | 文件大小 (字节) |
 | `md5_hash` | TEXT | UNIQUE INDEX | 图片内容的 MD5 哈希 (用于去重) |
 | `perceptual_hash` | TEXT | - | 感知哈希 (预留，未使用) |
@@ -213,7 +213,7 @@ type Meme struct {
     Width          int         `json:"width"`
     Height         int         `json:"height"`
     Format         string      `json:"format"`
-    IsAnimated     bool        `json:"is_animated"`
+    IsAnimated     bool        `json:"is_animated"` // 历史兼容字段；新摄入始终 false
     FileSize       int64       `json:"file_size"`
     MD5Hash        string      `gorm:"uniqueIndex:idx_memes_md5" json:"md5_hash"`
     PerceptualHash string      `gorm:"type:text" json:"perceptual_hash,omitempty"`
@@ -419,7 +419,7 @@ const (
 │  (表情包元数据表 - 核心表)                                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  id (PK) │ source_type │ source_id │ md5_hash (UK) │ storage_key         │
-│  width │ height │ format │ is_animated │ vlm_description │ status        │
+│  width │ height │ format │ is_animated (legacy) │ vlm_description │ status  │
 │  tags (JSON) │ category │ created_at │ updated_at                        │
 └──────────┬──────────────────────────────────────────────────────────────┘
            │
@@ -499,7 +499,6 @@ type MemePayload struct {
     MemeID         string   `json:"meme_id"`         // 关联的 meme ID
     SourceType     string   `json:"source_type"`     // 数据来源类型
     Category       string   `json:"category"`        // 分类
-    IsAnimated     bool     `json:"is_animated"`     // 是否动态图
     Tags           []string `json:"tags"`            // 标签数组
     VLMDescription string   `json:"vlm_description"` // VLM 描述
     StorageURL     string   `json:"storage_url"`     // 图片 URL
@@ -587,7 +586,6 @@ func (r *MemeRepository) Upsert(ctx context.Context, meme *domain.Meme) error {
 ```go
 type SearchFilters struct {
     Category   *string  // 分类过滤
-    IsAnimated *bool    // 动态图过滤
     SourceType *string  // 来源类型过滤
 }
 ```

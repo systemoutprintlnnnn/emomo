@@ -163,11 +163,6 @@ export default function MemeCard({ meme, index = 0, onClick }: MemeCardProps) {
             </div>
           </div>
         </motion.div>
-
-        {/* Animated badge for GIFs */}
-        {meme.is_animated && (
-          <span className={styles.gifBadge}>GIF</span>
-        )}
       </div>
     </motion.article>
   );

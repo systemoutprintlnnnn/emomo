@@ -13,18 +13,28 @@ import (
 	"github.com/timmy/emomo/internal/repository"
 	"github.com/timmy/emomo/internal/service"
 	"github.com/timmy/emomo/internal/source"
-	"github.com/timmy/emomo/internal/source/chinesebqb"
+	"github.com/timmy/emomo/internal/source/localdir"
 	"github.com/timmy/emomo/internal/storage"
 )
 
-func selectSource(cfg *config.Config, sourceType string) (source.Source, error) {
-	if sourceType != "chinesebqb" {
-		return nil, fmt.Errorf("unsupported source type %q; supported source: chinesebqb", sourceType)
+func selectSource(cfg *config.Config, sourceType string, pathOverride string) (source.Source, error) {
+	if sourceType != "localdir" {
+		return nil, fmt.Errorf("unsupported source type %q; supported source: localdir", sourceType)
 	}
-	if !cfg.Sources.ChineseBQB.Enabled {
+	if !cfg.Sources.LocalDir.Enabled {
 		return nil, fmt.Errorf("source %q is disabled", sourceType)
 	}
-	return chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath), nil
+
+	rootPath := cfg.Sources.LocalDir.RootPath
+	if pathOverride != "" {
+		rootPath = pathOverride
+	}
+	return localdir.NewAdapter(localdir.Options{
+		RootPath:     rootPath,
+		SourceID:     cfg.Sources.LocalDir.SourceID,
+		ManifestPath: cfg.Sources.LocalDir.ManifestPath,
+		QueuePath:    cfg.Sources.LocalDir.QueuePath,
+	}), nil
 }
 
 func main() {
@@ -38,7 +48,8 @@ func main() {
 	defer logger.Sync() // Ensure logs are flushed on exit
 
 	// Parse command line flags
-	sourceType := flag.String("source", "chinesebqb", "Data source to ingest from")
+	sourceType := flag.String("source", "localdir", "Data source to ingest from")
+	sourcePath := flag.String("path", "", "Local static image directory path; overrides sources.localdir.root_path")
 	limit := flag.Int("limit", 100, "Maximum number of items to ingest")
 	retryPending := flag.Bool("retry", false, "Retry pending items instead of ingesting new ones")
 	force := flag.Bool("force", false, "Force re-process items, skip duplicate checks")
@@ -207,7 +218,7 @@ func main() {
 			"failed":    stats.FailedItems,
 		}).Info("Retry completed")
 	} else {
-		src, err := selectSource(cfg, *sourceType)
+		src, err := selectSource(cfg, *sourceType, *sourcePath)
 		if err != nil {
 			appLogger.WithError(err).WithField("source", *sourceType).Fatal("Failed to select source")
 		}

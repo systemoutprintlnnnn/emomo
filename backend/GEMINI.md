@@ -6,10 +6,10 @@ All commands below assume `cd backend` unless noted.
 
 ## 1. Project Overview
 
-**Emomo** is a meme search engine that ingests memes from ChineseBQB, indexes them using vector embeddings and visual language models (VLM), and provides a semantic search API.
+**Emomo** is a meme search engine that ingests memes from a local static image directory, indexes them using vector embeddings and visual language models (VLM), and provides a semantic search API.
 
 ### Core Components
-*   **Ingestion (Go, `cmd/ingest`):** consumes ChineseBQB local repo data, generates VLM descriptions and embeddings, uploads images to object storage (S3/R2), and indexes them in Qdrant + a relational DB.
+*   **Ingestion (Go, `cmd/ingest`):** consumes local static image directory data, generates VLM descriptions and embeddings, uploads images to object storage (S3/R2), and indexes them in Qdrant + a relational DB.
 *   **API (Go, `cmd/api`):** REST API (Gin) for searching memes; uses query expansion + vector search.
 
 ## 2. Technology Stack
@@ -25,7 +25,7 @@ All commands below assume `cd backend` unless noted.
 
 ```mermaid
 graph LR
-    Local[ChineseBQB Local Repo] --> Ingest[Ingest Service]
+    Local[Local Static Image Dir] --> Ingest[Ingest Service]
 
     Ingest -->|Upload| S3[Object Storage]
     Ingest -->|VLM and Embed| AI[AI Services]
@@ -45,7 +45,7 @@ graph LR
 *   `internal/api/`: HTTP handlers and routers.
 *   `internal/service/`: Business logic (search, ingest, VLM, embedding, query expansion).
 *   `internal/repository/`: Data access layer (DB, Qdrant).
-*   `internal/source/`: Adapters for ingestion sources (ChineseBQB).
+*   `internal/source/`: Adapters for ingestion sources (`localdir`).
 *   `configs/`: `config.yaml`, `config.cloud.yaml.example`, `huggingface-spaces.env.example`.
 *   `migrations/`: SQL migrations.
 
@@ -58,11 +58,11 @@ graph LR
 ### Local Setup
 1.  Configuration: `cp .env.example .env` and fill in API keys.
 2.  Optional infra: `docker compose -f ../deployments/docker-compose.yml up -d` (from repo root) to start API + Alloy.
-3.  Prepare ChineseBQB data:
+3.  Prepare local static image data:
     ```bash
-    git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+    mkdir -p ./data/memes
     ```
-4.  Ingest: `./scripts/import-data.sh -s chinesebqb -l 50`.
+4.  Ingest: `./scripts/import-data.sh -p ./data/memes -l 50`.
 5.  API server: `go run ./cmd/api`. Defaults to `http://localhost:8080`.
 
 ### Common Tasks

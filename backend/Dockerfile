@@ -36,8 +36,8 @@ COPY --from=builder /app/api .
 COPY --from=builder /app/configs ./configs
 COPY --from=builder /app/scripts ./scripts
 
-# Create data directory and ChineseBQB subdirectory
-RUN mkdir -p ./data/ChineseBQB && \
+# Create local static image data directory
+RUN mkdir -p ./data/memes && \
     chmod +x ./scripts/*.sh 2>/dev/null || true
 
 # Expose port (Hugging Face Spaces uses 7860 by default)
@@ -48,4 +48,3 @@ ENV PORT=7860
 
 # Run the binary (with directory check)
 CMD ["sh", "-c", "./scripts/check-data-dir.sh && ./api"]
-
