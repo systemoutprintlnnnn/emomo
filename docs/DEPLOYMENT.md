@@ -353,9 +353,9 @@ JINA_API_KEY=your-key
 
 详细说明请参考 [`deployments/README.md`](../deployments/README.md)。
 
-#### 重要：ChineseBQB 目录挂载
+#### 重要：本地静态图片目录挂载
 
-在使用 Docker 部署时，**必须确保 ChineseBQB 数据目录被正确挂载**，否则 ingestion 会失败（处理 0 个项目）。
+在使用 Docker 部署时，**必须确保本地静态图片目录被正确挂载**，否则 ingestion 会处理 0 个项目。默认目录为 `/root/data/memes`。
 
 #### 云服务配置（推荐）
 
@@ -387,12 +387,12 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
 
 1. **准备数据目录**
    ```bash
-   # 在服务器上克隆 ChineseBQB 数据
    cd /path/to/emomo
-   git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+   mkdir -p ./backend/data/memes
+   # 把 .jpg/.jpeg/.png/.webp 静态图片放入 ./backend/data/memes
    
    # 确保目录结构正确
-   ls -la ./data/ChineseBQB  # 应该看到图片文件
+   ls -la ./backend/data/memes  # 应该看到图片文件
    ```
 
 2. **检查 docker-compose.yml 挂载配置**
@@ -400,11 +400,11 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
    确保 `docker-compose.yml` 中有以下挂载配置：
    ```yaml
    volumes:
-     - ../data:/root/data        # 挂载整个 data 目录
-     - ../configs:/root/configs  # 挂载配置文件
+     - ../backend/data:/root/data        # 挂载整个 data 目录
+     - ../backend/configs:/root/configs  # 挂载配置文件
    ```
    
-   这会将主机的 `./data/ChineseBQB` 挂载到容器的 `/root/data/ChineseBQB`。
+   这会将主机的 `./backend/data/memes` 挂载到容器的 `/root/data/memes`。
 
 3. **启动服务**
    ```bash
@@ -418,11 +418,11 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
    docker exec -it emomo-api sh
    
    # 在容器内检查
-   ls -la /root/data/ChineseBQB
+   ls -la /root/data/memes
    # 应该能看到图片文件
    
    # 检查文件数量
-   find /root/data/ChineseBQB -type f | wc -l
+   find /root/data/memes -type f | wc -l
    ```
 
 5. **查看启动日志**
@@ -436,12 +436,12 @@ export STORAGE_PUBLIC_URL=https://pub-xxx.r2.dev  # 可选
 
 **问题：Ingestion 处理了 0 个项目**
 
-**原因**：ChineseBQB 目录未正确挂载到容器中。
+**原因**：本地静态图片目录未正确挂载到容器中。
 
 **解决方案**：
-1. 检查主机上的目录是否存在：`ls -la /path/to/emomo/data/ChineseBQB`
+1. 检查主机上的目录是否存在：`ls -la /path/to/emomo/backend/data/memes`
 2. 检查 docker-compose.yml 中的挂载路径是否正确（使用相对路径 `../data` 或绝对路径）
-3. 确保目录包含图片文件（.jpg, .png, .gif, .webp）
+3. 确保目录包含静态图片文件（.jpg, .jpeg, .png, .webp）；GIF 不会被摄入
 4. 重启容器：`docker-compose -f docker-compose.yml restart api`
 5. 查看容器日志：`docker logs emomo-api`
 
@@ -461,7 +461,7 @@ volumes:
 
 ```bash
 # 确保目录可读
-chmod -R 755 /path/to/emomo/data/ChineseBQB
+chmod -R 755 /path/to/emomo/backend/data/memes
 
 # 如果使用非 root 用户运行容器，可能需要调整权限
 ```
@@ -477,7 +477,7 @@ chmod -R 755 /path/to/emomo/data/ChineseBQB
 curl -X POST http://localhost:8080/api/v1/ingest \
   -H "Content-Type: application/json" \
   -d '{
-    "source": "chinesebqb",
+    "source": "localdir",
     "limit": 100,
     "force": false
   }'
@@ -486,7 +486,7 @@ curl -X POST http://localhost:8080/api/v1/ingest \
 # http://localhost:8080/
 ```
 
-**说明**：API 和 CLI 摄入目前仅支持 `chinesebqb`。
+**说明**：API 和 CLI 摄入目前仅支持 `localdir`。
 
 ### 方式二：使用命令行工具摄入
 
@@ -494,17 +494,18 @@ curl -X POST http://localhost:8080/api/v1/ingest \
 # 在服务器上或本地
 cd emomo
 
-# 确保数据目录存在
-# git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+# 确保数据目录存在，并放入 .jpg/.jpeg/.png/.webp 静态图片
+mkdir -p ./backend/data/memes
 
 # 使用导入脚本（推荐，无需预先编译）
-./scripts/import-data.sh -s chinesebqb -l 100
+cd backend
+./scripts/import-data.sh -p ./data/memes -l 100
 
 # 如果成功，摄入全部
-./scripts/import-data.sh -s chinesebqb -l 10000
+./scripts/import-data.sh -p ./data/memes -l 10000
 
 # 或使用 go run 直接运行
-go run ./cmd/ingest --source=chinesebqb --limit=100
+go run ./cmd/ingest --source=localdir --path=./data/memes --limit=100
 ```
 
 ### 方式三：在 Docker 容器内摄入
@@ -559,24 +560,24 @@ docker exec -it emomo-api sh
 - 检查 CORS 配置
 
 ### Ingestion 处理 0 个项目（Docker 部署）
-- **检查 ChineseBQB 目录是否挂载**：
+- **检查本地静态图片目录是否挂载**：
   ```bash
   # 检查容器内目录
-  docker exec emomo-api ls -la /root/data/ChineseBQB
+  docker exec emomo-api ls -la /root/data/memes
   
   # 检查文件数量
-  docker exec emomo-api find /root/data/ChineseBQB -type f | wc -l
+  docker exec emomo-api find /root/data/memes -type f | wc -l
   ```
 - **检查 docker-compose.yml 挂载配置**：
   - 确保 `../data:/root/data` 挂载正确
   - 如果使用绝对路径，确保路径正确
 - **检查主机上的目录**：
   ```bash
-  ls -la /path/to/emomo/data/ChineseBQB
+  ls -la /path/to/emomo/backend/data/memes
   ```
 - **查看启动日志**：
   ```bash
-  docker logs emomo-api | grep -i "chinesebqb\|data\|directory"
+  docker logs emomo-api | grep -i "local static\|data\|directory"
   ```
 - **重启容器**：
   ```bash

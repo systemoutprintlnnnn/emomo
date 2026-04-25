@@ -31,8 +31,8 @@ cd backend && go build ./... && go test ./...
 # Frontend lint / build
 cd frontend && npm install && npm run lint && npm run build
 
-# Ingest ChineseBQB data
-cd backend && ./scripts/import-data.sh -s chinesebqb -l 50
+# Ingest local static image data
+cd backend && ./scripts/import-data.sh -p ./data/memes -l 50
 
 # Containerized API + Grafana Alloy
 docker compose -f deployments/docker-compose.yml up -d

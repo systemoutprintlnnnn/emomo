@@ -17,8 +17,8 @@ Sibling directories at repo root: `../frontend/` (React/Vite UI), `../deployment
 ## Build, Test, and Development Commands
 - `cd backend && go run ./cmd/api`: run the API server locally (port 8080 by default).
 - `cd backend && go build ./... && go test ./...`: build and test all Go packages.
-- `cd backend && ./scripts/import-data.sh -s chinesebqb -l 50`: ingest ChineseBQB memes (recommended).
-- `cd backend && go run ./cmd/ingest --source=chinesebqb --limit=50`: ingest ChineseBQB memes (alternative).
+- `cd backend && ./scripts/import-data.sh -p ./data/memes -l 50`: ingest local static image memes (recommended).
+- `cd backend && go run ./cmd/ingest --source=localdir --path=./data/memes --limit=50`: ingest local static image memes (alternative).
 - `docker compose -f deployments/docker-compose.yml up -d` (from repo root): start API + Grafana Alloy.
 
 ## Coding Style & Naming Conventions

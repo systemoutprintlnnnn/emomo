@@ -227,7 +227,6 @@ type MemePayload struct {
 	MemeID         string   `json:"meme_id"`
 	SourceType     string   `json:"source_type"`
 	Category       string   `json:"category"`
-	IsAnimated     bool     `json:"is_animated"`
 	Tags           []string `json:"tags"`
 	VLMDescription string   `json:"vlm_description"`
 	OCRText        string   `json:"ocr_text"`
@@ -264,7 +263,6 @@ func (r *QdrantRepository) Upsert(ctx context.Context, pointID string, vector []
 				"meme_id":         {Kind: &pb.Value_StringValue{StringValue: payload.MemeID}},
 				"source_type":     {Kind: &pb.Value_StringValue{StringValue: payload.SourceType}},
 				"category":        {Kind: &pb.Value_StringValue{StringValue: payload.Category}},
-				"is_animated":     {Kind: &pb.Value_BoolValue{BoolValue: payload.IsAnimated}},
 				"vlm_description": {Kind: &pb.Value_StringValue{StringValue: payload.VLMDescription}},
 				"ocr_text":        {Kind: &pb.Value_StringValue{StringValue: payload.OCRText}},
 				"storage_url":     {Kind: &pb.Value_StringValue{StringValue: payload.StorageURL}},
@@ -327,7 +325,6 @@ func (r *QdrantRepository) UpsertHybrid(ctx context.Context, pointID string, vec
 				"meme_id":         {Kind: &pb.Value_StringValue{StringValue: payload.MemeID}},
 				"source_type":     {Kind: &pb.Value_StringValue{StringValue: payload.SourceType}},
 				"category":        {Kind: &pb.Value_StringValue{StringValue: payload.Category}},
-				"is_animated":     {Kind: &pb.Value_BoolValue{BoolValue: payload.IsAnimated}},
 				"vlm_description": {Kind: &pb.Value_StringValue{StringValue: payload.VLMDescription}},
 				"ocr_text":        {Kind: &pb.Value_StringValue{StringValue: payload.OCRText}},
 				"storage_url":     {Kind: &pb.Value_StringValue{StringValue: payload.StorageURL}},
@@ -547,7 +544,6 @@ func (r *QdrantRepository) HybridSearch(
 // SearchFilters defines optional filters for search.
 type SearchFilters struct {
 	Category   *string
-	IsAnimated *bool
 	SourceType *string
 }
 
@@ -565,19 +561,6 @@ func buildFilter(filters *SearchFilters) *pb.Filter {
 					Key: "category",
 					Match: &pb.Match{
 						MatchValue: &pb.Match_Keyword{Keyword: *filters.Category},
-					},
-				},
-			},
-		})
-	}
-
-	if filters.IsAnimated != nil {
-		conditions = append(conditions, &pb.Condition{
-			ConditionOneOf: &pb.Condition_Field{
-				Field: &pb.FieldCondition{
-					Key: "is_animated",
-					Match: &pb.Match{
-						MatchValue: &pb.Match_Boolean{Boolean: *filters.IsAnimated},
 					},
 				},
 			},
@@ -620,9 +603,6 @@ func parsePayload(payload map[string]*pb.Value) *MemePayload {
 	}
 	if v, ok := payload["category"]; ok {
 		p.Category = v.GetStringValue()
-	}
-	if v, ok := payload["is_animated"]; ok {
-		p.IsAnimated = v.GetBoolValue()
 	}
 	if v, ok := payload["vlm_description"]; ok {
 		p.VLMDescription = v.GetStringValue()

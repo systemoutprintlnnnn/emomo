@@ -26,7 +26,7 @@ Single-language helpers (e.g. `import-data.sh`, Vite config) live inside their r
 - `./scripts/start.sh` — start backend (8080) + frontend (5173) for local development.
 - `cd backend && go test ./... && go build ./...` — backend build + tests.
 - `cd frontend && npm install && npm run lint && npm run build` — frontend lint + build.
-- `cd backend && ./scripts/import-data.sh -s chinesebqb -l 50` — ingest ChineseBQB data.
+- `cd backend && ./scripts/import-data.sh -p ./data/memes -l 50` — ingest local static image data.
 - `docker compose -f deployments/docker-compose.yml up -d` — run API container + Grafana Alloy locally.
 
 ## Coding Style & Naming

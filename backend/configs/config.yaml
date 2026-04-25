@@ -74,6 +74,9 @@ search:
     base_url: ""
 
 sources:
-  chinesebqb:
+  localdir:
     enabled: true
-    repo_path: ./data/ChineseBQB
+    root_path: ./data/memes
+    source_id: localdir
+    manifest_path: ""
+    queue_path: ""

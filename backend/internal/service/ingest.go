@@ -5,9 +5,9 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
-	"image/gif"
 	"image/jpeg"
 	_ "image/png"
 	"io"
@@ -243,6 +243,9 @@ type processResult struct {
 // errSkipDuplicate is a sentinel error to indicate MD5 duplicate skip
 var errSkipDuplicate = fmt.Errorf("skipped: duplicate MD5")
 
+// errSkipUnsupportedImageFormat is a sentinel error for unsupported source images.
+var errSkipUnsupportedImageFormat = errors.New("skipped: unsupported image format")
+
 func (s *IngestService) worker(ctx context.Context, workerID int, sourceType string, items <-chan source.MemeItem, results chan<- *processResult, opts *IngestOptions) {
 	for item := range items {
 		select {
@@ -255,7 +258,7 @@ func (s *IngestService) worker(ctx context.Context, workerID int, sourceType str
 
 		// Process the item with the new multi-embedding logic
 		if err := s.processItem(ctx, sourceType, &item, opts); err != nil {
-			if err == errSkipDuplicate {
+			if errors.Is(err, errSkipDuplicate) || errors.Is(err, errSkipUnsupportedImageFormat) {
 				result.skipped = true
 			} else {
 				result.err = err
@@ -279,9 +282,14 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		actualFormat = item.Format // Fallback to extension if detection fails
 	}
 
-	// Convert non-static formats (GIF, WebP) to JPEG for storage and VLM compatibility
+	if !isSupportedStaticImageFormat(actualFormat) {
+		return fmt.Errorf("%w: %s", errSkipUnsupportedImageFormat, actualFormat)
+	}
+
+	// Convert WebP to JPEG for storage and VLM compatibility while preserving
+	// the static-image-only resource policy.
 	processedFormat := actualFormat
-	if !isStaticImageFormat(actualFormat) {
+	if shouldConvertStaticImageToJPEG(actualFormat) {
 		converted, err := convertToJPEG(imageData, actualFormat)
 		if err != nil {
 			return fmt.Errorf("failed to convert %s to JPEG: %w", actualFormat, err)
@@ -291,7 +299,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		imageData = converted
 		processedFormat = "jpeg"
 	} else if actualFormat != item.Format {
-		// Log when actual format differs from extension (e.g., .gif file that's actually JPEG)
+		// Log when actual format differs from extension.
 		logger.CtxDebug(ctx, "Format mismatch: extension=%s, actual=%s, using actual format",
 			item.Format, actualFormat)
 	}
@@ -408,7 +416,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			Width:      width,
 			Height:     height,
 			Format:     processedFormat,
-			IsAnimated: item.IsAnimated,
+			IsAnimated: false,
 			FileSize:   int64(len(imageData)),
 			MD5Hash:    md5Hash,
 			Tags:       item.Tags,
@@ -525,7 +533,6 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		MemeID:         memeID,
 		SourceType:     sourceType,
 		Category:       item.Category,
-		IsAnimated:     item.IsAnimated,
 		Tags:           item.Tags,
 		VLMDescription: vlmDescription,
 		OCRText:        ocrText,
@@ -611,8 +618,6 @@ func getContentType(format string) string {
 		return "image/jpeg"
 	case "png":
 		return "image/png"
-	case "gif":
-		return "image/gif"
 	case "webp":
 		return "image/webp"
 	default:
@@ -620,17 +625,19 @@ func getContentType(format string) string {
 	}
 }
 
-// isStaticImageFormat checks if the image format is a static format (not animated).
-// GIF and WebP can be animated and should be converted to JPEG for storage.
-func isStaticImageFormat(format string) bool {
+// isSupportedStaticImageFormat checks if a source format is accepted by the
+// static-image-only ingestion policy.
+func isSupportedStaticImageFormat(format string) bool {
 	switch format {
-	case "jpg", "jpeg", "png":
+	case "jpg", "jpeg", "png", "webp":
 		return true
-	case "gif", "webp":
-		return false
 	default:
-		return true
+		return false
 	}
+}
+
+func shouldConvertStaticImageToJPEG(format string) bool {
+	return format == "webp"
 }
 
 // detectImageFormat detects the actual image format by examining magic bytes.
@@ -695,28 +702,12 @@ func detectImageFormat(data []byte) string {
 	return "unknown"
 }
 
-// convertToJPEG converts an image from any supported format to JPEG.
-// For GIF images, it extracts the first frame.
+// convertToJPEG converts a supported static image to JPEG.
 func convertToJPEG(imageData []byte, format string) ([]byte, error) {
-	var img image.Image
-	var err error
-
 	reader := bytes.NewReader(imageData)
-
-	// Decode based on format
-	switch format {
-	case "gif":
-		// For GIF, decode only the first frame
-		img, err = gif.Decode(reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode GIF: %w", err)
-		}
-	default:
-		// For other formats (webp, etc.), use the generic decoder
-		img, _, err = image.Decode(reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode image: %w", err)
-		}
+	img, _, err := image.Decode(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image: %w", err)
 	}
 
 	// Encode to JPEG
@@ -892,7 +883,6 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			MemeID:         meme.ID,
 			SourceType:     meme.SourceType,
 			Category:       meme.Category,
-			IsAnimated:     meme.IsAnimated,
 			Tags:           meme.Tags,
 			VLMDescription: description,
 			OCRText:        ocrText,

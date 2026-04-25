@@ -13,9 +13,9 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
-      # Mount data directory (must contain ChineseBQB subdirectory)
-      # On host: <project-root>/backend/data/ChineseBQB should exist with image files
-      # In container: /root/data/ChineseBQB will be accessible
+      # Mount data directory (static images live under /root/data/memes by default)
+      # On host: <project-root>/backend/data/memes should contain static images
+      # In container: /root/data/memes will be accessible
       - ../backend/data:/root/data
       - ../backend/configs:/root/configs
     environment:
@@ -53,6 +53,7 @@ services:
 
       # 可选配置
       - DATA_DIR=${DATA_DIR:-/root/data}
+      - LOCAL_MEMES_DIR=${LOCAL_MEMES_DIR:-/root/data/memes}
       - CONFIG_PATH=${CONFIG_PATH:-/root/configs/config.yaml}
     restart: unless-stopped
     networks:

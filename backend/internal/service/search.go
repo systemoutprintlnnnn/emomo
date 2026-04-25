@@ -145,7 +145,6 @@ type SearchRequest struct {
 	Query      string  `json:"query" binding:"required"`
 	TopK       int     `json:"top_k"`
 	Category   *string `json:"category,omitempty"`
-	IsAnimated *bool   `json:"is_animated,omitempty"`
 	SourceType *string `json:"source_type,omitempty"`
 	Collection string  `json:"collection,omitempty"` // Optional: specify which collection to search
 }
@@ -158,7 +157,6 @@ type SearchResult struct {
 	Description string   `json:"description"`
 	Category    string   `json:"category"`
 	Tags        []string `json:"tags"`
-	IsAnimated  bool     `json:"is_animated"`
 	Width       int      `json:"width,omitempty"`
 	Height      int      `json:"height,omitempty"`
 }
@@ -243,7 +241,6 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	// Build filters
 	filters := &repository.SearchFilters{
 		Category:   req.Category,
-		IsAnimated: req.IsAnimated,
 		SourceType: req.SourceType,
 	}
 
@@ -275,7 +272,6 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 			Description: qr.Payload.VLMDescription,
 			Category:    qr.Payload.Category,
 			Tags:        qr.Payload.Tags,
-			IsAnimated:  qr.Payload.IsAnimated,
 		})
 	}
 
@@ -420,7 +416,6 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 
 	filters := &repository.SearchFilters{
 		Category:   req.Category,
-		IsAnimated: req.IsAnimated,
 		SourceType: req.SourceType,
 	}
 
@@ -456,7 +451,6 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 			Description: qr.Payload.VLMDescription,
 			Category:    qr.Payload.Category,
 			Tags:        qr.Payload.Tags,
-			IsAnimated:  qr.Payload.IsAnimated,
 		}
 		results = append(results, result)
 	}
@@ -577,7 +571,6 @@ func (s *SearchService) ListMemes(ctx context.Context, category string, limit, o
 			Description: "", // VLM description moved to meme_descriptions table; use search for descriptions
 			Category:    meme.Category,
 			Tags:        meme.Tags,
-			IsAnimated:  meme.IsAnimated,
 			Width:       meme.Width,
 			Height:      meme.Height,
 		}

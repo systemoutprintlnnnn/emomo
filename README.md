@@ -2,7 +2,9 @@
 
 > AI 表情包语义搜索系统 — Go 后端 + React 前端 monorepo
 
-Emomo 让你用自然语言搜表情包。系统由 Go 后端（搜索 + ChineseBQB 摄入）和 React 前端（用户界面）组成。
+Emomo 让你用自然语言搜表情包。系统由 Go 后端（搜索 + 本地静态图片目录摄入）和 React 前端（用户界面）组成。
+
+资源约束：表情包资源只支持静态图片；GIF 文件不再支持，也不会被摄入。
 
 ## 仓库结构
 
@@ -54,8 +56,8 @@ npm run dev
 
 ```bash
 cd backend
-./scripts/import-data.sh -s chinesebqb -e jina -l 50
-# 或: go run ./cmd/ingest --source=chinesebqb --embedding=jina --limit=50
+./scripts/import-data.sh -p ./data/memes -e jina -l 50
+# 或: go run ./cmd/ingest --source=localdir --path=./data/memes --embedding=jina --limit=50
 ```
 
 详见 [docs/MULTI_EMBEDDING.md](docs/MULTI_EMBEDDING.md) 与 [backend/configs/config.yaml](backend/configs/config.yaml)。

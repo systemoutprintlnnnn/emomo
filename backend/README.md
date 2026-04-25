@@ -15,12 +15,12 @@ license: mit
 > 本目录是 emomo monorepo 的后端子项目。仓库总览见 [../README.md](../README.md)。
 > Hugging Face Space 通过 GitHub Actions 仅同步本目录（见仓库 `.github/workflows/sync_to_hf.yml`），所以 Space 看到的根就是这里。
 
-Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，支持 ChineseBQB 本地仓库摄入、自动描述生成与向量检索。
+Emomo 是一个基于 Go + Qdrant + VLM + Text Embedding 的表情包语义搜索系统，支持本地静态图片目录摄入、自动描述生成与向量检索。表情包资源只支持静态图片；GIF 文件不再支持，也不会被摄入。
 
 ## 功能概览
 
 - 语义搜索：输入文字描述即可检索相似表情包。
-- 数据摄入：支持 ChineseBQB 本地仓库分批摄入。
+- 数据摄入：支持本地静态图片目录分批摄入，仅接收静态图片并跳过 GIF 文件。
 - 向量管理：支持多 Embedding 模型/多集合管理。
 - 存储抽象：兼容 Cloudflare R2、AWS S3 与其他 S3 兼容服务。
 - 可扩展：查询扩展、VLM 描述与多模型配置均可开关。
@@ -107,20 +107,24 @@ docker compose -f deployments/docker-compose.yml up -d
 
 ### 3) 准备数据源
 
-使用 ChineseBQB 本地仓库：
+把静态图片放到本地目录，例如：
 
-```bash
-git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+```text
+data/memes/
+├── 猫猫/
+│   └── 无语.jpg
+└── 狗狗/
+    └── 柴犬.webp
 ```
 
 ### 4) 摄入数据
 
 ```bash
 # 使用导入脚本（推荐，无需预先编译）
-./scripts/import-data.sh -s chinesebqb -l 100
+./scripts/import-data.sh -p ./data/memes -l 100
 
 # 或使用 go run 直接运行
-go run ./cmd/ingest --source=chinesebqb --limit=100
+go run ./cmd/ingest --source=localdir --path=./data/memes --limit=100
 ```
 
 ### 5) 启动 API 服务

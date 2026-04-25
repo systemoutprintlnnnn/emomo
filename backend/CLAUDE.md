@@ -26,12 +26,12 @@ docker compose -f deployments/docker-compose.yml up -d alloy
 
 # Data ingestion using script (recommended, no build required)
 cd backend
-./scripts/import-data.sh -s chinesebqb -l 100       # Ingest memes
+./scripts/import-data.sh -p ./data/memes -l 100     # Ingest memes
 ./scripts/import-data.sh -r -l 100                  # Retry pending items
-./scripts/import-data.sh -s chinesebqb -f           # Force re-process
+./scripts/import-data.sh -p ./data/memes -f         # Force re-process
 
 # Or use go run directly
-go run ./cmd/ingest --source=chinesebqb --limit=100
+go run ./cmd/ingest --source=localdir --path=./data/memes --limit=100
 
 # Run API server (port 8080)
 go run ./cmd/api
@@ -61,7 +61,7 @@ backend/
 │   │   └── qdrant_repo.go # Vector search operations (gRPC)
 │   ├── storage/s3.go    # S3-compatible object storage (supports R2, S3, etc.)
 │   ├── source/          # Data source adapters
-│   │   └── chinesebqb/  # Static file system source
+│   │   └── localdir/    # Local static image directory source
 │   ├── logger/          # Context-aware structured logging
 │   └── domain/          # Data models (Meme, Source, Job)
 └── migrations/          # SQL migrations

@@ -4,13 +4,12 @@ import "context"
 
 // MemeItem represents a meme item from a data source.
 type MemeItem struct {
-	SourceID    string // Unique ID within the source
-	URL         string // Image URL or local path
-	Category    string // Category/folder name
-	Tags        []string
-	IsAnimated  bool
-	Format      string // File format (jpg, png, gif, etc.)
-	LocalPath   string // Local file path (if available)
+	SourceID  string // Unique ID within the source
+	URL       string // Image URL or local path
+	Category  string // Category/folder name
+	Tags      []string
+	Format    string // File format (jpg, png, webp, etc.)
+	LocalPath string // Local file path (if available)
 }
 
 // Source defines the interface for meme data sources.

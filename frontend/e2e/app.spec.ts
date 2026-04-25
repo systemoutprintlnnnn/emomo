@@ -81,7 +81,6 @@ test.describe('Emomo 表情包搜索应用', () => {
                 description: '猫咪测试表情',
                 category: '测试',
                 tags: ['猫咪'],
-                is_animated: false,
                 width: 120,
                 height: 120,
               },

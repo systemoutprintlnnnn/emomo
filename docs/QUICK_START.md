@@ -1,6 +1,6 @@
 # 快速部署指南
 
-> **monorepo 提示**：本文档原本针对纯后端仓库编写。后端代码已下沉到 `backend/`，所有形如 `./scripts/...` 或 `go run ./cmd/...` 的命令请先 `cd backend` 再执行（例如 `cd backend && ./scripts/import-data.sh -s chinesebqb -l 100`）。
+> **monorepo 提示**：本文档原本针对纯后端仓库编写。后端代码已下沉到 `backend/`，所有形如 `./scripts/...` 或 `go run ./cmd/...` 的命令请先 `cd backend` 再执行（例如 `cd backend && ./scripts/import-data.sh -p ./data/memes -l 100`）。
 
 ## 前置要求
 
@@ -148,17 +148,19 @@ JINA_API_KEY=your-jina-key
 # 在服务器上或本地
 cd emomo
 
-# 克隆数据源
-git clone https://github.com/zhaoolee/ChineseBQB.git ./data/ChineseBQB
+# 准备本地静态图片目录
+mkdir -p backend/data/memes
+# 把 .jpg/.jpeg/.png/.webp 图片放到 backend/data/memes
 
 # 使用导入脚本（推荐，无需预先编译）
-./scripts/import-data.sh -s chinesebqb -l 100
+cd backend
+./scripts/import-data.sh -p ./data/memes -l 100
 
 # 如果成功，摄入全部
-./scripts/import-data.sh -s chinesebqb -l 10000
+./scripts/import-data.sh -p ./data/memes -l 10000
 
 # 或使用 go run 直接运行
-go run ./cmd/ingest --source=chinesebqb --limit=100
+go run ./cmd/ingest --source=localdir --path=./data/memes --limit=100
 ```
 
 ## 配置前端

@@ -84,6 +84,9 @@ search:
     model: qwen/qwen-2.5-vl-7b-instruct:free
 
 sources:
-  chinesebqb:
+  localdir:
     enabled: true
-    repo_path: ./data/ChineseBQB
+    root_path: ./data/memes
+    source_id: localdir
+    manifest_path: ""
+    queue_path: ""

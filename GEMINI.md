@@ -19,7 +19,7 @@ scripts/     Cross-service helpers (start.sh)
 
 ```mermaid
 graph LR
-    Local[ChineseBQB Local Repo] --> Ingest[Ingest Service]
+    Local[Local Static Image Dir] --> Ingest[Ingest Service]
 
     Ingest -->|upload| S3[Object Storage]
     Ingest -->|VLM and Embed| AI[AI Services]
@@ -47,7 +47,7 @@ docker compose -f deployments/docker-compose.yml up -d   # API + Alloy
 ```bash
 cd backend && go run ./cmd/api
 cd frontend && npm run dev
-cd backend && ./scripts/import-data.sh -s chinesebqb -l 50
+cd backend && ./scripts/import-data.sh -p ./data/memes -l 50
 ```
 
 ## 4. Conventions

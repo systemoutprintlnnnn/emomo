@@ -1,7 +1,7 @@
 # AI 表情库项目路线图
 
 > 技术栈：Golang + Qdrant + VLM + Text Embedding  
-> 数据源：ChineseBQB（MVP）、Tenor API、爬虫（扩展）  
+> 数据源：本地静态图片目录（MVP）、API/上传入口（扩展）
 > 目标：快速跑通 MVP，同时预留多数据源扩展能力
 > 备注：下文为早期规划示意，实际实现以当前仓库为准（Docker Compose 仅包含 API + Alloy，Qdrant/存储外部）。
 
@@ -43,7 +43,7 @@
           │              ▼                 ▼              ▼
           │    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
           │    │ Source Adapter  │  │ Source Adapter  │  │ Embedding       │
-          │    │ (ChineseBQB)    │  │ (Tenor API)     │  │ Service         │
+          │    │ (LocalDir)      │  │ (Upload/API)    │  │ Service         │
           │    └─────────────────┘  └─────────────────┘  │ (文本向量生成)   │
           │              │                 │              └─────────────────┘
           │              │    ┌────────────┘                      │
@@ -75,7 +75,7 @@
 
 ### 1.2 核心设计原则
 
-**数据源抽象层**：所有数据源（ChineseBQB、Tenor API、爬虫）都实现统一接口，新增数据源只需实现该接口即可接入，无需修改核心逻辑。
+**数据源抽象层**：当前主数据源是本地静态图片目录，后续上传/API 数据源也应实现统一接口，无需修改核心摄入逻辑。
 
 **摄入与搜索分离**：数据摄入是后台异步任务，搜索是实时低延迟服务，两者独立扩展。
 
@@ -102,13 +102,12 @@
 | `SupportsIncremental()` | 是否支持增量更新 |
 | `GetSourceID()` | 返回数据源唯一标识 |
 
-**MVP 阶段实现**：ChineseBQB Adapter（从 GitHub 仓库读取）
+**MVP 阶段实现**：LocalDir Adapter（递归扫描本地静态图片目录）
 
 **预留扩展**：
-- Tenor API Adapter
-- Giphy API Adapter  
-- 通用爬虫 Adapter（接收爬虫推送的数据）
 - 用户上传 Adapter
+- 对象存储清单 Adapter
+- API/Staging Adapter
 
 ### 2.2 摄入服务（Ingest Service）
 
@@ -188,7 +187,7 @@
 - Collection 使用余弦相似度（Cosine）
 - 向量维度：1024（Jina Embeddings v3）
 - 开启 HNSW 索引，ef=128, m=16
-- Payload 存储：source_type, category, is_animated, tags, vlm_description
+- Payload 存储：source_type, category, tags, vlm_description
 
 ---
 
@@ -211,14 +210,14 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
-| source_type | TEXT | 数据源类型（chinesebqb/tenor） |
+| source_type | TEXT | 数据源类型（localdir/upload 等） |
 | source_id | TEXT | 数据源内的原始ID |
 | storage_key | TEXT | 对象存储路径 |
 | original_url | TEXT | 原始来源URL |
 | width | INTEGER | 宽度 |
 | height | INTEGER | 高度 |
-| format | TEXT | 格式（jpeg/png/gif/webp） |
-| is_animated | INTEGER | 是否动图（0/1） |
+| format | TEXT | 静态图片格式（jpeg/png/webp；GIF 不支持） |
+| is_animated | INTEGER | 历史兼容字段，新摄入始终为 0 |
 | file_size | INTEGER | 文件大小（字节） |
 | md5_hash | TEXT | MD5哈希（精确去重） |
 | perceptual_hash | TEXT | 感知哈希（相似去重，可选） |
@@ -284,12 +283,11 @@ CREATE INDEX idx_memes_category ON memes(category);
 | meme_id | string | 关联 SQLite 主键 |
 | source_type | string | 过滤数据源 |
 | category | string | 分类过滤 |
-| is_animated | bool | GIF 过滤 |
 | tags | string[] | 标签过滤 |
 | vlm_description | string | 描述文本（调试用） |
 | storage_url | string | 图片 URL（直接返回，减少查库） |
 
-**Payload 用于过滤**：搜索时可以附加条件，如「只搜索 GIF」或「只搜索某分类」。
+**Payload 用于过滤**：搜索时可以附加条件，如「只搜索某分类」或「只搜索某数据源」。
 
 **示例向量点结构**：
 ```json
@@ -298,9 +296,8 @@ CREATE INDEX idx_memes_category ON memes(category);
   "vector": [0.1, 0.2, ...],
   "payload": {
     "meme_id": "550e8400-e29b-41d4-a716-446655440000",
-    "source_type": "chinesebqb",
+    "source_type": "localdir",
     "category": "猫猫表情",
-    "is_animated": false,
     "tags": ["猫", "无语", "可爱"],
     "vlm_description": "一只橘猫露出无语的表情，眼神呆滞",
     "storage_url": "https://cdn.example.com/memes/abc123.jpg"
@@ -553,7 +550,7 @@ meme-library/
 │   │
 │   ├── source/                 # 数据源适配器（扩展点）
 │   │   ├── interface.go        # 统一接口定义
-│   │   ├── chinesebqb/         # ChineseBQB 适配器
+│   │   ├── localdir/           # 本地静态图片目录适配器
 │   │   ├── tenor/              # Tenor API 适配器（预留）
 │   │   └── giphy/              # Giphy API 适配器（预留）
 │   │
@@ -564,7 +561,7 @@ meme-library/
 │   │
 │   └── pkg/                    # 工具包
 │       ├── hash/               # MD5、感知哈希
-│       ├── image/              # 图片处理（尺寸、格式、GIF 关键帧）
+│       ├── image/              # 图片处理（尺寸、格式校验）
 │       └── retry/              # 重试逻辑
 │
 ├── data/                       # 本地数据目录（.gitignore）
@@ -580,7 +577,7 @@ meme-library/
 │   └── Dockerfile
 │
 ├── scripts/                    # 脚本
-│   └── ingest_chinesebqb.sh    # ChineseBQB 数据导入脚本
+│   └── import-data.sh          # 本地静态图片目录导入脚本
 │
 ├── go.mod
 ├── go.sum
@@ -593,7 +590,7 @@ meme-library/
 
 ### 第一阶段：MVP 基础搭建（第 1-2 周）
 
-**目标**：跑通「ChineseBQB 导入 → 语义搜索」完整链路
+**目标**：跑通「本地静态图片目录导入 → 语义搜索」完整链路
 
 **Week 1：基础设施 + 数据模型**
 
@@ -610,7 +607,7 @@ meme-library/
 | 任务 | 产出 | 优先级 |
 |------|------|--------|
 | 实现数据源接口定义 | source/interface.go | P0 |
-| 实现 ChineseBQB Adapter | 从 GitHub 拉取图片列表、下载图片 | P0 |
+| 实现 LocalDir Adapter | 递归扫描本地静态图片目录 | P0 |
 | 实现 VLM 服务 | 对接 GPT-4o mini API，生成图片描述 | P0 |
 | 实现 Text Embedding 服务 | 对接 Jina Embeddings v3 API | P0 |
 | 实现摄入流程 | 下载 → 存储 → VLM 描述 → Embedding → 写入 Qdrant | P0 |
@@ -618,7 +615,7 @@ meme-library/
 | 基础去重 | MD5 哈希去重 | P1 |
 
 **MVP 里程碑验收**：
-- [ ] 成功导入 ChineseBQB 全部 5,791 张表情包（含 VLM 描述）
+- [ ] 成功导入本地静态图片目录中的表情包（含 VLM 描述）
 - [ ] 输入「无语」返回相关表情包
 - [ ] 输入「开心猫猫」返回相关表情包
 - [ ] 文本搜索延迟 < 200ms
@@ -637,7 +634,7 @@ meme-library/
 | VLM 描述缓存 | MD5 → 描述 缓存，避免重复调用 VLM | P0 |
 | 分类浏览 API | GET /api/v1/categories, GET /api/v1/memes?category=xxx | P0 |
 | 标签过滤搜索 | 支持 Qdrant Payload 过滤 + 向量搜索组合 | P1 |
-| GIF 特殊处理 | 提取关键帧供 VLM 描述 | P1 |
+| GIF 排除策略 | 数据源跳过 + 摄入校验拒绝 | P0 |
 | 搜索结果分页 | 游标分页，支持无限滚动 | P1 |
 
 ## 八、关键技术决策记录

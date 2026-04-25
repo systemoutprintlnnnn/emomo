@@ -971,7 +971,7 @@ func (s *JinaEmbedding) GenerateEmbedding(ctx context.Context, text string) ([]f
 
 ```bash
 # 迁移前（困难）
-grep "Starting ingestion" app.log | grep "source=chinesebqb" # 只能找到开始日志
+grep "Starting ingestion" app.log | grep "source=localdir" # 只能找到开始日志
 # 后续步骤的日志无法关联
 
 # 迁移后（简单）

@@ -98,21 +98,6 @@
   margin: 0;
 }
 
-/* GIF Badge */
-.gifBadge {
-  position: absolute;
-  top: var(--space-md);
-  left: var(--space-md);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-mint);
-  color: white;
-  font-size: var(--text-sm);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
 /* Score badge */
 .scoreBadge {
   position: absolute;

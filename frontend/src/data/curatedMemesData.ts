@@ -4,7 +4,6 @@ export interface CuratedMemeDisplayData {
   width?: number;
   height?: number;
   format?: string;
-  is_animated?: boolean;
   description?: string;
   tags?: string[];
   category?: string;
@@ -17,7 +16,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 300,
     height: 300,
     format: 'jpg',
-    is_animated: false,
     description: '一只橘色的猫咪，眼神慵懒地看着镜头，非常可爱',
     tags: ['猫', '可爱', '橘猫'],
     category: '猫咪',
@@ -28,7 +26,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 300,
     height: 400,
     format: 'jpg',
-    is_animated: false,
     description: '一只金毛犬，张大嘴巴像在笑，非常开心的样子',
     tags: ['狗', '开心', '金毛'],
     category: '狗狗',
@@ -39,7 +36,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 350,
     height: 250,
     format: 'jpg',
-    is_animated: false,
     description: '一只蓝色眼睛的白猫，优雅地坐着',
     tags: ['猫', '白猫', '优雅'],
     category: '猫咪',
@@ -49,8 +45,7 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     url: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=280&h=280&fit=crop',
     width: 280,
     height: 280,
-    format: 'gif',
-    is_animated: true,
+    format: 'jpg',
     description: '一只哈士奇，歪着头看镜头，表情很滑稽',
     tags: ['狗', '哈士奇', '滑稽'],
     category: '狗狗',
@@ -61,7 +56,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 320,
     height: 380,
     format: 'jpg',
-    is_animated: false,
     description: '一只黑白相间的猫，睁大眼睛，表情很惊讶',
     tags: ['猫', '惊讶', '黑白猫'],
     category: '猫咪',
@@ -72,7 +66,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 300,
     height: 350,
     format: 'jpg',
-    is_animated: false,
     description: '一只金毛幼犬，趴在地上，眼神无辜',
     tags: ['狗', '幼犬', '无辜'],
     category: '狗狗',
@@ -83,7 +76,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 280,
     height: 320,
     format: 'jpg',
-    is_animated: false,
     description: '一只橘猫，闭着眼睛，看起来很满足',
     tags: ['猫', '满足', '睡觉'],
     category: '猫咪',
@@ -94,7 +86,6 @@ export const curatedMemesData: CuratedMemeDisplayData[] = [
     width: 340,
     height: 280,
     format: 'jpg',
-    is_animated: false,
     description: '一只柴犬，咧嘴笑，表情很开心',
     tags: ['狗', '柴犬', '笑'],
     category: '狗狗',
