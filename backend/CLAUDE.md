@@ -29,7 +29,6 @@ cd backend
 ./scripts/import-data.sh -s chinesebqb -l 100       # Ingest memes
 ./scripts/import-data.sh -r -l 100                  # Retry pending items
 ./scripts/import-data.sh -s chinesebqb -f           # Force re-process
-./scripts/import-data.sh -s staging:fabiaoqing -l 50  # From staging
 
 # Or use go run directly
 go run ./cmd/ingest --source=chinesebqb --limit=100
@@ -39,27 +38,6 @@ go run ./cmd/api
 
 # Full stack (backend + frontend) — from repo root
 ../scripts/start.sh
-```
-
-## Python Crawler
-
-The `../crawler/` directory contains a Python-based meme crawler using requests + BeautifulSoup.
-
-```bash
-# Setup crawler (from repo root)
-cd crawler
-uv sync
-
-# Crawl memes to staging
-uv run emomo-crawler crawl --source fabiaoqing --limit 100
-
-# View staging status
-uv run emomo-crawler staging list
-uv run emomo-crawler staging stats --source fabiaoqing
-
-# Import from staging into the backend
-cd ../backend
-./scripts/import-data.sh -s staging:fabiaoqing -l 50
 ```
 
 ## Architecture
@@ -82,9 +60,8 @@ backend/
 │   │   ├── meme_repo.go # Relational DB operations
 │   │   └── qdrant_repo.go # Vector search operations (gRPC)
 │   ├── storage/s3.go    # S3-compatible object storage (supports R2, S3, etc.)
-│   ├── source/          # Data source adapters (extensible)
-│   │   ├── chinesebqb/  # Static file system source
-│   │   └── staging/     # Staging directory source (from Python crawler)
+│   ├── source/          # Data source adapters
+│   │   └── chinesebqb/  # Static file system source
 │   ├── logger/          # Context-aware structured logging
 │   └── domain/          # Data models (Meme, Source, Job)
 └── migrations/          # SQL migrations

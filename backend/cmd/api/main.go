@@ -19,6 +19,14 @@ import (
 	"github.com/timmy/emomo/internal/storage"
 )
 
+func buildSources(cfg *config.Config) map[string]source.Source {
+	sources := make(map[string]source.Source)
+	if cfg.Sources.ChineseBQB.Enabled {
+		sources["chinesebqb"] = chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath)
+	}
+	return sources
+}
+
 func main() {
 	// Initialize logger first (with defaults)
 	appLogger := logger.New(&logger.Config{
@@ -170,9 +178,7 @@ func main() {
 	)
 
 	// Initialize data sources
-	sources := map[string]source.Source{
-		"chinesebqb": chinesebqb.NewAdapter(cfg.Sources.ChineseBQB.RepoPath),
-	}
+	sources := buildSources(cfg)
 
 	// Setup router
 	router := api.SetupRouter(searchService, ingestService, sources, cfg, appLogger)

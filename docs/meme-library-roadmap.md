@@ -211,7 +211,7 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
-| source_type | TEXT | 数据源类型（chinesebqb/tenor/crawler） |
+| source_type | TEXT | 数据源类型（chinesebqb/tenor） |
 | source_id | TEXT | 数据源内的原始ID |
 | storage_key | TEXT | 对象存储路径 |
 | original_url | TEXT | 原始来源URL |
@@ -246,7 +246,7 @@ CREATE INDEX idx_memes_category ON memes(category);
 |------|------|------|
 | id | TEXT | 数据源标识（主键） |
 | name | TEXT | 显示名称 |
-| type | TEXT | 类型（static/api/crawler） |
+| type | TEXT | 类型（static/api） |
 | config | TEXT | 配置信息（JSON 格式） |
 | last_sync_at | TEXT | 上次同步时间 |
 | last_sync_cursor | TEXT | 同步游标（支持增量） |
@@ -555,8 +555,7 @@ meme-library/
 │   │   ├── interface.go        # 统一接口定义
 │   │   ├── chinesebqb/         # ChineseBQB 适配器
 │   │   ├── tenor/              # Tenor API 适配器（预留）
-│   │   ├── giphy/              # Giphy API 适配器（预留）
-│   │   └── crawler/            # 爬虫数据接收器（预留）
+│   │   └── giphy/              # Giphy API 适配器（预留）
 │   │
 │   ├── storage/                # 存储抽象
 │   │   ├── interface.go

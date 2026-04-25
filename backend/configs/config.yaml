@@ -77,5 +77,3 @@ sources:
   chinesebqb:
     enabled: true
     repo_path: ./data/ChineseBQB
-  staging:
-    path: ./data/staging

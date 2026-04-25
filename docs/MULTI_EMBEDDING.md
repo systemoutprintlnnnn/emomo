@@ -182,7 +182,7 @@ embeddings:
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--source` | `chinesebqb` | 数据源，格式：`staging:<source_id>` 或 `chinesebqb` |
+| `--source` | `chinesebqb` | 数据源；当前仅支持 `chinesebqb` |
 | `--limit` | `100` | 最大处理数量 |
 | `--embedding` | `""` | Embedding 配置名称（如 `jina`, `qwen3`）|
 | `--force` | `false` | 强制重新处理，跳过去重检查 |
@@ -193,16 +193,16 @@ embeddings:
 
 ```bash
 # 使用默认 Embedding（当前示例中为 qwen3）
-./ingest --source=staging:fabiaoqing --limit=50
+./ingest --source=chinesebqb --limit=50
 
 # 使用 Jina v4 图像 Embedding
-./ingest --source=staging:fabiaoqing --limit=50 --embedding=jina
+./ingest --source=chinesebqb --limit=50 --embedding=jina
 
 # 使用 Qwen3 Embedding
-./ingest --source=staging:fabiaoqing --limit=50 --embedding=qwen3
+./ingest --source=chinesebqb --limit=50 --embedding=qwen3
 
 # 强制重新处理（跳过去重检查）
-./ingest --source=staging:fabiaoqing --limit=50 --embedding=qwen3 --force
+./ingest --source=chinesebqb --limit=50 --embedding=qwen3 --force
 ```
 
 ### 输出日志示例
@@ -210,7 +210,7 @@ embeddings:
 ```json
 {
   "level": "info",
-  "source": "staging:fabiaoqing",
+  "source": "chinesebqb",
   "limit": 50,
   "embedding": "qwen3",
   "embedding_model": "Qwen/Qwen3-Embedding-8B",
@@ -237,7 +237,7 @@ embeddings:
   "collection": "qwen3",
   "category": "emoji",
   "is_animated": false,
-  "source_type": "fabiaoqing"
+  "source_type": "chinesebqb"
 }
 ```
 
@@ -390,13 +390,13 @@ MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1
 
 ```bash
 # 先使用默认 Embedding 导入所有数据
-./ingest --source=staging:fabiaoqing --limit=1000
+./ingest --source=chinesebqb --limit=1000
 
 # 再使用 Jina v4 图像 Embedding 为已有数据生成新向量
-./ingest --source=staging:fabiaoqing --limit=1000 --embedding=jina
+./ingest --source=chinesebqb --limit=1000 --embedding=jina
 
 # 或使用 Qwen3 为已有数据生成新向量
-./ingest --source=staging:fabiaoqing --limit=1000 --embedding=qwen3
+./ingest --source=chinesebqb --limit=1000 --embedding=qwen3
 ```
 
 ### 3. Collection 命名规范

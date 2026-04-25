@@ -124,18 +124,12 @@ type QueryExpansionConfig struct {
 // SourcesConfig defines configuration for available data sources.
 type SourcesConfig struct {
 	ChineseBQB ChineseBQBConfig `mapstructure:"chinesebqb"`
-	Staging    StagingConfig    `mapstructure:"staging"`
 }
 
 // ChineseBQBConfig defines configuration for the ChineseBQB source.
 type ChineseBQBConfig struct {
 	Enabled  bool   `mapstructure:"enabled"`
 	RepoPath string `mapstructure:"repo_path"`
-}
-
-// StagingConfig defines configuration for the staging source.
-type StagingConfig struct {
-	Path string `mapstructure:"path"` // Base path for staging directory
 }
 
 // Load reads configuration from file/environment and returns a Config.
@@ -238,7 +232,6 @@ func setDefaults(v *viper.Viper) {
 	// Sources defaults
 	v.SetDefault("sources.chinesebqb.enabled", true)
 	v.SetDefault("sources.chinesebqb.repo_path", "./data/ChineseBQB")
-	v.SetDefault("sources.staging.path", "./data/staging")
 
 	// Search defaults
 	v.SetDefault("search.score_threshold", 0.0)

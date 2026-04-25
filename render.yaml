@@ -8,11 +8,27 @@ services:
     envVars:
       - key: CONFIG_PATH
         value: ./configs/config.yaml
-      - key: MINIO_ACCESS_KEY
+      - key: STORAGE_TYPE
+        value: r2
+      - key: STORAGE_ENDPOINT
         sync: false
-      - key: MINIO_SECRET_KEY
+      - key: STORAGE_ACCESS_KEY
+        sync: false
+      - key: STORAGE_SECRET_KEY
+        sync: false
+      - key: STORAGE_USE_SSL
+        value: "true"
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_REGION
+        value: auto
+      - key: STORAGE_PUBLIC_URL
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: VLM_MODEL
         sync: false
       - key: JINA_API_KEY
         sync: false
@@ -20,7 +36,7 @@ services:
         sync: false
       - key: QDRANT_PORT
         value: "6334"
-      - key: MINIO_ENDPOINT
+      - key: QDRANT_API_KEY
         sync: false
-      - key: MINIO_USE_SSL
-        value: "false"
+      - key: QDRANT_USE_TLS
+        value: "true"

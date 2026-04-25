@@ -1,17 +1,15 @@
 # GEMINI.md - Repository-wide Context for AI Assistants
 
-This is the emomo monorepo: an AI-powered meme search engine with three sibling subprojects (backend, frontend, crawler). Subproject-specific GEMINI.md files contain the details:
+This is the emomo monorepo: an AI-powered meme search engine with backend and frontend subprojects. Subproject-specific GEMINI.md files contain the details:
 
 - [backend/GEMINI.md](backend/GEMINI.md) — Go backend (REST API + ingestion + Qdrant/storage)
 - [frontend/GEMINI.md](frontend/GEMINI.md) — React + Vite frontend
-- `crawler/` — Python crawler; see `crawler/README.md`
 
 ## 1. Repo Layout
 
 ```
 backend/      Go 1.24 + Gin, ingestion + REST API
 frontend/    React 19 + Vite SPA
-crawler/     Python 3.12 (uv) crawler that writes into backend/data/staging/
 deployments/ Cross-service Docker Compose (API + Grafana Alloy)
 docs/        Cross-service design and ops docs
 scripts/     Cross-service helpers (start.sh)
@@ -21,9 +19,7 @@ scripts/     Cross-service helpers (start.sh)
 
 ```mermaid
 graph LR
-    Web[Web Sources] -->|crawler| Staging[backend/data/staging]
-    Local[ChineseBQB / Local Repos] --> Ingest[Ingest Service]
-    Staging --> Ingest
+    Local[ChineseBQB Local Repo] --> Ingest[Ingest Service]
 
     Ingest -->|upload| S3[Object Storage]
     Ingest -->|VLM and Embed| AI[AI Services]
@@ -51,7 +47,7 @@ docker compose -f deployments/docker-compose.yml up -d   # API + Alloy
 ```bash
 cd backend && go run ./cmd/api
 cd frontend && npm run dev
-cd crawler && uv run emomo-crawler crawl --source fabiaoqing --limit 100
+cd backend && ./scripts/import-data.sh -s chinesebqb -l 50
 ```
 
 ## 4. Conventions
@@ -71,4 +67,3 @@ cd crawler && uv run emomo-crawler crawl --source fabiaoqing --limit 100
 
 - Backend: `cd backend && go test ./...`.
 - Frontend: `cd frontend && npm run test` (Playwright e2e).
-- Crawler: see `crawler/`.
