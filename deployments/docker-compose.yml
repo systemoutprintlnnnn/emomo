@@ -12,6 +12,8 @@ services:
     container_name: emomo-api
     ports:
       - "${API_PORT:-8080}:8080"
+    env_file:
+      - ../backend/.env
     volumes:
       # Mount data directory (static images live under /root/data/memes by default)
       # On host: <project-root>/backend/data/memes should contain static images

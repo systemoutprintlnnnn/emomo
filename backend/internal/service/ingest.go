@@ -358,7 +358,8 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var descriptionID string
 	var width, height int
 	uploaded := false
-	createdNewMeme := false // Track if we created a new meme record for rollback
+	createdNewMeme := false        // Track if we created a new meme record for rollback
+	createdNewDescription := false // Track if we created a new description record for rollback
 
 	// rollbackMeme cleans up the meme record if we created one
 	rollbackMeme := func() {
@@ -367,6 +368,17 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				logger.CtxError(ctx, "Failed to rollback meme record: meme_id=%s, error=%v", memeID, delErr)
 			} else {
 				logger.CtxDebug(ctx, "Rolled back meme record: meme_id=%s", memeID)
+			}
+		}
+	}
+
+	// rollbackDescription cleans up the description record if we created one
+	rollbackDescription := func() {
+		if createdNewDescription && descriptionID != "" && s.descRepo != nil {
+			if delErr := s.descRepo.Delete(ctx, descriptionID); delErr != nil {
+				logger.CtxError(ctx, "Failed to rollback description record: description_id=%s, error=%v", descriptionID, delErr)
+			} else {
+				logger.CtxDebug(ctx, "Rolled back description record: description_id=%s", descriptionID)
 			}
 		}
 	}
@@ -501,6 +513,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				return fmt.Errorf("failed to save VLM description: %w", err)
 			}
 			descriptionID = descRecord.ID
+			createdNewDescription = true
 			logger.CtxDebug(ctx, "Created new VLM description: md5=%s, vlm_model=%s, description_id=%s",
 				md5Hash, s.vlm.GetModel(), descriptionID)
 		}
@@ -548,6 +561,12 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		BM25Text:      bm25Text,
 		Payload:       payload,
 	}); err != nil {
+		if createdNewMeme {
+			s.rollbackVectorIndexes(ctx, memeID, targetIndexes)
+		}
+		rollbackDescription()
+		rollbackMeme()
+		rollbackStorage()
 		return err
 	}
 
@@ -609,6 +628,40 @@ func (s *IngestService) upsertVectorIndexes(ctx context.Context, indexes []Inges
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (s *IngestService) rollbackVectorIndexes(ctx context.Context, memeID string, indexes []IngestVectorIndex) {
+	if memeID == "" || s.vectorRepo == nil {
+		return
+	}
+
+	vectors, err := s.vectorRepo.GetByMemeID(ctx, memeID)
+	if err != nil {
+		logger.CtxError(ctx, "Failed to load vector records for rollback: meme_id=%s, error=%v", memeID, err)
+		return
+	}
+
+	reposByRoute := make(map[string]*repository.QdrantRepository, len(indexes))
+	for _, index := range indexes {
+		vectorType := normalizeIngestVectorType(index.VectorType)
+		reposByRoute[vectorRouteKey(index.Collection, vectorType)] = index.QdrantRepo
+	}
+
+	for _, vector := range vectors {
+		routeKey := vectorRouteKey(vector.Collection, normalizeIngestVectorType(vector.VectorType))
+		qdrantRepo, ok := reposByRoute[routeKey]
+		if !ok {
+			continue
+		}
+		if qdrantRepo != nil {
+			if delErr := qdrantRepo.Delete(ctx, vector.QdrantPointID); delErr != nil {
+				logger.CtxError(ctx, "Failed to rollback Qdrant point: point_id=%s, error=%v", vector.QdrantPointID, delErr)
+			}
+		}
+		if delErr := s.vectorRepo.Delete(ctx, vector.ID); delErr != nil {
+			logger.CtxError(ctx, "Failed to rollback vector record: vector_id=%s, error=%v", vector.ID, delErr)
+		}
+	}
 }
 
 func (s *IngestService) upsertVectorIndex(ctx context.Context, index IngestVectorIndex, input vectorUpsertInput) error {
@@ -687,6 +740,10 @@ func (s *IngestService) upsertVectorIndex(ctx context.Context, index IngestVecto
 	}
 
 	return nil
+}
+
+func vectorRouteKey(collection, vectorType string) string {
+	return collection + "\x00" + vectorType
 }
 
 func normalizeIngestVectorType(vectorType string) string {

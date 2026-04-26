@@ -170,7 +170,7 @@ type LocalDirConfig struct {
 //   - error: non-nil if loading or unmarshalling fails.
 func Load(configPath string) (*Config, error) {
 	// Load .env file if exists
-	_ = godotenv.Load()
+	LoadDotEnv()
 
 	v := viper.New()
 
@@ -212,6 +212,12 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// LoadDotEnv loads the local .env file into the process environment if present.
+// Existing process environment values keep priority over file values.
+func LoadDotEnv() {
+	_ = godotenv.Load()
 }
 
 // setDefaults sets all default configuration values.

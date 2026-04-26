@@ -69,6 +69,7 @@ func main() {
 	defer logger.Sync() // Ensure logs are flushed on exit
 
 	// Load configuration
+	config.LoadDotEnv()
 	configPath := os.Getenv("CONFIG_PATH")
 	cfg, err := config.Load(configPath)
 	if err != nil {
