@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/timmy/emomo/internal/config"
+	"github.com/timmy/emomo/internal/domain"
 	"github.com/timmy/emomo/internal/logger"
 	"github.com/timmy/emomo/internal/repository"
 )
@@ -299,4 +300,53 @@ func (r *EmbeddingRegistry) GetCollectionName(name string) (string, bool) {
 		return "", false
 	}
 	return cfg.Collection, true
+}
+
+// BuildProfileIngestIndexes resolves a search profile into ingest vector routes.
+func (r *EmbeddingRegistry) BuildProfileIngestIndexes(profile *config.SearchProfileConfig) ([]IngestVectorIndex, error) {
+	if profile == nil {
+		return nil, fmt.Errorf("search profile is nil")
+	}
+
+	indexes := make([]IngestVectorIndex, 0, 2)
+	if profile.ImageEmbedding != "" {
+		provider, repo, ok := r.Get(profile.ImageEmbedding)
+		if !ok {
+			return nil, fmt.Errorf("unknown image embedding %q for profile %q", profile.ImageEmbedding, profile.Name)
+		}
+		embCfg, _ := r.GetConfig(profile.ImageEmbedding)
+		indexes = append(indexes, IngestVectorIndex{
+			VectorType:         domain.MemeVectorTypeImage,
+			Collection:         repo.GetCollectionName(),
+			Provider:           embCfg.Provider,
+			Embedding:          provider,
+			QdrantRepo:         repo,
+			UseSparse:          false,
+			EmbeddingMode:      domain.MemeVectorEmbeddingModeIndependent,
+			EmbeddingDimension: provider.GetDimensions(),
+		})
+	}
+
+	if profile.CaptionEmbedding != "" {
+		provider, repo, ok := r.Get(profile.CaptionEmbedding)
+		if !ok {
+			return nil, fmt.Errorf("unknown caption embedding %q for profile %q", profile.CaptionEmbedding, profile.Name)
+		}
+		embCfg, _ := r.GetConfig(profile.CaptionEmbedding)
+		indexes = append(indexes, IngestVectorIndex{
+			VectorType:         domain.MemeVectorTypeCaption,
+			Collection:         repo.GetCollectionName(),
+			Provider:           embCfg.Provider,
+			Embedding:          provider,
+			QdrantRepo:         repo,
+			UseSparse:          true,
+			EmbeddingMode:      domain.MemeVectorEmbeddingModeIndependent,
+			EmbeddingDimension: provider.GetDimensions(),
+		})
+	}
+
+	if len(indexes) == 0 {
+		return nil, fmt.Errorf("profile %q has no vector indexes", profile.Name)
+	}
+	return indexes, nil
 }

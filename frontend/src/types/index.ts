@@ -104,6 +104,10 @@ export interface SearchRequest {
   top_k?: number;
   /** Optional category filter. */
   category?: string;
+  /** Optional multi-route search profile. */
+  profile?: string;
+  /** Legacy optional collection key; retained for backend compatibility. */
+  collection?: string;
 }
 
 /**
@@ -114,6 +118,10 @@ export interface SearchResponse {
   results: SearchResult[];
   /** The total number of results found. */
   total: number;
+  /** The backend profile used for this search, when applicable. */
+  profile?: string;
+  /** The backend collection used for legacy single-collection search. */
+  collection?: string;
 }
 
 /**
@@ -164,4 +172,6 @@ export interface StatsResponse {
   total_categories: number;
   /** Names of search collections exposed by the backend. */
   available_collections?: string[];
+  /** Names of multi-route search profiles exposed by the backend. */
+  available_profiles?: string[];
 }

@@ -71,7 +71,8 @@ function normalizeResults(results: SearchResult[]): Meme[] {
 export async function searchMemes(
   query: string,
   topK: number = 20,
-  category?: string
+  category?: string,
+  profile?: string
 ): Promise<{ results: Meme[]; total: number }> {
   const response = await fetch(`${API_BASE}/search`, {
     method: 'POST',
@@ -80,6 +81,7 @@ export async function searchMemes(
       query,
       top_k: topK,
       category,
+      profile,
     }),
   });
 
@@ -219,6 +221,7 @@ export interface SearchProgressEvent {
   total?: number;
   query?: string;
   collection?: string;
+  profile?: string;
   error?: string;
 }
 
@@ -227,7 +230,8 @@ export async function searchMemesStream(
   query: string,
   topK: number = 20,
   onProgress: (event: SearchProgressEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  profile?: string
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/search/stream`, {
     method: 'POST',
@@ -235,6 +239,7 @@ export async function searchMemesStream(
     body: JSON.stringify({
       query,
       top_k: topK,
+      profile,
     }),
     signal,
   });

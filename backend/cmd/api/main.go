@@ -32,6 +32,32 @@ func buildSources(cfg *config.Config) map[string]source.Source {
 	return sources
 }
 
+func serviceRetrievalConfig(cfg config.RetrievalConfig) service.RetrievalConfig {
+	return service.RetrievalConfig{
+		ImageTopK:   cfg.ImageTopK,
+		CaptionTopK: cfg.CaptionTopK,
+		FinalTopK:   cfg.FinalTopK,
+		Weights: service.RetrievalWeights{
+			Image:   cfg.Weights.Image,
+			Caption: cfg.Weights.Caption,
+			Keyword: cfg.Weights.Keyword,
+		},
+	}
+}
+
+func registerSearchProfiles(searchService *service.SearchService, registry *service.EmbeddingRegistry, profiles []config.SearchProfileConfig) {
+	for _, profile := range profiles {
+		imageProvider, imageRepo, hasImage := registry.Get(profile.ImageEmbedding)
+		captionProvider, captionRepo, hasCaption := registry.Get(profile.CaptionEmbedding)
+		if !hasImage || !hasCaption {
+			logger.Warn("Skipping search profile with missing embeddings: profile=%s, image=%s, caption=%s",
+				profile.Name, profile.ImageEmbedding, profile.CaptionEmbedding)
+			continue
+		}
+		searchService.RegisterProfile(profile.Name, imageRepo, imageProvider, captionRepo, captionProvider)
+	}
+}
+
 func main() {
 	// Initialize logger first (with defaults)
 	appLogger := logger.New(&logger.Config{
@@ -142,6 +168,8 @@ func main() {
 		&service.SearchConfig{
 			ScoreThreshold:    cfg.Search.ScoreThreshold,
 			DefaultCollection: defaultEmbeddingName,
+			DefaultProfile:    cfg.Search.DefaultProfile,
+			Retrieval:         serviceRetrievalConfig(cfg.Search.Retrieval),
 		},
 	)
 
@@ -150,10 +178,13 @@ func main() {
 		provider, qdrantRepo, _ := embeddingRegistry.Get(name)
 		searchService.RegisterCollection(name, qdrantRepo, provider)
 	}
+	registerSearchProfiles(searchService, embeddingRegistry, cfg.Search.Profiles)
 
 	appLogger.WithFields(logger.Fields{
 		"available_collections": searchService.GetAvailableCollections(),
+		"available_profiles":    searchService.GetAvailableProfiles(),
 		"default_collection":    defaultEmbeddingName,
+		"default_profile":       cfg.Search.DefaultProfile,
 		"default_qdrant":        defaultQdrantCollection,
 	}).Info("Embedding collections registered")
 
@@ -165,7 +196,15 @@ func main() {
 		BaseURL:  cfg.VLM.BaseURL,
 	})
 
-	// Initialize ingest service (uses default embedding)
+	var ingestIndexes []service.IngestVectorIndex
+	if defaultProfile := cfg.GetDefaultSearchProfile(); defaultProfile != nil {
+		ingestIndexes, err = embeddingRegistry.BuildProfileIngestIndexes(defaultProfile)
+		if err != nil {
+			appLogger.WithError(err).Fatal("Failed to build ingest vector indexes")
+		}
+	}
+
+	// Initialize ingest service (uses default search profile when configured)
 	ingestService := service.NewIngestService(
 		memeRepo,
 		vectorRepo,
@@ -176,9 +215,10 @@ func main() {
 		defaultProvider,
 		appLogger,
 		&service.IngestConfig{
-			Workers:    cfg.Ingest.Workers,
-			BatchSize:  cfg.Ingest.BatchSize,
-			Collection: defaultQdrantCollection,
+			Workers:       cfg.Ingest.Workers,
+			BatchSize:     cfg.Ingest.BatchSize,
+			Collection:    defaultQdrantCollection,
+			VectorIndexes: ingestIndexes,
 		},
 	)
 
@@ -201,7 +241,9 @@ func main() {
 			"mode":                  cfg.Server.Mode,
 			"default_collection":    defaultEmbeddingName,
 			"default_qdrant":        defaultQdrantCollection,
+			"default_profile":       cfg.Search.DefaultProfile,
 			"available_collections": searchService.GetAvailableCollections(),
+			"available_profiles":    searchService.GetAvailableProfiles(),
 		}).Info("Starting API server")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			appLogger.WithError(err).Fatal("Failed to start server")

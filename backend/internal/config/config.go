@@ -109,8 +109,34 @@ type IngestConfig struct {
 
 // SearchConfig defines search runtime settings.
 type SearchConfig struct {
-	ScoreThreshold float32              `mapstructure:"score_threshold"`
-	QueryExpansion QueryExpansionConfig `mapstructure:"query_expansion"`
+	ScoreThreshold float32               `mapstructure:"score_threshold"`
+	DefaultProfile string                `mapstructure:"default_profile"`
+	Profiles       []SearchProfileConfig `mapstructure:"profiles"`
+	Retrieval      RetrievalConfig       `mapstructure:"retrieval"`
+	QueryExpansion QueryExpansionConfig  `mapstructure:"query_expansion"`
+}
+
+// SearchProfileConfig groups multiple embedding configs into one search profile.
+type SearchProfileConfig struct {
+	Name             string `mapstructure:"name"`
+	ImageEmbedding   string `mapstructure:"image_embedding"`
+	CaptionEmbedding string `mapstructure:"caption_embedding"`
+	IsDefault        bool   `mapstructure:"is_default"`
+}
+
+// RetrievalConfig defines multi-route retrieval limits and scoring weights.
+type RetrievalConfig struct {
+	ImageTopK   int              `mapstructure:"image_top_k"`
+	CaptionTopK int              `mapstructure:"caption_top_k"`
+	FinalTopK   int              `mapstructure:"final_top_k"`
+	Weights     RetrievalWeights `mapstructure:"weights"`
+}
+
+// RetrievalWeights configures weighted rank fusion for multi-route search.
+type RetrievalWeights struct {
+	Image   float32 `mapstructure:"image"`
+	Caption float32 `mapstructure:"caption"`
+	Keyword float32 `mapstructure:"keyword"`
 }
 
 // QueryExpansionConfig configures optional LLM-based query expansion.
@@ -241,6 +267,13 @@ func setDefaults(v *viper.Viper) {
 
 	// Search defaults
 	v.SetDefault("search.score_threshold", 0.0)
+	v.SetDefault("search.default_profile", "")
+	v.SetDefault("search.retrieval.image_top_k", 100)
+	v.SetDefault("search.retrieval.caption_top_k", 100)
+	v.SetDefault("search.retrieval.final_top_k", 20)
+	v.SetDefault("search.retrieval.weights.image", 0.60)
+	v.SetDefault("search.retrieval.weights.caption", 0.30)
+	v.SetDefault("search.retrieval.weights.keyword", 0.10)
 	v.SetDefault("search.query_expansion.enabled", true)
 	v.SetDefault("search.query_expansion.model", "gpt-4o-mini")
 }
@@ -340,4 +373,32 @@ func (c *Config) GetDefaultCollection() string {
 		}
 	}
 	return c.Qdrant.Collection
+}
+
+// GetSearchProfileByName returns the search profile with the given name.
+func (c *Config) GetSearchProfileByName(name string) *SearchProfileConfig {
+	for i := range c.Search.Profiles {
+		if c.Search.Profiles[i].Name == name {
+			return &c.Search.Profiles[i]
+		}
+	}
+	return nil
+}
+
+// GetDefaultSearchProfile returns the configured default search profile.
+func (c *Config) GetDefaultSearchProfile() *SearchProfileConfig {
+	if c.Search.DefaultProfile != "" {
+		if profile := c.GetSearchProfileByName(c.Search.DefaultProfile); profile != nil {
+			return profile
+		}
+	}
+	for i := range c.Search.Profiles {
+		if c.Search.Profiles[i].IsDefault {
+			return &c.Search.Profiles[i]
+		}
+	}
+	if len(c.Search.Profiles) > 0 {
+		return &c.Search.Profiles[0]
+	}
+	return nil
 }

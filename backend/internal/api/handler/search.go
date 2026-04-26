@@ -44,6 +44,9 @@ func (h *SearchHandler) TextSearch(c *gin.Context) {
 	if collection := c.Query("collection"); collection != "" && req.Collection == "" {
 		req.Collection = collection
 	}
+	if profile := c.Query("profile"); profile != "" && req.Profile == "" {
+		req.Profile = profile
+	}
 
 	result, err := h.searchService.TextSearch(c.Request.Context(), &req)
 	if err != nil {
@@ -111,6 +114,9 @@ func (h *SearchHandler) TextSearchStream(c *gin.Context) {
 	if collection := c.Query("collection"); collection != "" && req.Collection == "" {
 		req.Collection = collection
 	}
+	if profile := c.Query("profile"); profile != "" && req.Profile == "" {
+		req.Profile = profile
+	}
 
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -161,6 +167,7 @@ func (h *SearchHandler) TextSearchStream(c *gin.Context) {
 						"query":          searchResult.Query,
 						"expanded_query": searchResult.ExpandedQuery,
 						"collection":     searchResult.Collection,
+						"profile":        searchResult.Profile,
 					})
 					fmt.Fprintf(w, "event: complete\ndata: %s\n\n", resultData)
 				}

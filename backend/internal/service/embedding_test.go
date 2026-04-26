@@ -186,3 +186,104 @@ func TestOpenAICompatibleEmbeddingProviderEmbedDocumentUsesTextFallback(t *testi
 		t.Fatalf("unexpected input payload: %+v", got.Input)
 	}
 }
+
+func TestSiliconFlowEmbeddingProviderEmbedDocumentImageModeUsesImageContent(t *testing.T) {
+	t.Parallel()
+
+	var got siliconFlowEmbeddingRequest
+	provider := NewSiliconFlowEmbeddingProvider(&EmbeddingProviderConfig{
+		Model:        "Qwen/Qwen3-VL-Embedding-8B",
+		APIKey:       "test-key",
+		BaseURL:      "https://siliconflow.test/v1",
+		DocumentMode: embeddingDocumentImage,
+		Dimensions:   1024,
+	})
+	provider.client.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if gotAuth := r.Header.Get("Authorization"); gotAuth != "Bearer test-key" {
+			t.Fatalf("unexpected authorization header: %q", gotAuth)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		return jsonResponse(t, http.StatusOK, siliconFlowEmbeddingResponse{
+			Data: []siliconFlowEmbeddingData{
+				{Embedding: []float64{0.1, 0.2}, Index: 0},
+			},
+		}), nil
+	}))
+
+	embedding, err := provider.EmbedDocument(context.Background(), EmbeddingDocument{
+		Text:     "ignored text",
+		ImageURL: "https://cdn.example.com/meme.jpg",
+	})
+	if err != nil {
+		t.Fatalf("EmbedDocument returned error: %v", err)
+	}
+
+	if len(embedding) != 2 {
+		t.Fatalf("unexpected embedding length: got %d", len(embedding))
+	}
+	if got.Model != "Qwen/Qwen3-VL-Embedding-8B" {
+		t.Fatalf("unexpected model: %q", got.Model)
+	}
+	if got.Dimensions != 1024 {
+		t.Fatalf("unexpected dimensions: %d", got.Dimensions)
+	}
+	if got.EncodingFormat != "float" {
+		t.Fatalf("unexpected encoding format: %q", got.EncodingFormat)
+	}
+	input, ok := got.Input.(map[string]any)
+	if !ok {
+		t.Fatalf("expected object input, got %T", got.Input)
+	}
+	if input["image"] != "https://cdn.example.com/meme.jpg" {
+		t.Fatalf("unexpected image input: %#v", input)
+	}
+	if _, exists := input["text"]; exists {
+		t.Fatalf("expected image-only input, got %#v", input)
+	}
+}
+
+func TestSiliconFlowEmbeddingProviderEmbedDocumentTextModeUsesTextContentAndTruncate(t *testing.T) {
+	t.Parallel()
+
+	var got siliconFlowEmbeddingRequest
+	provider := NewSiliconFlowEmbeddingProvider(&EmbeddingProviderConfig{
+		Model:        "Qwen/Qwen3-VL-Embedding-8B",
+		APIKey:       "test-key",
+		BaseURL:      "https://siliconflow.test/v1",
+		DocumentMode: embeddingDocumentText,
+		Dimensions:   1024,
+	})
+	provider.client.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		return jsonResponse(t, http.StatusOK, siliconFlowEmbeddingResponse{
+			Data: []siliconFlowEmbeddingData{
+				{Embedding: []float64{0.3, 0.4}, Index: 0},
+			},
+		}), nil
+	}))
+
+	_, err := provider.EmbedDocument(context.Background(), EmbeddingDocument{
+		Text: "图中文字：你礼貌吗\n画面描述：表达无语和质问",
+	})
+	if err != nil {
+		t.Fatalf("EmbedDocument returned error: %v", err)
+	}
+
+	input, ok := got.Input.(map[string]any)
+	if !ok {
+		t.Fatalf("expected object input, got %T", got.Input)
+	}
+	if input["text"] != "图中文字：你礼貌吗\n画面描述：表达无语和质问" {
+		t.Fatalf("unexpected text input: %#v", input)
+	}
+	if got.Truncate != "right" {
+		t.Fatalf("unexpected truncate value: %q", got.Truncate)
+	}
+}

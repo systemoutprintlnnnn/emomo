@@ -98,6 +98,28 @@ func buildBM25Text(ocrText, description string, tags []string) string {
 	return strings.Join(segments, "\n")
 }
 
+func buildCaptionEmbeddingText(ocrText, description, category string, tags, emotions []string) string {
+	segments := make([]string, 0, 5)
+	if ocrText != "" {
+		segments = append(segments, "图中文字："+ocrText)
+	}
+	if description != "" {
+		segments = append(segments, "画面描述："+description)
+	}
+	if category != "" {
+		segments = append(segments, "分类："+category)
+	}
+	tags = dedupeStrings(tags)
+	if len(tags) > 0 {
+		segments = append(segments, "标签："+strings.Join(tags, " "))
+	}
+	emotions = dedupeStrings(emotions)
+	if len(emotions) > 0 {
+		segments = append(segments, "情绪关键词："+strings.Join(emotions, " "))
+	}
+	return strings.Join(segments, "\n")
+}
+
 // BuildBM25Text exposes the BM25 sparse-vector text builder used by ingest, so
 // out-of-package tools (e.g. cmd/reembed) can reproduce identical sparse input
 // when re-creating Qdrant points from existing PG records.
@@ -113,6 +135,11 @@ func CompactDescription(text string) string {
 // NormalizeOCRText exposes the OCR-text normalizer used by ingest.
 func NormalizeOCRText(text string) string {
 	return normalizeOCRText(text)
+}
+
+// BuildCaptionEmbeddingText exposes the canonical text input for caption vectors.
+func BuildCaptionEmbeddingText(ocrText, description, category string, tags, emotions []string) string {
+	return buildCaptionEmbeddingText(ocrText, description, category, tags, emotions)
 }
 
 func dedupeStrings(items []string) []string {

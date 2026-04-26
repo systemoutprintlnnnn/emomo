@@ -17,8 +17,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -49,6 +52,8 @@ func main() {
 
 	configPath := flag.String("config", "", "Path to config file (defaults to ./configs/config.yaml)")
 	embeddingName := flag.String("embedding", "", "Embedding config name (e.g. 'jina'). Defaults to the config's default embedding")
+	profileName := flag.String("profile", "", "Search profile name for multi-vector backfill (e.g. 'qwen3vl')")
+	vectorType := flag.String("vector-type", "all", "Vector type to backfill when using --profile: image, caption, or all")
 	limit := flag.Int("limit", 0, "Maximum memes to (re)embed; 0 = no limit")
 	workers := flag.Int("workers", 4, "Number of concurrent workers")
 	dryRun := flag.Bool("dry-run", false, "Plan only: count memes that would be embedded but do not call any APIs")
@@ -61,44 +66,6 @@ func main() {
 	}
 	cfg.Database.AutoMigrate = false
 
-	var embeddingCfg *config.EmbeddingConfig
-	if *embeddingName != "" {
-		embeddingCfg = cfg.GetEmbeddingByName(*embeddingName)
-		if embeddingCfg == nil {
-			appLogger.WithField("embedding", *embeddingName).Fatal("Unknown embedding configuration name")
-		}
-	} else {
-		embeddingCfg = cfg.GetDefaultEmbedding()
-		if embeddingCfg == nil {
-			appLogger.Fatal("No embedding configuration found in config.yaml")
-		}
-	}
-	embeddingCfg.ResolveEnvVars()
-	if err := embeddingCfg.ValidateWithAPIKey(); err != nil {
-		appLogger.WithError(err).Fatal("Invalid embedding configuration")
-	}
-
-	collectionName := embeddingCfg.GetCollection(cfg.Qdrant.Collection)
-	if collectionName == "" {
-		appLogger.Fatal("Embedding has no collection name (set 'collection:' in config.yaml)")
-	}
-
-	if embeddingCfg.GetDocumentMode() != "image" {
-		appLogger.WithField("document_mode", embeddingCfg.GetDocumentMode()).
-			Warn("Selected embedding is NOT in image mode; reembed will fall back to text-based EmbedDocument")
-	}
-
-	appLogger.WithFields(logger.Fields{
-		"embedding":         embeddingCfg.Name,
-		"embedding_model":   embeddingCfg.Model,
-		"embedding_dim":     embeddingCfg.Dimensions,
-		"qdrant_collection": collectionName,
-		"limit":             *limit,
-		"workers":           *workers,
-		"dry_run":           *dryRun,
-		"force":             *force,
-	}).Info("Starting reembed")
-
 	db, err := repository.InitDB(&cfg.Database)
 	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to initialize database")
@@ -108,24 +75,25 @@ func main() {
 	vectorRepo := repository.NewMemeVectorRepository(db)
 	descRepo := repository.NewMemeDescriptionRepository(db)
 
-	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
-		Host:            cfg.Qdrant.Host,
-		Port:            cfg.Qdrant.Port,
-		Collection:      collectionName,
-		APIKey:          cfg.Qdrant.APIKey,
-		UseTLS:          cfg.Qdrant.UseTLS,
-		VectorDimension: embeddingCfg.Dimensions,
+	embeddingRegistry, err := service.NewEmbeddingRegistry(&service.EmbeddingRegistryConfig{
+		Embeddings:        cfg.Embeddings,
+		QdrantHost:        cfg.Qdrant.Host,
+		QdrantPort:        cfg.Qdrant.Port,
+		QdrantAPIKey:      cfg.Qdrant.APIKey,
+		QdrantUseTLS:      cfg.Qdrant.UseTLS,
+		DefaultCollection: cfg.Qdrant.Collection,
+		Logger:            appLogger,
 	})
 	if err != nil {
-		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
+		appLogger.WithError(err).Fatal("Failed to initialize embedding registry")
 	}
-	defer qdrantRepo.Close()
+	defer embeddingRegistry.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := qdrantRepo.EnsureCollection(ctx); err != nil {
-		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
+	if err := embeddingRegistry.EnsureCollections(ctx); err != nil {
+		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collections")
 	}
 
 	storageCfg := cfg.GetStorageConfig()
@@ -143,17 +111,32 @@ func main() {
 		appLogger.WithError(err).Fatal("Failed to initialize storage")
 	}
 
-	embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingProviderConfig{
-		Provider:     embeddingCfg.Provider,
-		Model:        embeddingCfg.Model,
-		APIKey:       embeddingCfg.APIKey,
-		BaseURL:      embeddingCfg.BaseURL,
-		DocumentMode: embeddingCfg.GetDocumentMode(),
-		Dimensions:   embeddingCfg.Dimensions,
-	})
-	if err != nil {
-		appLogger.WithError(err).Fatal("Failed to create embedding provider")
+	activeProfileName := *profileName
+	if activeProfileName == "" && *embeddingName == "" {
+		if defaultProfile := cfg.GetDefaultSearchProfile(); defaultProfile != nil {
+			activeProfileName = defaultProfile.Name
+		}
 	}
+	vectorIndexes := buildReembedVectorIndexes(cfg, embeddingRegistry, activeProfileName, *embeddingName, *vectorType, appLogger)
+	modeName := activeProfileName
+	if modeName == "" {
+		modeName = *embeddingName
+	}
+	if modeName == "" {
+		modeName = embeddingRegistry.DefaultName()
+	}
+
+	appLogger.WithFields(logger.Fields{
+		"mode":           modeName,
+		"profile":        activeProfileName,
+		"embedding":      *embeddingName,
+		"vector_type":    *vectorType,
+		"vector_indexes": len(vectorIndexes),
+		"limit":          *limit,
+		"workers":        *workers,
+		"dry_run":        *dryRun,
+		"force":          *force,
+	}).Info("Starting reembed")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -164,16 +147,14 @@ func main() {
 	}()
 
 	w := &worker{
-		log:               appLogger,
-		memeRepo:          memeRepo,
-		vectorRepo:        vectorRepo,
-		descRepo:          descRepo,
-		qdrantRepo:        qdrantRepo,
-		objectStorage:     objectStorage,
-		embeddingProvider: embeddingProvider,
-		collection:        collectionName,
-		dryRun:            *dryRun,
-		force:             *force,
+		log:           appLogger,
+		memeRepo:      memeRepo,
+		vectorRepo:    vectorRepo,
+		descRepo:      descRepo,
+		objectStorage: objectStorage,
+		vectorIndexes: vectorIndexes,
+		dryRun:        *dryRun,
+		force:         *force,
 	}
 
 	stats, err := w.run(ctx, *limit, *workers)
@@ -187,9 +168,83 @@ func main() {
 		"skipped_no_url":  stats.SkippedNoURL,
 		"reembedded":      stats.Reembedded,
 		"failed":          stats.Failed,
-		"collection":      collectionName,
-		"model":           embeddingProvider.GetModel(),
+		"mode":            modeName,
 	}).Info("Reembed completed")
+}
+
+func buildReembedVectorIndexes(
+	cfg *config.Config,
+	registry *service.EmbeddingRegistry,
+	profileName string,
+	embeddingName string,
+	vectorType string,
+	log *logger.Logger,
+) []service.IngestVectorIndex {
+	if profileName == "" && embeddingName == "" {
+		if defaultProfile := cfg.GetDefaultSearchProfile(); defaultProfile != nil {
+			profileName = defaultProfile.Name
+		}
+	}
+	if profileName != "" {
+		profile := cfg.GetSearchProfileByName(profileName)
+		if profile == nil {
+			log.WithField("profile", profileName).Fatal("Unknown search profile")
+		}
+		indexes, err := registry.BuildProfileIngestIndexes(profile)
+		if err != nil {
+			log.WithError(err).Fatal("Failed to build profile ingest indexes")
+		}
+		return filterVectorIndexes(indexes, vectorType, log)
+	}
+
+	name := embeddingName
+	if name == "" {
+		name = registry.DefaultName()
+	}
+	provider, qdrantRepo, ok := registry.Get(name)
+	if !ok {
+		log.WithField("embedding", name).Fatal("Unknown embedding configuration name")
+	}
+	embCfg, _ := registry.GetConfig(name)
+	resolvedType := domain.MemeVectorTypeCaption
+	useSparse := true
+	if embCfg.GetDocumentMode() == "image" {
+		resolvedType = domain.MemeVectorTypeImage
+		useSparse = false
+	}
+	return []service.IngestVectorIndex{
+		{
+			VectorType:         resolvedType,
+			Collection:         qdrantRepo.GetCollectionName(),
+			Provider:           embCfg.Provider,
+			Embedding:          provider,
+			QdrantRepo:         qdrantRepo,
+			UseSparse:          useSparse,
+			EmbeddingMode:      domain.MemeVectorEmbeddingModeIndependent,
+			EmbeddingDimension: provider.GetDimensions(),
+		},
+	}
+}
+
+func filterVectorIndexes(indexes []service.IngestVectorIndex, vectorType string, log *logger.Logger) []service.IngestVectorIndex {
+	switch vectorType {
+	case "", "all":
+		return indexes
+	case domain.MemeVectorTypeImage, domain.MemeVectorTypeCaption:
+		filtered := make([]service.IngestVectorIndex, 0, len(indexes))
+		for _, index := range indexes {
+			if index.VectorType == vectorType {
+				filtered = append(filtered, index)
+			}
+		}
+		if len(filtered) == 0 {
+			log.WithField("vector_type", vectorType).Fatal("Profile does not contain requested vector type")
+		}
+		return filtered
+	default:
+		log.WithField("vector_type", vectorType).Fatal("Unsupported vector type; use image, caption, or all")
+		return nil
+	}
 }
 
 // =============================================================================
@@ -197,16 +252,14 @@ func main() {
 // =============================================================================
 
 type worker struct {
-	log               *logger.Logger
-	memeRepo          *repository.MemeRepository
-	vectorRepo        *repository.MemeVectorRepository
-	descRepo          *repository.MemeDescriptionRepository
-	qdrantRepo        *repository.QdrantRepository
-	objectStorage     storage.ObjectStorage
-	embeddingProvider service.EmbeddingProvider
-	collection        string
-	dryRun            bool
-	force             bool
+	log           *logger.Logger
+	memeRepo      *repository.MemeRepository
+	vectorRepo    *repository.MemeVectorRepository
+	descRepo      *repository.MemeDescriptionRepository
+	objectStorage storage.ObjectStorage
+	vectorIndexes []service.IngestVectorIndex
+	dryRun        bool
+	force         bool
 }
 
 type runStats struct {
@@ -292,22 +345,20 @@ func (w *worker) run(ctx context.Context, limit, workers int) (runStats, error) 
 func (w *worker) processOne(ctx context.Context, meme domain.Meme, stats *runStats) {
 	atomic.AddInt64(&stats.Scanned, 1)
 
-	if !w.force {
-		exists, err := w.vectorRepo.ExistsByMD5AndCollection(ctx, meme.MD5Hash, w.collection)
-		if err != nil {
-			atomic.AddInt64(&stats.Failed, 1)
-			w.log.WithError(err).WithField("meme_id", meme.ID).Error("Failed to check vector existence")
-			return
-		}
-		if exists {
-			atomic.AddInt64(&stats.SkippedExisted, 1)
-			return
-		}
-	}
-
 	if meme.StorageKey == "" {
 		atomic.AddInt64(&stats.SkippedNoURL, 1)
 		w.log.WithField("meme_id", meme.ID).Warn("Meme has no storage_key; cannot derive image URL")
+		return
+	}
+	existsInStorage, err := w.objectStorage.Exists(ctx, meme.StorageKey)
+	if err != nil {
+		atomic.AddInt64(&stats.Failed, 1)
+		w.log.WithError(err).WithField("meme_id", meme.ID).Error("Failed to check storage object")
+		return
+	}
+	if !existsInStorage {
+		atomic.AddInt64(&stats.SkippedNoURL, 1)
+		w.log.WithField("meme_id", meme.ID).Warn("Storage object is missing")
 		return
 	}
 	imageURL := w.objectStorage.GetURL(meme.StorageKey)
@@ -329,34 +380,14 @@ func (w *worker) processOne(ctx context.Context, meme domain.Meme, stats *runSta
 		descriptionID = desc.ID
 	}
 
-	if w.dryRun {
-		atomic.AddInt64(&stats.Reembedded, 1)
-		w.log.WithFields(logger.Fields{
-			"meme_id":   meme.ID,
-			"md5":       meme.MD5Hash,
-			"image_url": imageURL,
-			"has_desc":  desc != nil,
-		}).Info("[dry-run] would re-embed meme")
-		return
-	}
-
-	embedStart := time.Now()
+	captionText := service.BuildCaptionEmbeddingText(
+		ocrText,
+		service.CompactDescription(vlmDescription),
+		meme.Category,
+		meme.Tags,
+		nil,
+	)
 	bm25Text := service.BuildBM25Text(ocrText, service.CompactDescription(vlmDescription), meme.Tags)
-	embedding, err := w.embedWithRetry(ctx, service.EmbeddingDocument{
-		Text:     bm25Text,
-		ImageURL: imageURL,
-	}, meme.ID)
-	if err != nil {
-		atomic.AddInt64(&stats.Failed, 1)
-		w.log.WithError(err).WithFields(logger.Fields{
-			"meme_id":   meme.ID,
-			"image_url": imageURL,
-		}).Error("EmbedDocument failed after retries")
-		return
-	}
-
-	pointID := uuid.New().String()
-
 	payload := &repository.MemePayload{
 		MemeID:         meme.ID,
 		SourceType:     meme.SourceType,
@@ -367,46 +398,173 @@ func (w *worker) processOne(ctx context.Context, meme domain.Meme, stats *runSta
 		StorageURL:     imageURL,
 	}
 
-	if err := w.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
-		atomic.AddInt64(&stats.Failed, 1)
-		w.log.WithError(err).WithField("meme_id", meme.ID).Error("UpsertHybrid failed")
-		return
-	}
-
-	vectorRecord := &domain.MemeVector{
-		ID:             uuid.New().String(),
-		MemeID:         meme.ID,
-		MD5Hash:        meme.MD5Hash,
-		Collection:     w.collection,
-		EmbeddingModel: w.embeddingProvider.GetModel(),
-		DescriptionID:  descriptionID,
-		QdrantPointID:  pointID,
-		Status:         domain.MemeVectorStatusActive,
-		CreatedAt:      time.Now(),
-	}
-	if err := w.vectorRepo.Create(ctx, vectorRecord); err != nil {
-		// Roll back the Qdrant point so the next run can retry cleanly.
-		if delErr := w.qdrantRepo.Delete(ctx, pointID); delErr != nil {
-			w.log.WithError(delErr).WithField("point_id", pointID).Error("Failed to roll back Qdrant point after meme_vectors insert failure")
+	if w.dryRun {
+		planned := 0
+		for _, index := range w.vectorIndexes {
+			if w.shouldProcessIndex(ctx, meme, index, captionText, stats) {
+				planned++
+			}
 		}
-		atomic.AddInt64(&stats.Failed, 1)
-		w.log.WithError(err).WithField("meme_id", meme.ID).Error("meme_vectors insert failed")
+		atomic.AddInt64(&stats.Reembedded, int64(planned))
+		w.log.WithFields(logger.Fields{
+			"meme_id":         meme.ID,
+			"md5":             meme.MD5Hash,
+			"image_url":       imageURL,
+			"has_desc":        desc != nil,
+			"planned_vectors": planned,
+		}).Info("[dry-run] would re-embed meme")
 		return
 	}
 
-	atomic.AddInt64(&stats.Reembedded, 1)
+	embedStart := time.Now()
+	wrote := 0
+	for _, index := range w.vectorIndexes {
+		if !w.shouldProcessIndex(ctx, meme, index, captionText, stats) {
+			continue
+		}
+		if err := w.processVectorIndex(ctx, meme, index, vectorPayloadInput{
+			ImageURL:      imageURL,
+			CaptionText:   captionText,
+			BM25Text:      bm25Text,
+			DescriptionID: descriptionID,
+			Payload:       payload,
+		}); err != nil {
+			atomic.AddInt64(&stats.Failed, 1)
+			w.log.WithError(err).WithFields(logger.Fields{
+				"meme_id":     meme.ID,
+				"collection":  index.Collection,
+				"vector_type": index.VectorType,
+			}).Error("Failed to re-embed vector index")
+			continue
+		}
+		wrote++
+		atomic.AddInt64(&stats.Reembedded, 1)
+	}
+
+	if wrote == 0 {
+		atomic.AddInt64(&stats.SkippedExisted, 1)
+		return
+	}
 	w.log.WithFields(logger.Fields{
 		"meme_id":     meme.ID,
-		"point_id":    pointID,
+		"vectors":     wrote,
 		"duration_ms": time.Since(embedStart).Milliseconds(),
 	}).Info("Re-embedded meme")
+}
+
+type vectorPayloadInput struct {
+	ImageURL      string
+	CaptionText   string
+	BM25Text      string
+	DescriptionID string
+	Payload       *repository.MemePayload
+}
+
+func (w *worker) shouldProcessIndex(ctx context.Context, meme domain.Meme, index service.IngestVectorIndex, captionText string, stats *runStats) bool {
+	if index.VectorType == domain.MemeVectorTypeCaption && captionText == "" {
+		atomic.AddInt64(&stats.SkippedNoURL, 1)
+		w.log.WithFields(logger.Fields{
+			"meme_id":     meme.ID,
+			"collection":  index.Collection,
+			"vector_type": index.VectorType,
+		}).Warn("Skipping caption vector because caption text is empty")
+		return false
+	}
+	if !w.force {
+		exists, err := w.vectorRepo.ExistsByMD5CollectionAndVectorType(ctx, meme.MD5Hash, index.Collection, index.VectorType)
+		if err != nil {
+			atomic.AddInt64(&stats.Failed, 1)
+			w.log.WithError(err).WithFields(logger.Fields{
+				"meme_id":     meme.ID,
+				"collection":  index.Collection,
+				"vector_type": index.VectorType,
+			}).Error("Failed to check vector existence")
+			return false
+		}
+		if exists {
+			return false
+		}
+	}
+	return true
+}
+
+func (w *worker) processVectorIndex(ctx context.Context, meme domain.Meme, index service.IngestVectorIndex, input vectorPayloadInput) error {
+	if w.force {
+		existing, err := w.vectorRepo.GetByMD5CollectionAndVectorType(ctx, meme.MD5Hash, index.Collection, index.VectorType)
+		if err == nil && existing != nil {
+			if delErr := index.QdrantRepo.Delete(ctx, existing.QdrantPointID); delErr != nil {
+				w.log.WithError(delErr).WithField("point_id", existing.QdrantPointID).Warn("Failed to delete old Qdrant point before force reembed")
+			}
+			if delErr := w.vectorRepo.Delete(ctx, existing.ID); delErr != nil {
+				return fmt.Errorf("failed to delete old vector record before force reembed: %w", delErr)
+			}
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("failed to load old vector record before force reembed: %w", err)
+		}
+	}
+
+	doc := service.EmbeddingDocument{}
+	inputHash := meme.MD5Hash
+	switch index.VectorType {
+	case domain.MemeVectorTypeCaption:
+		doc.Text = input.CaptionText
+		inputHash = calculateTextSHA256(input.CaptionText)
+	case domain.MemeVectorTypeImage:
+		doc.ImageURL = input.ImageURL
+	default:
+		return fmt.Errorf("unsupported vector type: %s", index.VectorType)
+	}
+
+	embedding, err := w.embedWithRetry(ctx, index.Embedding, doc, meme.ID)
+	if err != nil {
+		return fmt.Errorf("EmbedDocument failed after retries: %w", err)
+	}
+
+	pointID := uuid.New().String()
+	if index.UseSparse {
+		if err := index.QdrantRepo.UpsertHybrid(ctx, pointID, embedding, input.BM25Text, input.Payload); err != nil {
+			return fmt.Errorf("UpsertHybrid failed: %w", err)
+		}
+	} else {
+		if err := index.QdrantRepo.Upsert(ctx, pointID, embedding, input.Payload); err != nil {
+			return fmt.Errorf("Upsert failed: %w", err)
+		}
+	}
+
+	dimension := index.EmbeddingDimension
+	if dimension <= 0 {
+		dimension = index.Embedding.GetDimensions()
+	}
+	vectorRecord := &domain.MemeVector{
+		ID:                uuid.New().String(),
+		MemeID:            meme.ID,
+		MD5Hash:           meme.MD5Hash,
+		Collection:        index.Collection,
+		VectorType:        index.VectorType,
+		EmbeddingModel:    index.Embedding.GetModel(),
+		EmbeddingProvider: index.Provider,
+		EmbeddingMode:     domain.MemeVectorEmbeddingModeIndependent,
+		Dimension:         dimension,
+		InputHash:         inputHash,
+		DescriptionID:     input.DescriptionID,
+		QdrantPointID:     pointID,
+		Status:            domain.MemeVectorStatusActive,
+		CreatedAt:         time.Now(),
+	}
+	if err := w.vectorRepo.Create(ctx, vectorRecord); err != nil {
+		if delErr := index.QdrantRepo.Delete(ctx, pointID); delErr != nil {
+			w.log.WithError(delErr).WithField("point_id", pointID).Error("Failed to roll back Qdrant point after meme_vectors insert failure")
+		}
+		return fmt.Errorf("meme_vectors insert failed: %w", err)
+	}
+	return nil
 }
 
 // embedWithRetry calls the embedding provider with exponential backoff for
 // transient failures (HTTP 429 throttling and 5xx). Jina v4 in particular
 // tends to return 429 under modest concurrency on the free tier; retrying
 // after a short sleep is enough to recover instead of dropping the meme.
-func (w *worker) embedWithRetry(ctx context.Context, doc service.EmbeddingDocument, memeID string) ([]float32, error) {
+func (w *worker) embedWithRetry(ctx context.Context, provider service.EmbeddingProvider, doc service.EmbeddingDocument, memeID string) ([]float32, error) {
 	const maxAttempts = 5
 	backoff := 2 * time.Second
 
@@ -415,7 +573,7 @@ func (w *worker) embedWithRetry(ctx context.Context, doc service.EmbeddingDocume
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		vec, err := w.embeddingProvider.EmbedDocument(ctx, doc)
+		vec, err := provider.EmbedDocument(ctx, doc)
 		if err == nil {
 			if attempt > 1 {
 				w.log.WithFields(logger.Fields{
@@ -460,6 +618,11 @@ func isTransientEmbeddingError(err error) bool {
 		return true
 	}
 	return false
+}
+
+func calculateTextSHA256(text string) string {
+	hash := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(hash[:])
 }
 
 // lookupDescription returns any existing VLM description for the meme. It does

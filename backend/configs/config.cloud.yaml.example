@@ -55,21 +55,23 @@ vlm:
   base_url: https://openrouter.ai/api/v1
 
 embeddings:
-  - name: jina
-    provider: jina
-    model: jina-embeddings-v4
-    api_key_env: JINA_API_KEY
+  - name: qwen3vl_image
+    provider: siliconflow
+    model: Qwen/Qwen3-VL-Embedding-8B
+    api_key_env: SILICONFLOW_API_KEY
+    base_url_env: SILICONFLOW_BASE_URL
     document_mode: image
-    dimensions: 2048
-    collection: emomo_jina_v4
+    dimensions: 1024
+    collection: meme_image_qwen3vl_1024
 
-  - name: qwen3
-    provider: modelscope
-    model: Qwen/Qwen3-Embedding-8B
-    api_key_env: MODELSCOPE_API_KEY
-    base_url_env: MODELSCOPE_BASE_URL
-    dimensions: 4096
-    collection: emomo_v2
+  - name: qwen3vl_caption
+    provider: siliconflow
+    model: Qwen/Qwen3-VL-Embedding-8B
+    api_key_env: SILICONFLOW_API_KEY
+    base_url_env: SILICONFLOW_BASE_URL
+    document_mode: text
+    dimensions: 1024
+    collection: meme_caption_qwen3vl_1024
     is_default: true
 
 ingest:
@@ -79,6 +81,20 @@ ingest:
 
 search:
   score_threshold: 0.0
+  default_profile: qwen3vl
+  profiles:
+    - name: qwen3vl
+      image_embedding: qwen3vl_image
+      caption_embedding: qwen3vl_caption
+      is_default: true
+  retrieval:
+    image_top_k: 100
+    caption_top_k: 100
+    final_top_k: 20
+    weights:
+      image: 0.60
+      caption: 0.30
+      keyword: 0.10
   query_expansion:
     enabled: true
     model: qwen/qwen-2.5-vl-7b-instruct:free
