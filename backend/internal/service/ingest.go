@@ -47,6 +47,7 @@ type IngestConfig struct {
 	Workers       int
 	BatchSize     int
 	Collection    string // Target Qdrant collection name
+	VectorType    string // Fallback vector type when VectorIndexes is empty
 	VectorIndexes []IngestVectorIndex
 }
 
@@ -89,9 +90,10 @@ func NewIngestService(
 ) *IngestService {
 	indexes := cfg.VectorIndexes
 	if len(indexes) == 0 && qdrantRepo != nil && embedding != nil {
+		vectorType := normalizeIngestVectorType(cfg.VectorType)
 		indexes = []IngestVectorIndex{
 			{
-				VectorType:         domain.MemeVectorTypeImage,
+				VectorType:         vectorType,
 				Collection:         cfg.Collection,
 				Embedding:          embedding,
 				QdrantRepo:         qdrantRepo,
@@ -553,13 +555,15 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	if err := s.upsertVectorIndexes(ctx, targetIndexes, vectorUpsertInput{
-		MemeID:        memeID,
-		MD5Hash:       md5Hash,
-		DescriptionID: descriptionID,
-		ImageURL:      storageURL,
-		CaptionText:   captionText,
-		BM25Text:      bm25Text,
-		Payload:       payload,
+		MemeID:         memeID,
+		MD5Hash:        md5Hash,
+		DescriptionID:  descriptionID,
+		ImageURL:       storageURL,
+		ImageData:      imageData,
+		ImageMediaType: getContentType(processedFormat),
+		CaptionText:    captionText,
+		BM25Text:       bm25Text,
+		Payload:        payload,
 	}); err != nil {
 		if createdNewMeme {
 			s.rollbackVectorIndexes(ctx, memeID, targetIndexes)
@@ -588,13 +592,15 @@ func (s *IngestService) extractOCRText(ctx context.Context, imageData []byte, fo
 }
 
 type vectorUpsertInput struct {
-	MemeID        string
-	MD5Hash       string
-	DescriptionID string
-	ImageURL      string
-	CaptionText   string
-	BM25Text      string
-	Payload       *repository.MemePayload
+	MemeID         string
+	MD5Hash        string
+	DescriptionID  string
+	ImageURL       string
+	ImageData      []byte
+	ImageMediaType string
+	CaptionText    string
+	BM25Text       string
+	Payload        *repository.MemePayload
 }
 
 func (s *IngestService) missingVectorIndexes(ctx context.Context, md5Hash string, force bool) ([]IngestVectorIndex, error) {
@@ -687,6 +693,8 @@ func (s *IngestService) upsertVectorIndex(ctx context.Context, index IngestVecto
 			return fmt.Errorf("image vector requires image url")
 		}
 		doc.ImageURL = input.ImageURL
+		doc.ImageData = input.ImageData
+		doc.ImageMediaType = input.ImageMediaType
 	default:
 		return fmt.Errorf("unsupported vector type: %s", vectorType)
 	}
@@ -753,6 +761,13 @@ func normalizeIngestVectorType(vectorType string) string {
 	default:
 		return domain.MemeVectorTypeImage
 	}
+}
+
+func IngestVectorTypeForDocumentMode(documentMode string) string {
+	if normalizeEmbeddingDocumentMode(documentMode) == embeddingDocumentText {
+		return domain.MemeVectorTypeCaption
+	}
+	return domain.MemeVectorTypeImage
 }
 
 func normalizeEmbeddingMode(mode string) string {
@@ -1050,13 +1065,15 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		}
 
 		if err := s.upsertVectorIndexes(ctx, targetIndexes, vectorUpsertInput{
-			MemeID:        meme.ID,
-			MD5Hash:       meme.MD5Hash,
-			DescriptionID: descriptionID,
-			ImageURL:      imageURL,
-			CaptionText:   captionText,
-			BM25Text:      bm25Text,
-			Payload:       payload,
+			MemeID:         meme.ID,
+			MD5Hash:        meme.MD5Hash,
+			DescriptionID:  descriptionID,
+			ImageURL:       imageURL,
+			ImageData:      imageData,
+			ImageMediaType: getContentType(meme.Format),
+			CaptionText:    captionText,
+			BM25Text:       bm25Text,
+			Payload:        payload,
 		}); err != nil {
 			logger.CtxError(ctx, "Failed to upsert vector indexes: meme_id=%s, error=%v", meme.ID, err)
 			stats.FailedItems++

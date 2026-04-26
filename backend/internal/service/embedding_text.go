@@ -64,6 +64,12 @@ func extractEmotionWords(text string) []string {
 	return dedupeStrings(matches)
 }
 
+// ExtractEmotionWords exposes the canonical emotion keyword extraction used
+// when generating caption embedding text.
+func ExtractEmotionWords(text string) []string {
+	return extractEmotionWords(text)
+}
+
 func buildEmbeddingText(ocrText, description string, tags, emotions []string) string {
 	segments := make([]string, 0, 4)
 	if ocrText != "" {

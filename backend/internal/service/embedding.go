@@ -2,19 +2,26 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"net/url"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 )
 
 const (
-	jinaDefaultBaseURL     = "https://api.jina.ai/v1"
-	siliconFlowDefaultURL  = "https://api.siliconflow.cn/v1"
-	embeddingDocumentText  = "text"
-	embeddingDocumentImage = "image"
+	jinaDefaultBaseURL       = "https://api.jina.ai/v1"
+	siliconFlowDefaultURL    = "https://api.siliconflow.cn/v1"
+	embeddingDocumentText    = "text"
+	embeddingDocumentImage   = "image"
+	maxSiliconFlowImageBytes = 25 << 20
 )
 
 // EmbeddingProvider defines the interface for embedding services.
@@ -36,9 +43,11 @@ type EmbeddingProvider interface {
 // EmbeddingDocument carries the content needed to generate an ingest-time embedding.
 // Providers can choose the most suitable representation for the configured document mode.
 type EmbeddingDocument struct {
-	Text     string
-	ImageURL string
-	Contents []EmbeddingContent
+	Text           string
+	ImageURL       string
+	ImageData      []byte
+	ImageMediaType string
+	Contents       []EmbeddingContent
 }
 
 // EmbeddingContent is a provider-neutral multimodal input item.
@@ -83,6 +92,7 @@ func NewEmbeddingProvider(cfg *EmbeddingProviderConfig) (EmbeddingProvider, erro
 // SiliconFlowEmbeddingProvider handles multimodal embedding generation using SiliconFlow.
 type SiliconFlowEmbeddingProvider struct {
 	client       *resty.Client
+	imageClient  *http.Client
 	baseURL      string
 	model        string
 	documentMode string
@@ -133,6 +143,7 @@ func NewSiliconFlowEmbeddingProvider(cfg *EmbeddingProviderConfig) *SiliconFlowE
 
 	return &SiliconFlowEmbeddingProvider{
 		client:       client,
+		imageClient:  &http.Client{Timeout: 30 * time.Second},
 		baseURL:      baseURL,
 		model:        cfg.Model,
 		documentMode: normalizeEmbeddingDocumentMode(cfg.DocumentMode),
@@ -172,7 +183,11 @@ func (p *SiliconFlowEmbeddingProvider) EmbedDocument(ctx context.Context, doc Em
 		input := make([]any, 0, len(doc.Contents))
 		for _, content := range doc.Contents {
 			if content.Image != "" {
-				input = append(input, map[string]string{"image": content.Image})
+				imageInput, err := p.imageInput(ctx, EmbeddingDocument{ImageURL: content.Image})
+				if err != nil {
+					return nil, err
+				}
+				input = append(input, map[string]string{"image": imageInput})
 				continue
 			}
 			if content.Text != "" {
@@ -187,10 +202,11 @@ func (p *SiliconFlowEmbeddingProvider) EmbedDocument(ctx context.Context, doc Em
 
 	switch p.documentMode {
 	case embeddingDocumentImage:
-		if strings.TrimSpace(doc.ImageURL) == "" {
-			return nil, fmt.Errorf("siliconflow image document embedding requires image_url")
+		imageInput, err := p.imageInput(ctx, doc)
+		if err != nil {
+			return nil, err
 		}
-		return p.embedOne(ctx, map[string]string{"image": doc.ImageURL}, false)
+		return p.embedOne(ctx, map[string]string{"image": imageInput}, false)
 	default:
 		if strings.TrimSpace(doc.Text) == "" {
 			return nil, fmt.Errorf("siliconflow text document embedding requires text")
@@ -258,6 +274,103 @@ func (p *SiliconFlowEmbeddingProvider) embedMany(ctx context.Context, input any,
 	}
 
 	return embeddings, nil
+}
+
+func (p *SiliconFlowEmbeddingProvider) imageInput(ctx context.Context, doc EmbeddingDocument) (string, error) {
+	if len(doc.ImageData) > 0 {
+		return siliconFlowImageDataURI(doc.ImageData, doc.ImageMediaType, doc.ImageURL)
+	}
+
+	imageURL := strings.TrimSpace(doc.ImageURL)
+	if imageURL == "" {
+		return "", fmt.Errorf("siliconflow image document embedding requires image data or image_url")
+	}
+	if strings.HasPrefix(imageURL, "data:image/") {
+		return imageURL, nil
+	}
+
+	parsed, err := url.Parse(imageURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", fmt.Errorf("siliconflow image document embedding requires image data, data URI, or HTTP(S) image_url")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to build image download request: %w", err)
+	}
+
+	client := p.imageClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to download image for SiliconFlow embedding: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("failed to download image for SiliconFlow embedding: status %d", resp.StatusCode)
+	}
+
+	limited := io.LimitReader(resp.Body, maxSiliconFlowImageBytes+1)
+	imageData, err := io.ReadAll(limited)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image for SiliconFlow embedding: %w", err)
+	}
+	if len(imageData) > maxSiliconFlowImageBytes {
+		return "", fmt.Errorf("image for SiliconFlow embedding exceeds %d bytes", maxSiliconFlowImageBytes)
+	}
+
+	return siliconFlowImageDataURI(imageData, resp.Header.Get("Content-Type"), imageURL)
+}
+
+func siliconFlowImageDataURI(imageData []byte, mediaType, source string) (string, error) {
+	if len(imageData) == 0 {
+		return "", fmt.Errorf("siliconflow image document embedding requires non-empty image data")
+	}
+
+	mediaType = normalizeImageMediaType(mediaType)
+	if mediaType == "" || !strings.HasPrefix(mediaType, "image/") {
+		mediaType = detectImageMediaType(imageData, source)
+	}
+	if !strings.HasPrefix(mediaType, "image/") {
+		return "", fmt.Errorf("siliconflow image document embedding requires an image media type, got %q", mediaType)
+	}
+
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(imageData), nil
+}
+
+func normalizeImageMediaType(mediaType string) string {
+	mediaType = strings.TrimSpace(mediaType)
+	if mediaType == "" {
+		return ""
+	}
+	parsed, _, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		return strings.ToLower(mediaType)
+	}
+	return strings.ToLower(parsed)
+}
+
+func detectImageMediaType(imageData []byte, source string) string {
+	detected := strings.ToLower(http.DetectContentType(imageData))
+	if strings.HasPrefix(detected, "image/") {
+		return detected
+	}
+
+	switch strings.ToLower(filepath.Ext(source)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return detected
+	}
 }
 
 // =============================================================================

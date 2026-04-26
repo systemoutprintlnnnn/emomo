@@ -3,9 +3,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -152,7 +154,7 @@ func TestOpenAICompatibleEmbeddingProviderEmbedDocumentUsesTextFallback(t *testi
 
 	var got openAIEmbeddingRequest
 	provider := NewOpenAICompatibleEmbeddingProvider(&EmbeddingProviderConfig{
-		Model:      "Qwen/Qwen3-Embedding-8B",
+		Model:      "test-openai-compatible-embedding-model",
 		APIKey:     "test-key",
 		BaseURL:    "https://openai.test",
 		Dimensions: 4096,
@@ -187,10 +189,11 @@ func TestOpenAICompatibleEmbeddingProviderEmbedDocumentUsesTextFallback(t *testi
 	}
 }
 
-func TestSiliconFlowEmbeddingProviderEmbedDocumentImageModeUsesImageContent(t *testing.T) {
+func TestSiliconFlowEmbeddingProviderEmbedDocumentImageModeUsesImageDataURI(t *testing.T) {
 	t.Parallel()
 
 	var got siliconFlowEmbeddingRequest
+	imageBytes := []byte("fake-image-bytes")
 	provider := NewSiliconFlowEmbeddingProvider(&EmbeddingProviderConfig{
 		Model:        "Qwen/Qwen3-VL-Embedding-8B",
 		APIKey:       "test-key",
@@ -216,8 +219,10 @@ func TestSiliconFlowEmbeddingProviderEmbedDocumentImageModeUsesImageContent(t *t
 	}))
 
 	embedding, err := provider.EmbedDocument(context.Background(), EmbeddingDocument{
-		Text:     "ignored text",
-		ImageURL: "https://cdn.example.com/meme.jpg",
+		Text:           "ignored text",
+		ImageURL:       "https://cdn.example.com/meme.jpg",
+		ImageData:      imageBytes,
+		ImageMediaType: "image/png",
 	})
 	if err != nil {
 		t.Fatalf("EmbedDocument returned error: %v", err)
@@ -239,11 +244,58 @@ func TestSiliconFlowEmbeddingProviderEmbedDocumentImageModeUsesImageContent(t *t
 	if !ok {
 		t.Fatalf("expected object input, got %T", got.Input)
 	}
-	if input["image"] != "https://cdn.example.com/meme.jpg" {
+	expectedImage := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)
+	if input["image"] != expectedImage {
 		t.Fatalf("unexpected image input: %#v", input)
 	}
 	if _, exists := input["text"]; exists {
 		t.Fatalf("expected image-only input, got %#v", input)
+	}
+}
+
+func TestSiliconFlowEmbeddingProviderEmbedDocumentImageModeDownloadsImageURL(t *testing.T) {
+	t.Parallel()
+
+	var got siliconFlowEmbeddingRequest
+	imageBytes := []byte("downloaded-image-bytes")
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write(imageBytes)
+	}))
+	t.Cleanup(imageServer.Close)
+
+	provider := NewSiliconFlowEmbeddingProvider(&EmbeddingProviderConfig{
+		Model:        "Qwen/Qwen3-VL-Embedding-8B",
+		APIKey:       "test-key",
+		BaseURL:      "https://siliconflow.test/v1",
+		DocumentMode: embeddingDocumentImage,
+		Dimensions:   1024,
+	})
+	provider.imageClient = imageServer.Client()
+	provider.client.SetTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		return jsonResponse(t, http.StatusOK, siliconFlowEmbeddingResponse{
+			Data: []siliconFlowEmbeddingData{
+				{Embedding: []float64{0.1, 0.2}, Index: 0},
+			},
+		}), nil
+	}))
+
+	if _, err := provider.EmbedDocument(context.Background(), EmbeddingDocument{
+		ImageURL: imageServer.URL + "/meme.jpg",
+	}); err != nil {
+		t.Fatalf("EmbedDocument returned error: %v", err)
+	}
+
+	input, ok := got.Input.(map[string]any)
+	if !ok {
+		t.Fatalf("expected object input, got %T", got.Input)
+	}
+	expectedImage := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageBytes)
+	if input["image"] != expectedImage {
+		t.Fatalf("unexpected image input: %#v", input)
 	}
 }
 

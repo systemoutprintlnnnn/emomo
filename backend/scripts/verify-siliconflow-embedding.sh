@@ -8,10 +8,8 @@
 # Optional:
 #   ENV_FILE=/path/to/.env
 #   SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
-#   CONFIG_MODEL=Qwen/Qwen3-VL-Embedding-8B
-#   CONFIG_DIMENSIONS=1024
-#   CONTROL_MODEL=Qwen/Qwen3-Embedding-8B
-#   CONTROL_DIMENSIONS=
+#   SILICONFLOW_EMBEDDING_MODEL=Qwen/Qwen3-VL-Embedding-8B
+#   SILICONFLOW_EMBEDDING_DIMENSIONS=1024
 #   TEST_IMAGE_URL=https://upload.wikimedia.org/wikipedia/commons/3/3f/JPEG_example_flower.jpg
 
 set -u
@@ -65,10 +63,8 @@ load_env_file() {
 load_env_file "$ENV_FILE"
 
 BASE_URL="${SILICONFLOW_BASE_URL:-https://api.siliconflow.cn/v1}"
-CONFIG_MODEL="${CONFIG_MODEL:-Qwen/Qwen3-VL-Embedding-8B}"
-CONFIG_DIMENSIONS="${CONFIG_DIMENSIONS:-1024}"
-CONTROL_MODEL="${CONTROL_MODEL:-Qwen/Qwen3-Embedding-8B}"
-CONTROL_DIMENSIONS="${CONTROL_DIMENSIONS:-}"
+EMBEDDING_MODEL="${SILICONFLOW_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-8B}"
+EMBEDDING_DIMENSIONS="${SILICONFLOW_EMBEDDING_DIMENSIONS:-1024}"
 TEST_IMAGE_URL="${TEST_IMAGE_URL:-https://upload.wikimedia.org/wikipedia/commons/3/3f/JPEG_example_flower.jpg}"
 QUERY_TEXT="测试表情包搜索"
 
@@ -81,17 +77,16 @@ Usage:
 Environment:
   ENV_FILE            Env file to load first, default: ${ENV_FILE}
   SILICONFLOW_BASE_URL  API base URL, default: ${BASE_URL}
-  CONFIG_MODEL          Model from config.yaml to validate, default: ${CONFIG_MODEL}
-  CONFIG_DIMENSIONS     Dimensions for CONFIG_MODEL, default: ${CONFIG_DIMENSIONS}
-  CONTROL_MODEL         Known text embedding model for payload-shape checks, default: ${CONTROL_MODEL}
-  CONTROL_DIMENSIONS    Optional dimensions for CONTROL_MODEL
-  TEST_IMAGE_URL        Public image URL for image object input checks
+  SILICONFLOW_EMBEDDING_MODEL       Model to validate, default: ${EMBEDDING_MODEL}
+  SILICONFLOW_EMBEDDING_DIMENSIONS  Output dimensions, default: ${EMBEDDING_DIMENSIONS}
+  TEST_IMAGE_URL        Public image URL downloaded and converted to a data URI for image checks
 
 Checks:
-  1. CONFIG_MODEL with string input: verifies whether the configured model is accepted.
-  2. CONTROL_MODEL with string input: verifies the API/key baseline.
-  3. CONTROL_MODEL with object input {"text": "..."}: verifies the current client payload shape.
-  4. CONFIG_MODEL with object input {"image": "..."}: verifies the current image-ingest payload shape.
+  1. Model list contains ${EMBEDDING_MODEL}.
+  2. Text string input works for ${EMBEDDING_MODEL}.
+  3. Current text object input {"text": "..."} works for ${EMBEDDING_MODEL}.
+  4. Current batch text object input [{"text": "..."}, ...] works for ${EMBEDDING_MODEL}.
+  5. Current image object input {"image": "data:image/...;base64,..."} works and reports image_tokens > 0.
 EOF
 }
 
@@ -121,6 +116,27 @@ embedding_payload() {
         "$model" "$input_json" "$(dimensions_field "$dimensions")"
 }
 
+image_data_uri() {
+    local image_url="$1"
+    local image_file
+    local media_type
+    local encoded
+
+    image_file="$(mktemp)"
+    if ! curl -fsSL "$image_url" -o "$image_file"; then
+        rm -f "$image_file"
+        return 1
+    fi
+
+    media_type="$(file -b --mime-type "$image_file" 2>/dev/null || true)"
+    if [[ "$media_type" != image/* ]]; then
+        media_type="image/jpeg"
+    fi
+    encoded="$(base64 < "$image_file" | tr -d '\n')"
+    rm -f "$image_file"
+    printf 'data:%s;base64,%s' "$media_type" "$encoded"
+}
+
 post_embedding() {
     local label="$1"
     local payload="$2"
@@ -144,38 +160,103 @@ post_embedding() {
     fi
 
     echo "FAIL"
+    sed -n '1,20p' "$body_file" | sed -E 's/("embedding"[[:space:]]*:[[:space:]]*)\[[^]]*/\1[.../g'
+    rm -f "$body_file"
+    return 1
+}
+
+post_embedding_with_image_tokens() {
+    local label="$1"
+    local payload="$2"
+    local body_file
+    local http_status
+    local image_tokens
+
+    body_file="$(mktemp)"
+    http_status="$(curl -sS -o "$body_file" -w "%{http_code}" \
+        -X POST "${BASE_URL%/}/embeddings" \
+        -H "Authorization: Bearer ${SILICONFLOW_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -d "$payload")"
+
+    echo ""
+    echo "== ${label} =="
+    echo "HTTP ${http_status}"
+    if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ] && grep -q '"embedding"' "$body_file"; then
+        image_tokens="$(grep -o '"image_tokens":[0-9]*' "$body_file" | head -1 | cut -d: -f2)"
+        echo "image_tokens=${image_tokens:-missing}"
+        if [ "${image_tokens:-0}" -gt 0 ]; then
+            echo "PASS"
+            rm -f "$body_file"
+            return 0
+        fi
+    fi
+
+    echo "FAIL"
+    sed -n '1,20p' "$body_file" | sed -E 's/("embedding"[[:space:]]*:[[:space:]]*)\[[^]]*/\1[.../g'
+    rm -f "$body_file"
+    return 1
+}
+
+model_list_contains() {
+    local body_file
+    local http_status
+
+    body_file="$(mktemp)"
+    http_status="$(curl -sS -o "$body_file" -w "%{http_code}" \
+        -H "Authorization: Bearer ${SILICONFLOW_API_KEY}" \
+        "${BASE_URL%/}/models")"
+
+    echo ""
+    echo "== model list contains target model =="
+    echo "HTTP ${http_status}"
+    if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 300 ] && grep -q "\"id\":\"${EMBEDDING_MODEL}\"" "$body_file"; then
+        echo "PASS"
+        rm -f "$body_file"
+        return 0
+    fi
+
+    echo "FAIL"
     sed -n '1,20p' "$body_file"
     rm -f "$body_file"
     return 1
 }
 
-config_string_payload="$(embedding_payload "$CONFIG_MODEL" "\"${QUERY_TEXT}\"" "$CONFIG_DIMENSIONS")"
-control_string_payload="$(embedding_payload "$CONTROL_MODEL" "\"${QUERY_TEXT}\"" "$CONTROL_DIMENSIONS")"
-control_object_payload="$(embedding_payload "$CONTROL_MODEL" "{\"text\":\"${QUERY_TEXT}\"}" "$CONTROL_DIMENSIONS")"
-config_image_object_payload="$(embedding_payload "$CONFIG_MODEL" "{\"image\":\"${TEST_IMAGE_URL}\"}" "$CONFIG_DIMENSIONS")"
+text_string_payload="$(embedding_payload "$EMBEDDING_MODEL" "\"${QUERY_TEXT}\"" "$EMBEDDING_DIMENSIONS")"
+text_object_payload="$(embedding_payload "$EMBEDDING_MODEL" "{\"text\":\"${QUERY_TEXT}\"}" "$EMBEDDING_DIMENSIONS")"
+batch_text_object_payload="$(embedding_payload "$EMBEDDING_MODEL" "[{\"text\":\"开心猫\"},{\"text\":\"无语表情\"}]" "$EMBEDDING_DIMENSIONS")"
+image_uri="$(image_data_uri "$TEST_IMAGE_URL")"
+if [ -z "$image_uri" ]; then
+    echo "Failed to download TEST_IMAGE_URL for image embedding check." >&2
+    exit 2
+fi
+image_data_uri_payload="$(embedding_payload "$EMBEDDING_MODEL" "{\"image\":\"${image_uri}\"}" "$EMBEDDING_DIMENSIONS")"
 
 failed=0
 
-if ! post_embedding "configured model with string input" "$config_string_payload"; then
-    echo "Configured model was not accepted by SiliconFlow embeddings."
+if ! model_list_contains; then
+    echo "Target embedding model was not found in SiliconFlow model list."
     failed=1
 fi
 
-if ! post_embedding "control model with string input" "$control_string_payload"; then
-    echo "Control model failed; check API key, base URL, or CONTROL_MODEL before judging payload shape."
+if ! post_embedding "target model with text string input" "$text_string_payload"; then
+    echo "Text string input failed for target model."
     failed=1
-elif ! post_embedding "control model with object input used by current client" "$control_object_payload"; then
-    echo "Object input was rejected; SiliconFlow text embeddings should be sent as a string/array payload."
-    failed=1
-else
-    echo "Object input was accepted by the current SiliconFlow endpoint."
 fi
 
-if ! post_embedding "configured model with image object input used by current image ingest" "$config_image_object_payload"; then
-    echo "Image object input was rejected; current image-mode SiliconFlow payload shape needs provider-specific validation/fixing."
+if ! post_embedding "target model with current text object input" "$text_object_payload"; then
+    echo "Current text object input failed for target model."
     failed=1
-else
-    echo "Image object input was accepted by the current SiliconFlow endpoint."
+fi
+
+if ! post_embedding "target model with current batch text object input" "$batch_text_object_payload"; then
+    echo "Current batch text object input failed for target model."
+    failed=1
+fi
+
+if ! post_embedding_with_image_tokens "target model with current image data URI input" "$image_data_uri_payload"; then
+    echo "Current image data URI input failed or did not consume image tokens."
+    failed=1
 fi
 
 exit "$failed"

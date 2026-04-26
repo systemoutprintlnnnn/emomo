@@ -133,6 +133,10 @@ func main() {
 	defaultProvider, defaultQdrantRepo := embeddingRegistry.Default()
 	defaultEmbeddingName := embeddingRegistry.DefaultName()
 	defaultQdrantCollection := defaultQdrantRepo.GetCollectionName()
+	defaultVectorType := ""
+	if defaultEmbeddingCfg := cfg.GetDefaultEmbedding(); defaultEmbeddingCfg != nil {
+		defaultVectorType = service.IngestVectorTypeForDocumentMode(defaultEmbeddingCfg.GetDocumentMode())
+	}
 
 	// Initialize query expansion service
 	// Use Query Expansion's own APIKey/BaseURL if configured, otherwise fall back to VLM's
@@ -219,6 +223,7 @@ func main() {
 			Workers:       cfg.Ingest.Workers,
 			BatchSize:     cfg.Ingest.BatchSize,
 			Collection:    defaultQdrantCollection,
+			VectorType:    defaultVectorType,
 			VectorIndexes: ingestIndexes,
 		},
 	)

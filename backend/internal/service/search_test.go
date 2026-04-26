@@ -42,6 +42,27 @@ func TestSearchServiceGetAvailableProfilesUsesConfiguredDefault(t *testing.T) {
 	}
 }
 
+func TestResolveRequestedProfileFallsBackWhenDefaultProfileUnregistered(t *testing.T) {
+	t.Parallel()
+
+	searchService := NewSearchService(nil, nil, nil, nil, nil, nil, nil, &SearchConfig{
+		DefaultProfile: "qwen3vl",
+	})
+
+	_, _, ok, err := searchService.resolveRequestedProfile(&SearchRequest{})
+	if err != nil {
+		t.Fatalf("resolveRequestedProfile() error = %v, want nil", err)
+	}
+	if ok {
+		t.Fatal("resolveRequestedProfile() ok = true, want false")
+	}
+
+	_, _, _, err = searchService.resolveRequestedProfile(&SearchRequest{Profile: "qwen3vl"})
+	if err == nil {
+		t.Fatal("resolveRequestedProfile() explicit profile error = nil, want error")
+	}
+}
+
 func TestFuseProfileResultsCombinesRoutesByMemeID(t *testing.T) {
 	t.Parallel()
 

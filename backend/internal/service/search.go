@@ -264,9 +264,6 @@ func (s *SearchService) resolveRequestedProfile(req *SearchRequest) (*SearchProf
 	if req.Profile != "" {
 		return nil, "", false, fmt.Errorf("unknown profile: %s", req.Profile)
 	}
-	if req.Collection == "" && s.defaultProfile != "" {
-		return nil, "", false, fmt.Errorf("unknown default profile: %s", s.defaultProfile)
-	}
 	return nil, "", false, nil
 }
 
@@ -470,16 +467,22 @@ func (s *SearchService) searchProfile(
 	expandedQuery string,
 ) (*SearchResponse, error) {
 	if profile == nil || profile.Image == nil || profile.Caption == nil ||
-		profile.Image.QdrantRepo == nil || profile.Caption.QdrantRepo == nil || profile.Caption.Embedding == nil {
+		profile.Image.QdrantRepo == nil || profile.Image.Embedding == nil ||
+		profile.Caption.QdrantRepo == nil || profile.Caption.Embedding == nil {
 		return nil, fmt.Errorf("profile %q is incomplete", profileName)
 	}
 
 	logger.CtxInfo(ctx, "Performing profile search: query=%q, query_for_embedding=%q, top_k=%d, profile=%s",
 		originalQuery, queryForEmbedding, req.TopK, profileName)
 
-	queryEmbedding, err := profile.Caption.Embedding.EmbedQuery(ctx, queryForEmbedding)
+	imageQueryEmbedding, err := profile.Image.Embedding.EmbedQuery(ctx, queryForEmbedding)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+		return nil, fmt.Errorf("failed to generate image route query embedding: %w", err)
+	}
+
+	captionQueryEmbedding, err := profile.Caption.Embedding.EmbedQuery(ctx, queryForEmbedding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate caption route query embedding: %w", err)
 	}
 
 	filters := &repository.SearchFilters{
@@ -487,13 +490,13 @@ func (s *SearchService) searchProfile(
 		SourceType: req.SourceType,
 	}
 
-	imageResults, imageErr := profile.Image.QdrantRepo.Search(ctx, queryEmbedding, s.retrieval.ImageTopK, filters)
+	imageResults, imageErr := profile.Image.QdrantRepo.Search(ctx, imageQueryEmbedding, s.retrieval.ImageTopK, filters)
 	if imageErr != nil {
 		logger.CtxWarn(ctx, "Profile image search failed: profile=%s, error=%v", profileName, imageErr)
 		imageResults = nil
 	}
 
-	captionResults, captionErr := profile.Caption.QdrantRepo.Search(ctx, queryEmbedding, s.retrieval.CaptionTopK, filters)
+	captionResults, captionErr := profile.Caption.QdrantRepo.Search(ctx, captionQueryEmbedding, s.retrieval.CaptionTopK, filters)
 	if captionErr != nil {
 		logger.CtxWarn(ctx, "Profile caption search failed: profile=%s, error=%v", profileName, captionErr)
 		captionResults = nil

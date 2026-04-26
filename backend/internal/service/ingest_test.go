@@ -140,6 +140,32 @@ func TestProcessItemRollsBackNewMemeWhenVectorWriteFails(t *testing.T) {
 	}
 }
 
+func TestNewIngestServiceFallbackIndexUsesConfiguredVectorType(t *testing.T) {
+	t.Parallel()
+
+	ingest := NewIngestService(
+		nil,
+		nil,
+		nil,
+		&repository.QdrantRepository{},
+		nil,
+		nil,
+		fixedEmbeddingProvider{},
+		nil,
+		&IngestConfig{
+			Collection: "caption_collection",
+			VectorType: domain.MemeVectorTypeCaption,
+		},
+	)
+
+	if len(ingest.indexes) != 1 {
+		t.Fatalf("fallback indexes = %d, want 1", len(ingest.indexes))
+	}
+	if ingest.indexes[0].VectorType != domain.MemeVectorTypeCaption {
+		t.Fatalf("fallback vector type = %q, want %q", ingest.indexes[0].VectorType, domain.MemeVectorTypeCaption)
+	}
+}
+
 var testPNG1x1 = []byte{
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,

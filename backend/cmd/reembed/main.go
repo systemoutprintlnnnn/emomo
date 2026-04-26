@@ -385,7 +385,7 @@ func (w *worker) processOne(ctx context.Context, meme domain.Meme, stats *runSta
 		service.CompactDescription(vlmDescription),
 		meme.Category,
 		meme.Tags,
-		nil,
+		service.ExtractEmotionWords(vlmDescription),
 	)
 	bm25Text := service.BuildBM25Text(ocrText, service.CompactDescription(vlmDescription), meme.Tags)
 	payload := &repository.MemePayload{

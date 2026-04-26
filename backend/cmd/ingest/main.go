@@ -110,6 +110,7 @@ func main() {
 	collectionName := ""
 	activeProfile := ""
 	activeEmbedding := ""
+	fallbackVectorType := ""
 
 	if *embeddingName == "" {
 		var profileCfg *config.SearchProfileConfig
@@ -139,6 +140,9 @@ func main() {
 		embeddingProvider, qdrantRepo, ok = embeddingRegistry.Get(name)
 		if !ok {
 			appLogger.WithField("embedding", name).Fatal("Unknown embedding configuration name")
+		}
+		if embCfg, ok := embeddingRegistry.GetConfig(name); ok {
+			fallbackVectorType = service.IngestVectorTypeForDocumentMode(embCfg.GetDocumentMode())
 		}
 		activeEmbedding = name
 		collectionName = qdrantRepo.GetCollectionName()
@@ -202,6 +206,7 @@ func main() {
 			Workers:       cfg.Ingest.Workers,
 			BatchSize:     cfg.Ingest.BatchSize,
 			Collection:    collectionName,
+			VectorType:    fallbackVectorType,
 			VectorIndexes: ingestIndexes,
 		},
 	)
