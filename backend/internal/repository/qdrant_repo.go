@@ -457,6 +457,46 @@ func (r *QdrantRepository) Search(ctx context.Context, vector []float32, topK in
 	return results, nil
 }
 
+// SparseSearch performs a BM25 sparse-vector search.
+func (r *QdrantRepository) SparseSearch(ctx context.Context, queryText string, topK int, filters *SearchFilters) ([]SearchResult, error) {
+	queryText = strings.TrimSpace(queryText)
+	if queryText == "" {
+		return []SearchResult{}, nil
+	}
+	if topK <= 0 {
+		topK = 20
+	}
+
+	req := &pb.QueryPoints{
+		CollectionName: r.collectionName,
+		Query: pb.NewQueryDocument(&pb.Document{
+			Text:  queryText,
+			Model: SparseVectorModel,
+		}),
+		Using:       optionalString(SparseVectorName),
+		Limit:       optionalUint64(uint64(topK)),
+		WithPayload: pb.NewWithPayload(true),
+	}
+	if filters != nil {
+		req.Filter = buildFilter(filters)
+	}
+
+	resp, err := r.pointsClient.Query(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sparse query: %w", err)
+	}
+
+	results := make([]SearchResult, len(resp.Result))
+	for i, scored := range resp.Result {
+		results[i] = SearchResult{
+			ID:      scored.Id.GetUuid(),
+			Score:   scored.Score,
+			Payload: parsePayload(scored.Payload),
+		}
+	}
+	return results, nil
+}
+
 // HybridSearch performs a hybrid search using dense embeddings and BM25 sparse vectors with RRF fusion.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.

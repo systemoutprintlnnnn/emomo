@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ type IngestService struct {
 	storage    storage.ObjectStorage
 	vlm        *VLMService
 	embedding  EmbeddingProvider
+	indexes    []IngestVectorIndex
 	logger     *logger.Logger
 	workers    int
 	batchSize  int
@@ -42,9 +44,23 @@ type IngestService struct {
 
 // IngestConfig holds configuration for the ingest service.
 type IngestConfig struct {
-	Workers    int
-	BatchSize  int
-	Collection string // Target Qdrant collection name
+	Workers       int
+	BatchSize     int
+	Collection    string // Target Qdrant collection name
+	VectorType    string // Fallback vector type when VectorIndexes is empty
+	VectorIndexes []IngestVectorIndex
+}
+
+// IngestVectorIndex describes one vector route to write during ingestion.
+type IngestVectorIndex struct {
+	VectorType         string
+	Collection         string
+	Provider           string
+	Embedding          EmbeddingProvider
+	QdrantRepo         *repository.QdrantRepository
+	UseSparse          bool
+	EmbeddingMode      string
+	EmbeddingDimension int
 }
 
 // NewIngestService creates a new ingest service.
@@ -72,6 +88,22 @@ func NewIngestService(
 	log *logger.Logger,
 	cfg *IngestConfig,
 ) *IngestService {
+	indexes := cfg.VectorIndexes
+	if len(indexes) == 0 && qdrantRepo != nil && embedding != nil {
+		vectorType := normalizeIngestVectorType(cfg.VectorType)
+		indexes = []IngestVectorIndex{
+			{
+				VectorType:         vectorType,
+				Collection:         cfg.Collection,
+				Embedding:          embedding,
+				QdrantRepo:         qdrantRepo,
+				UseSparse:          true,
+				EmbeddingMode:      domain.MemeVectorEmbeddingModeIndependent,
+				EmbeddingDimension: embedding.GetDimensions(),
+			},
+		}
+	}
+
 	return &IngestService{
 		memeRepo:   memeRepo,
 		vectorRepo: vectorRepo,
@@ -80,6 +112,7 @@ func NewIngestService(
 		storage:    objectStorage,
 		vlm:        vlm,
 		embedding:  embedding,
+		indexes:    indexes,
 		logger:     log,
 		workers:    cfg.Workers,
 		batchSize:  cfg.BatchSize,
@@ -307,15 +340,12 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	// Calculate MD5 hash (of the processed/converted image)
 	md5Hash := calculateMD5(imageData)
 
-	// NEW: Check if vector already exists for this MD5 + Collection combination
-	if !opts.Force && s.vectorRepo != nil {
-		exists, err := s.vectorRepo.ExistsByMD5AndCollection(ctx, md5Hash, s.collection)
-		if err != nil {
-			return fmt.Errorf("failed to check vector existence: %w", err)
-		}
-		if exists {
-			return errSkipDuplicate // Already has vector in this collection
-		}
+	targetIndexes, err := s.missingVectorIndexes(ctx, md5Hash, opts.Force)
+	if err != nil {
+		return err
+	}
+	if len(targetIndexes) == 0 {
+		return errSkipDuplicate
 	}
 
 	// Check if we have an existing meme record (for resource reuse)
@@ -344,17 +374,6 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		}
 	}
 
-	// rollbackStorage cleans up the storage upload if we uploaded
-	rollbackStorage := func() {
-		if uploaded {
-			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
-				logger.CtxError(ctx, "Failed to rollback storage upload: storage_key=%s, error=%v", storageKey, delErr)
-			} else {
-				logger.CtxDebug(ctx, "Rolled back storage upload: storage_key=%s", storageKey)
-			}
-		}
-	}
-
 	// rollbackDescription cleans up the description record if we created one
 	rollbackDescription := func() {
 		if createdNewDescription && descriptionID != "" && s.descRepo != nil {
@@ -362,6 +381,17 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				logger.CtxError(ctx, "Failed to rollback description record: description_id=%s, error=%v", descriptionID, delErr)
 			} else {
 				logger.CtxDebug(ctx, "Rolled back description record: description_id=%s", descriptionID)
+			}
+		}
+	}
+
+	// rollbackStorage cleans up the storage upload if we uploaded
+	rollbackStorage := func() {
+		if uploaded {
+			if delErr := s.storage.Delete(ctx, storageKey); delErr != nil {
+				logger.CtxError(ctx, "Failed to rollback storage upload: storage_key=%s, error=%v", storageKey, delErr)
+			} else {
+				logger.CtxDebug(ctx, "Rolled back storage upload: storage_key=%s", storageKey)
 			}
 		}
 	}
@@ -506,29 +536,14 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	}
 
 	compactDesc := compactDescription(vlmDescription)
-	embeddingText := buildEmbeddingText(
+	captionText := buildCaptionEmbeddingText(
 		ocrText,
 		compactDesc,
+		item.Category,
 		item.Tags,
 		extractEmotionWords(vlmDescription),
 	)
 	bm25Text := buildBM25Text(ocrText, compactDesc, item.Tags)
-	embedding, err := s.embedding.EmbedDocument(ctx, EmbeddingDocument{
-		Text:     embeddingText,
-		ImageURL: storageURL,
-	})
-	if err != nil {
-		// Rollback: clean up description, meme record and storage if we created them
-		rollbackDescription()
-		rollbackMeme()
-		rollbackStorage()
-		return fmt.Errorf("failed to generate embedding: %w", err)
-	}
-
-	// Generate a new point ID for this vector (different from meme ID for multi-collection support)
-	pointID := uuid.New().String()
-
-	// Upsert to Qdrant
 	payload := &repository.MemePayload{
 		MemeID:         memeID,
 		SourceType:     sourceType,
@@ -539,43 +554,28 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		StorageURL:     storageURL,
 	}
 
-	if err := s.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
-		// Rollback: clean up description, meme record and storage if we created them
+	if err := s.upsertVectorIndexes(ctx, targetIndexes, vectorUpsertInput{
+		MemeID:         memeID,
+		MD5Hash:        md5Hash,
+		DescriptionID:  descriptionID,
+		ImageURL:       storageURL,
+		ImageData:      imageData,
+		ImageMediaType: getContentType(processedFormat),
+		CaptionText:    captionText,
+		BM25Text:       bm25Text,
+		Payload:        payload,
+	}); err != nil {
+		if createdNewMeme {
+			s.rollbackVectorIndexes(ctx, memeID, targetIndexes)
+		}
 		rollbackDescription()
 		rollbackMeme()
 		rollbackStorage()
-		return fmt.Errorf("failed to upsert to Qdrant: %w", err)
+		return err
 	}
 
-	// Create meme_vectors record to track this vector
-	if s.vectorRepo != nil {
-		vectorRecord := &domain.MemeVector{
-			ID:             uuid.New().String(),
-			MemeID:         memeID,
-			MD5Hash:        md5Hash,
-			Collection:     s.collection,
-			EmbeddingModel: s.embedding.GetModel(),
-			DescriptionID:  descriptionID,
-			QdrantPointID:  pointID,
-			Status:         domain.MemeVectorStatusActive,
-			CreatedAt:      time.Now(),
-		}
-
-		if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
-			// Rollback: delete from Qdrant first
-			if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
-				logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
-			}
-			// Then rollback description, meme and storage
-			rollbackDescription()
-			rollbackMeme()
-			rollbackStorage()
-			return fmt.Errorf("failed to save vector record: %w", err)
-		}
-	}
-
-	logger.CtxDebug(ctx, "Successfully processed item: meme_id=%s, point_id=%s, collection=%s, model=%s, reused=%v",
-		memeID, pointID, s.collection, s.embedding.GetModel(), hasExistingMeme)
+	logger.CtxDebug(ctx, "Successfully processed item: meme_id=%s, vectors=%d, reused=%v",
+		memeID, len(targetIndexes), hasExistingMeme)
 
 	return nil
 }
@@ -591,6 +591,192 @@ func (s *IngestService) extractOCRText(ctx context.Context, imageData []byte, fo
 	return normalizeOCRText(text), nil
 }
 
+type vectorUpsertInput struct {
+	MemeID         string
+	MD5Hash        string
+	DescriptionID  string
+	ImageURL       string
+	ImageData      []byte
+	ImageMediaType string
+	CaptionText    string
+	BM25Text       string
+	Payload        *repository.MemePayload
+}
+
+func (s *IngestService) missingVectorIndexes(ctx context.Context, md5Hash string, force bool) ([]IngestVectorIndex, error) {
+	if len(s.indexes) == 0 {
+		return nil, fmt.Errorf("no ingest vector indexes configured")
+	}
+	if force || s.vectorRepo == nil {
+		return s.indexes, nil
+	}
+
+	missing := make([]IngestVectorIndex, 0, len(s.indexes))
+	for _, index := range s.indexes {
+		exists, err := s.vectorRepo.ExistsByMD5CollectionAndVectorType(ctx, md5Hash, index.Collection, normalizeIngestVectorType(index.VectorType))
+		if err != nil {
+			return nil, fmt.Errorf("failed to check vector existence: %w", err)
+		}
+		if !exists {
+			missing = append(missing, index)
+		}
+	}
+	return missing, nil
+}
+
+func (s *IngestService) upsertVectorIndexes(ctx context.Context, indexes []IngestVectorIndex, input vectorUpsertInput) error {
+	var errs []error
+	for _, index := range indexes {
+		if err := s.upsertVectorIndex(ctx, index, input); err != nil {
+			logger.CtxWarn(ctx, "Failed to upsert vector index: meme_id=%s, collection=%s, vector_type=%s, error=%v",
+				input.MemeID, index.Collection, normalizeIngestVectorType(index.VectorType), err)
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *IngestService) rollbackVectorIndexes(ctx context.Context, memeID string, indexes []IngestVectorIndex) {
+	if memeID == "" || s.vectorRepo == nil {
+		return
+	}
+
+	vectors, err := s.vectorRepo.GetByMemeID(ctx, memeID)
+	if err != nil {
+		logger.CtxError(ctx, "Failed to load vector records for rollback: meme_id=%s, error=%v", memeID, err)
+		return
+	}
+
+	reposByRoute := make(map[string]*repository.QdrantRepository, len(indexes))
+	for _, index := range indexes {
+		vectorType := normalizeIngestVectorType(index.VectorType)
+		reposByRoute[vectorRouteKey(index.Collection, vectorType)] = index.QdrantRepo
+	}
+
+	for _, vector := range vectors {
+		routeKey := vectorRouteKey(vector.Collection, normalizeIngestVectorType(vector.VectorType))
+		qdrantRepo, ok := reposByRoute[routeKey]
+		if !ok {
+			continue
+		}
+		if qdrantRepo != nil {
+			if delErr := qdrantRepo.Delete(ctx, vector.QdrantPointID); delErr != nil {
+				logger.CtxError(ctx, "Failed to rollback Qdrant point: point_id=%s, error=%v", vector.QdrantPointID, delErr)
+			}
+		}
+		if delErr := s.vectorRepo.Delete(ctx, vector.ID); delErr != nil {
+			logger.CtxError(ctx, "Failed to rollback vector record: vector_id=%s, error=%v", vector.ID, delErr)
+		}
+	}
+}
+
+func (s *IngestService) upsertVectorIndex(ctx context.Context, index IngestVectorIndex, input vectorUpsertInput) error {
+	if index.Embedding == nil {
+		return fmt.Errorf("embedding provider is nil for collection %s", index.Collection)
+	}
+	if index.QdrantRepo == nil {
+		return fmt.Errorf("qdrant repo is nil for collection %s", index.Collection)
+	}
+
+	vectorType := normalizeIngestVectorType(index.VectorType)
+	doc := EmbeddingDocument{}
+	inputHash := input.MD5Hash
+	switch vectorType {
+	case domain.MemeVectorTypeCaption:
+		if input.CaptionText == "" {
+			return fmt.Errorf("caption vector requires caption text")
+		}
+		doc.Text = input.CaptionText
+		inputHash = calculateSHA256(input.CaptionText)
+	case domain.MemeVectorTypeImage:
+		if input.ImageURL == "" {
+			return fmt.Errorf("image vector requires image url")
+		}
+		doc.ImageURL = input.ImageURL
+		doc.ImageData = input.ImageData
+		doc.ImageMediaType = input.ImageMediaType
+	default:
+		return fmt.Errorf("unsupported vector type: %s", vectorType)
+	}
+
+	embedding, err := index.Embedding.EmbedDocument(ctx, doc)
+	if err != nil {
+		return fmt.Errorf("failed to generate %s embedding: %w", vectorType, err)
+	}
+
+	pointID := uuid.New().String()
+	if index.UseSparse {
+		if err := index.QdrantRepo.UpsertHybrid(ctx, pointID, embedding, input.BM25Text, input.Payload); err != nil {
+			return fmt.Errorf("failed to upsert hybrid vector: %w", err)
+		}
+	} else {
+		if err := index.QdrantRepo.Upsert(ctx, pointID, embedding, input.Payload); err != nil {
+			return fmt.Errorf("failed to upsert dense vector: %w", err)
+		}
+	}
+
+	if s.vectorRepo == nil {
+		return nil
+	}
+
+	vectorRecord := &domain.MemeVector{
+		ID:                uuid.New().String(),
+		MemeID:            input.MemeID,
+		MD5Hash:           input.MD5Hash,
+		Collection:        index.Collection,
+		VectorType:        vectorType,
+		EmbeddingModel:    index.Embedding.GetModel(),
+		EmbeddingProvider: index.Provider,
+		EmbeddingMode:     normalizeEmbeddingMode(index.EmbeddingMode),
+		Dimension:         index.EmbeddingDimension,
+		InputHash:         inputHash,
+		DescriptionID:     input.DescriptionID,
+		QdrantPointID:     pointID,
+		Status:            domain.MemeVectorStatusActive,
+		CreatedAt:         time.Now(),
+	}
+
+	if vectorRecord.Dimension <= 0 {
+		vectorRecord.Dimension = index.Embedding.GetDimensions()
+	}
+
+	if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
+		if delErr := index.QdrantRepo.Delete(ctx, pointID); delErr != nil {
+			logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
+		}
+		return fmt.Errorf("failed to save vector record: %w", err)
+	}
+
+	return nil
+}
+
+func vectorRouteKey(collection, vectorType string) string {
+	return collection + "\x00" + vectorType
+}
+
+func normalizeIngestVectorType(vectorType string) string {
+	switch vectorType {
+	case domain.MemeVectorTypeCaption, domain.MemeVectorTypeFused:
+		return vectorType
+	default:
+		return domain.MemeVectorTypeImage
+	}
+}
+
+func IngestVectorTypeForDocumentMode(documentMode string) string {
+	if normalizeEmbeddingDocumentMode(documentMode) == embeddingDocumentText {
+		return domain.MemeVectorTypeCaption
+	}
+	return domain.MemeVectorTypeImage
+}
+
+func normalizeEmbeddingMode(mode string) string {
+	if mode == domain.MemeVectorEmbeddingModeFusion {
+		return domain.MemeVectorEmbeddingModeFusion
+	}
+	return domain.MemeVectorEmbeddingModeIndependent
+}
+
 func (s *IngestService) readImage(item *source.MemeItem) ([]byte, error) {
 	if item.LocalPath != "" {
 		return os.ReadFile(item.LocalPath)
@@ -601,6 +787,11 @@ func (s *IngestService) readImage(item *source.MemeItem) ([]byte, error) {
 
 func calculateMD5(data []byte) string {
 	hash := md5.Sum(data)
+	return hex.EncodeToString(hash[:])
+}
+
+func calculateSHA256(text string) string {
+	hash := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(hash[:])
 }
 
@@ -746,26 +937,22 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		default:
 		}
 
-		// Check if vector already exists for this meme in the current collection
-		if s.vectorRepo != nil {
-			exists, err := s.vectorRepo.ExistsByMD5AndCollection(ctx, meme.MD5Hash, s.collection)
-			if err != nil {
-				logger.CtxError(ctx, "Failed to check vector existence: meme_id=%s, error=%v", meme.ID, err)
+		targetIndexes, err := s.missingVectorIndexes(ctx, meme.MD5Hash, false)
+		if err != nil {
+			logger.CtxError(ctx, "Failed to check vector completeness: meme_id=%s, error=%v", meme.ID, err)
+			stats.FailedItems++
+			continue
+		}
+		if len(targetIndexes) == 0 {
+			meme.Status = domain.MemeStatusActive
+			meme.UpdatedAt = time.Now()
+			if err := s.memeRepo.Update(ctx, &meme); err != nil {
+				logger.CtxError(ctx, "Failed to update meme status: meme_id=%s, error=%v", meme.ID, err)
 				stats.FailedItems++
 				continue
 			}
-			if exists {
-				// Vector already exists, just update meme status to active
-				meme.Status = domain.MemeStatusActive
-				meme.UpdatedAt = time.Now()
-				if err := s.memeRepo.Update(ctx, &meme); err != nil {
-					logger.CtxError(ctx, "Failed to update meme status: meme_id=%s, error=%v", meme.ID, err)
-					stats.FailedItems++
-					continue
-				}
-				stats.ProcessedItems++
-				continue
-			}
+			stats.ProcessedItems++
+			continue
 		}
 
 		// Download from storage
@@ -858,27 +1045,15 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 		}
 
 		compactDesc := compactDescription(description)
-		embeddingText := buildEmbeddingText(
+		captionText := buildCaptionEmbeddingText(
 			ocrText,
 			compactDesc,
+			meme.Category,
 			meme.Tags,
 			extractEmotionWords(description),
 		)
 		bm25Text := buildBM25Text(ocrText, compactDesc, meme.Tags)
-		embedding, err := s.embedding.EmbedDocument(ctx, EmbeddingDocument{
-			Text:     embeddingText,
-			ImageURL: s.storage.GetURL(meme.StorageKey),
-		})
-		if err != nil {
-			logger.CtxWarn(ctx, "Failed to generate embedding: error=%v", err)
-			stats.FailedItems++
-			continue
-		}
-
-		// Generate a new point ID for this vector
-		pointID := uuid.New().String()
-
-		// Upsert to Qdrant
+		imageURL := s.storage.GetURL(meme.StorageKey)
 		payload := &repository.MemePayload{
 			MemeID:         meme.ID,
 			SourceType:     meme.SourceType,
@@ -886,38 +1061,23 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			Tags:           meme.Tags,
 			VLMDescription: description,
 			OCRText:        ocrText,
-			StorageURL:     s.storage.GetURL(meme.StorageKey),
+			StorageURL:     imageURL,
 		}
 
-		if err := s.qdrantRepo.UpsertHybrid(ctx, pointID, embedding, bm25Text, payload); err != nil {
-			logger.CtxError(ctx, "Failed to upsert to Qdrant: error=%v", err)
+		if err := s.upsertVectorIndexes(ctx, targetIndexes, vectorUpsertInput{
+			MemeID:         meme.ID,
+			MD5Hash:        meme.MD5Hash,
+			DescriptionID:  descriptionID,
+			ImageURL:       imageURL,
+			ImageData:      imageData,
+			ImageMediaType: getContentType(meme.Format),
+			CaptionText:    captionText,
+			BM25Text:       bm25Text,
+			Payload:        payload,
+		}); err != nil {
+			logger.CtxError(ctx, "Failed to upsert vector indexes: meme_id=%s, error=%v", meme.ID, err)
 			stats.FailedItems++
 			continue
-		}
-
-		// Create meme_vectors record to track this vector
-		if s.vectorRepo != nil {
-			vectorRecord := &domain.MemeVector{
-				ID:             uuid.New().String(),
-				MemeID:         meme.ID,
-				MD5Hash:        meme.MD5Hash,
-				Collection:     s.collection,
-				EmbeddingModel: s.embedding.GetModel(),
-				DescriptionID:  descriptionID,
-				QdrantPointID:  pointID,
-				Status:         domain.MemeVectorStatusActive,
-				CreatedAt:      time.Now(),
-			}
-
-			if err := s.vectorRepo.Create(ctx, vectorRecord); err != nil {
-				// Rollback: delete from Qdrant
-				if delErr := s.qdrantRepo.Delete(ctx, pointID); delErr != nil {
-					logger.CtxError(ctx, "Failed to rollback Qdrant upsert: point_id=%s, error=%v", pointID, delErr)
-				}
-				logger.CtxError(ctx, "Failed to save vector record: meme_id=%s, error=%v", meme.ID, err)
-				stats.FailedItems++
-				continue
-			}
 		}
 
 		// Update meme status to active
@@ -930,8 +1090,8 @@ func (s *IngestService) RetryPending(ctx context.Context, limit int) (*IngestSta
 			continue
 		}
 
-		logger.CtxDebug(ctx, "Retry processed: meme_id=%s, point_id=%s, collection=%s, model=%s",
-			meme.ID, pointID, s.collection, s.embedding.GetModel())
+		logger.CtxDebug(ctx, "Retry processed: meme_id=%s, vectors=%d",
+			meme.ID, len(targetIndexes))
 
 		stats.ProcessedItems++
 	}

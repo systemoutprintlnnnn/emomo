@@ -15,12 +15,35 @@ import (
 type SearchConfig struct {
 	ScoreThreshold    float32
 	DefaultCollection string // Default search collection key (embedding config name)
+	DefaultProfile    string
+	Retrieval         RetrievalConfig
 }
 
 // CollectionConfig holds configuration for a single collection.
 type CollectionConfig struct {
 	QdrantRepo *repository.QdrantRepository
 	Embedding  EmbeddingProvider
+}
+
+// RetrievalConfig controls multi-route search limits and weights.
+type RetrievalConfig struct {
+	ImageTopK   int
+	CaptionTopK int
+	FinalTopK   int
+	Weights     RetrievalWeights
+}
+
+// RetrievalWeights controls weighted rank fusion across search routes.
+type RetrievalWeights struct {
+	Image   float32
+	Caption float32
+	Keyword float32
+}
+
+// SearchProfileConfig binds image and caption vector collections into one profile.
+type SearchProfileConfig struct {
+	Image   *CollectionConfig
+	Caption *CollectionConfig
 }
 
 // SearchService handles meme search operations.
@@ -34,9 +57,12 @@ type SearchService struct {
 	logger            *logger.Logger
 	scoreThreshold    float32
 	defaultCollection string
+	defaultProfile    string
+	retrieval         RetrievalConfig
 
 	// Multi-collection support: collection name -> config
 	collections map[string]*CollectionConfig
+	profiles    map[string]*SearchProfileConfig
 }
 
 // NewSearchService creates a new search service.
@@ -64,9 +90,13 @@ func NewSearchService(
 ) *SearchService {
 	var threshold float32
 	var defaultCollection string
+	var defaultProfile string
+	retrieval := defaultRetrievalConfig()
 	if cfg != nil {
 		threshold = cfg.ScoreThreshold
 		defaultCollection = cfg.DefaultCollection
+		defaultProfile = cfg.DefaultProfile
+		retrieval = normalizeRetrievalConfig(cfg.Retrieval)
 	}
 	return &SearchService{
 		memeRepo:          memeRepo,
@@ -78,7 +108,10 @@ func NewSearchService(
 		logger:            log,
 		scoreThreshold:    threshold,
 		defaultCollection: defaultCollection,
+		defaultProfile:    defaultProfile,
+		retrieval:         retrieval,
 		collections:       make(map[string]*CollectionConfig),
+		profiles:          make(map[string]*SearchProfileConfig),
 	}
 }
 
@@ -93,6 +126,26 @@ func (s *SearchService) RegisterCollection(name string, qdrantRepo *repository.Q
 	s.collections[name] = &CollectionConfig{
 		QdrantRepo: qdrantRepo,
 		Embedding:  embedding,
+	}
+}
+
+// RegisterProfile registers a multi-route search profile.
+func (s *SearchService) RegisterProfile(
+	name string,
+	imageRepo *repository.QdrantRepository,
+	imageEmbedding EmbeddingProvider,
+	captionRepo *repository.QdrantRepository,
+	captionEmbedding EmbeddingProvider,
+) {
+	s.profiles[name] = &SearchProfileConfig{
+		Image: &CollectionConfig{
+			QdrantRepo: imageRepo,
+			Embedding:  imageEmbedding,
+		},
+		Caption: &CollectionConfig{
+			QdrantRepo: captionRepo,
+			Embedding:  captionEmbedding,
+		},
 	}
 }
 
@@ -119,6 +172,26 @@ func (s *SearchService) GetAvailableCollections() []string {
 	return collections
 }
 
+// GetAvailableProfiles returns the list of available search profile keys.
+func (s *SearchService) GetAvailableProfiles() []string {
+	profiles := make([]string, 0, len(s.profiles)+1)
+	if s.defaultProfile != "" {
+		profiles = append(profiles, s.defaultProfile)
+	}
+
+	remaining := make([]string, 0, len(s.profiles))
+	for name := range s.profiles {
+		if name != s.defaultProfile {
+			remaining = append(remaining, name)
+		}
+	}
+
+	sort.Strings(remaining)
+	profiles = append(profiles, remaining...)
+
+	return profiles
+}
+
 func (s *SearchService) resolveCollection(name string) (*repository.QdrantRepository, EmbeddingProvider, string, error) {
 	if name == "" {
 		return s.defaultQdrantRepo, s.defaultEmbedding, s.defaultCollection, nil
@@ -130,6 +203,68 @@ func (s *SearchService) resolveCollection(name string) (*repository.QdrantReposi
 	}
 
 	return cfg.QdrantRepo, cfg.Embedding, name, nil
+}
+
+func (s *SearchService) resolveProfile(name string) (*SearchProfileConfig, string, bool) {
+	if name == "" {
+		name = s.defaultProfile
+	}
+	if name == "" {
+		return nil, "", false
+	}
+	cfg, ok := s.profiles[name]
+	return cfg, name, ok
+}
+
+func defaultRetrievalConfig() RetrievalConfig {
+	return RetrievalConfig{
+		ImageTopK:   100,
+		CaptionTopK: 100,
+		FinalTopK:   20,
+		Weights: RetrievalWeights{
+			Image:   0.60,
+			Caption: 0.30,
+			Keyword: 0.10,
+		},
+	}
+}
+
+func normalizeRetrievalConfig(cfg RetrievalConfig) RetrievalConfig {
+	defaults := defaultRetrievalConfig()
+	if cfg.ImageTopK <= 0 {
+		cfg.ImageTopK = defaults.ImageTopK
+	}
+	if cfg.CaptionTopK <= 0 {
+		cfg.CaptionTopK = defaults.CaptionTopK
+	}
+	if cfg.FinalTopK <= 0 {
+		cfg.FinalTopK = defaults.FinalTopK
+	}
+	if cfg.Weights.Image == 0 && cfg.Weights.Caption == 0 && cfg.Weights.Keyword == 0 {
+		cfg.Weights = defaults.Weights
+	}
+	return cfg
+}
+
+func (s *SearchService) resolveRequestedProfile(req *SearchRequest) (*SearchProfileConfig, string, bool, error) {
+	requested := req.Profile
+	if requested == "" {
+		requested = req.Collection
+	}
+	if requested == "" {
+		requested = s.defaultProfile
+	}
+	if requested == "" {
+		return nil, "", false, nil
+	}
+	profile, name, ok := s.resolveProfile(requested)
+	if ok {
+		return profile, name, true, nil
+	}
+	if req.Profile != "" {
+		return nil, "", false, fmt.Errorf("unknown profile: %s", req.Profile)
+	}
+	return nil, "", false, nil
 }
 
 // log returns a logger from context if available, otherwise returns the default logger
@@ -147,6 +282,7 @@ type SearchRequest struct {
 	Category   *string `json:"category,omitempty"`
 	SourceType *string `json:"source_type,omitempty"`
 	Collection string  `json:"collection,omitempty"` // Optional: specify which collection to search
+	Profile    string  `json:"profile,omitempty"`    // Optional: specify multi-route search profile
 }
 
 // SearchResult represents a single search result.
@@ -168,6 +304,7 @@ type SearchResponse struct {
 	Query         string         `json:"query"`
 	ExpandedQuery string         `json:"expanded_query,omitempty"`
 	Collection    string         `json:"collection,omitempty"` // Which collection was searched
+	Profile       string         `json:"profile,omitempty"`    // Which profile was searched
 }
 
 // SearchProgress represents a progress update during streaming search.
@@ -196,11 +333,6 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 		req.TopK = 100
 	}
 
-	qdrantRepo, embedding, collectionName, err := s.resolveCollection(req.Collection)
-	if err != nil {
-		return nil, err
-	}
-
 	originalQuery := req.Query
 	route := classifyQuery(originalQuery)
 	expandedQuery := ""
@@ -227,6 +359,17 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	queryForEmbedding := originalQuery
 	if expandedQuery != "" {
 		queryForEmbedding = expandedQuery
+	}
+
+	if profile, profileName, ok, err := s.resolveRequestedProfile(req); err != nil {
+		return nil, err
+	} else if ok {
+		return s.searchProfile(ctx, req, profileName, profile, originalQuery, queryForEmbedding, expandedQuery)
+	}
+
+	qdrantRepo, embedding, collectionName, err := s.resolveCollection(req.Collection)
+	if err != nil {
+		return nil, err
 	}
 
 	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s, route=%s",
@@ -314,6 +457,186 @@ func (s *SearchService) TextSearch(ctx context.Context, req *SearchRequest) (*Se
 	}, nil
 }
 
+func (s *SearchService) searchProfile(
+	ctx context.Context,
+	req *SearchRequest,
+	profileName string,
+	profile *SearchProfileConfig,
+	originalQuery string,
+	queryForEmbedding string,
+	expandedQuery string,
+) (*SearchResponse, error) {
+	if profile == nil || profile.Image == nil || profile.Caption == nil ||
+		profile.Image.QdrantRepo == nil || profile.Image.Embedding == nil ||
+		profile.Caption.QdrantRepo == nil || profile.Caption.Embedding == nil {
+		return nil, fmt.Errorf("profile %q is incomplete", profileName)
+	}
+
+	logger.CtxInfo(ctx, "Performing profile search: query=%q, query_for_embedding=%q, top_k=%d, profile=%s",
+		originalQuery, queryForEmbedding, req.TopK, profileName)
+
+	imageQueryEmbedding, err := profile.Image.Embedding.EmbedQuery(ctx, queryForEmbedding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate image route query embedding: %w", err)
+	}
+
+	captionQueryEmbedding, err := profile.Caption.Embedding.EmbedQuery(ctx, queryForEmbedding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate caption route query embedding: %w", err)
+	}
+
+	filters := &repository.SearchFilters{
+		Category:   req.Category,
+		SourceType: req.SourceType,
+	}
+
+	imageResults, imageErr := profile.Image.QdrantRepo.Search(ctx, imageQueryEmbedding, s.retrieval.ImageTopK, filters)
+	if imageErr != nil {
+		logger.CtxWarn(ctx, "Profile image search failed: profile=%s, error=%v", profileName, imageErr)
+		imageResults = nil
+	}
+
+	captionResults, captionErr := profile.Caption.QdrantRepo.Search(ctx, captionQueryEmbedding, s.retrieval.CaptionTopK, filters)
+	if captionErr != nil {
+		logger.CtxWarn(ctx, "Profile caption search failed: profile=%s, error=%v", profileName, captionErr)
+		captionResults = nil
+	}
+
+	keywordResults, keywordErr := profile.Caption.QdrantRepo.SparseSearch(ctx, originalQuery, s.retrieval.CaptionTopK, filters)
+	if keywordErr != nil {
+		logger.CtxWarn(ctx, "Profile keyword search failed: profile=%s, error=%v", profileName, keywordErr)
+		keywordResults = nil
+	}
+
+	if imageErr != nil && captionErr != nil && keywordErr != nil {
+		return nil, fmt.Errorf("all profile search routes failed: image=%v, caption=%v, keyword=%v", imageErr, captionErr, keywordErr)
+	}
+
+	finalTopK := req.TopK
+	if finalTopK <= 0 {
+		finalTopK = s.retrieval.FinalTopK
+	}
+	results := fuseProfileResults(imageResults, captionResults, keywordResults, s.retrieval.Weights, finalTopK)
+	s.enrichSearchResults(ctx, results)
+
+	return &SearchResponse{
+		Results:       results,
+		Total:         len(results),
+		Query:         originalQuery,
+		ExpandedQuery: expandedQuery,
+		Profile:       profileName,
+	}, nil
+}
+
+type routeResults struct {
+	results []repository.SearchResult
+	weight  float32
+}
+
+func fuseProfileResults(
+	imageResults []repository.SearchResult,
+	captionResults []repository.SearchResult,
+	keywordResults []repository.SearchResult,
+	weights RetrievalWeights,
+	topK int,
+) []SearchResult {
+	if topK <= 0 {
+		topK = 20
+	}
+	routes := []routeResults{
+		{results: imageResults, weight: weights.Image},
+		{results: captionResults, weight: weights.Caption},
+		{results: keywordResults, weight: weights.Keyword},
+	}
+
+	type scoredResult struct {
+		result SearchResult
+		score  float32
+	}
+	byMemeID := make(map[string]*scoredResult)
+	maxScore := float32(0)
+	for _, route := range routes {
+		if route.weight <= 0 {
+			continue
+		}
+		for rank, qr := range route.results {
+			if qr.Payload == nil || qr.Payload.MemeID == "" {
+				continue
+			}
+			rankScore := route.weight * (1 / float32(rank+60))
+			item, ok := byMemeID[qr.Payload.MemeID]
+			if !ok {
+				item = &scoredResult{
+					result: SearchResult{
+						ID:          qr.Payload.MemeID,
+						URL:         qr.Payload.StorageURL,
+						Description: qr.Payload.VLMDescription,
+						Category:    qr.Payload.Category,
+						Tags:        qr.Payload.Tags,
+					},
+				}
+				byMemeID[qr.Payload.MemeID] = item
+			}
+			item.score += rankScore
+			if item.score > maxScore {
+				maxScore = item.score
+			}
+		}
+	}
+
+	items := make([]scoredResult, 0, len(byMemeID))
+	for _, item := range byMemeID {
+		if maxScore > 0 {
+			item.result.Score = item.score / maxScore
+		}
+		items = append(items, *item)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].result.Score == items[j].result.Score {
+			return items[i].result.ID < items[j].result.ID
+		}
+		return items[i].result.Score > items[j].result.Score
+	})
+
+	if len(items) > topK {
+		items = items[:topK]
+	}
+
+	results := make([]SearchResult, len(items))
+	for i := range items {
+		results[i] = items[i].result
+	}
+	return results
+}
+
+func (s *SearchService) enrichSearchResults(ctx context.Context, results []SearchResult) {
+	if len(results) == 0 || s.memeRepo == nil {
+		return
+	}
+	ids := make([]string, len(results))
+	for i, r := range results {
+		ids[i] = r.ID
+	}
+
+	memes, err := s.memeRepo.GetByIDs(ctx, ids)
+	if err != nil {
+		logger.CtxWarn(ctx, "Failed to enrich results from database: error=%v", err)
+		return
+	}
+
+	memeMap := make(map[string]*domain.Meme)
+	for i := range memes {
+		memeMap[memes[i].ID] = &memes[i]
+	}
+
+	for i := range results {
+		if meme, ok := memeMap[results[i].ID]; ok {
+			results[i].Width = meme.Width
+			results[i].Height = meme.Height
+		}
+	}
+}
+
 // TextSearchWithProgress performs a hybrid text search with progress updates.
 // Parameters:
 //   - ctx: context for cancellation and deadlines.
@@ -332,11 +655,6 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 	}
 	if req.TopK > 100 {
 		req.TopK = 100
-	}
-
-	qdrantRepo, embedding, collectionName, err := s.resolveCollection(req.Collection)
-	if err != nil {
-		return nil, err
 	}
 
 	originalQuery := req.Query
@@ -398,6 +716,31 @@ func (s *SearchService) TextSearchWithProgress(ctx context.Context, req *SearchR
 	progressCh <- SearchProgress{
 		Stage:   "embedding",
 		Message: "正在生成语义向量...",
+	}
+
+	if profile, profileName, ok, err := s.resolveRequestedProfile(req); err != nil {
+		return nil, err
+	} else if ok {
+		progressCh <- SearchProgress{
+			Stage:   "searching",
+			Message: "在表情库中搜索...",
+		}
+		result, err := s.searchProfile(ctx, req, profileName, profile, originalQuery, queryForEmbedding, expandedQuery)
+		if err != nil {
+			return nil, err
+		}
+		if len(result.Results) > 0 {
+			progressCh <- SearchProgress{
+				Stage:   "enriching",
+				Message: "加载表情包详情...",
+			}
+		}
+		return result, nil
+	}
+
+	qdrantRepo, embedding, collectionName, err := s.resolveCollection(req.Collection)
+	if err != nil {
+		return nil, err
 	}
 
 	logger.CtxInfo(ctx, "Performing text search: query=%q, query_for_embedding=%q, top_k=%d, collection=%s, route=%s",
@@ -612,5 +955,6 @@ func (s *SearchService) GetStats(ctx context.Context) (map[string]interface{}, e
 		"total_pending":         pendingCount,
 		"total_categories":      len(categories),
 		"available_collections": s.GetAvailableCollections(),
+		"available_profiles":    s.GetAvailableProfiles(),
 	}, nil
 }

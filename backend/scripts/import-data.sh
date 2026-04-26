@@ -54,8 +54,9 @@ usage() {
                                 - localdir: 从本地静态图片目录导入
     -p, --path PATH             本地静态图片目录，覆盖配置中的 sources.localdir.root_path
     -l, --limit LIMIT           导入数量限制（默认: ${DEFAULT_LIMIT}）
-    -e, --embedding NAME        使用的 embedding 配置名称（如 jina, qwen3）
+    -e, --embedding NAME        使用单一路 embedding 配置名称（如 qwen3vl_caption）
                                 留空则使用默认配置
+    --profile NAME              使用多路检索 profile 导入（默认: 配置中的 search.default_profile）
     -c, --config PATH           配置文件路径（默认: ${DEFAULT_CONFIG}）
     -f, --force                 强制重新处理，跳过重复检查
     -m, --auto-migrate          启用数据库 AutoMigrate（默认: 否）
@@ -66,8 +67,8 @@ usage() {
     # 从本地目录导入 50 条数据
     $0 -p ./data/memes -l 50
 
-    # 使用 jina embedding 导入
-    $0 -p ./data/memes -e jina -l 100
+    # 使用 qwen3vl profile 导入 image + caption 两路向量
+    $0 -p ./data/memes --profile qwen3vl -l 100
 
     # 强制重新处理（跳过重复检查）
     $0 -p ./data/memes -f
@@ -98,6 +99,7 @@ main() {
     local source_path=""
     local limit="$DEFAULT_LIMIT"
     local embedding=""
+    local profile=""
     local config_path="$DEFAULT_CONFIG"
     local force=false
     local auto_migrate=false
@@ -120,6 +122,10 @@ main() {
                 ;;
             -e|--embedding)
                 embedding="$2"
+                shift 2
+                ;;
+            --profile)
+                profile="$2"
                 shift 2
                 ;;
             -c|--config)
@@ -169,6 +175,9 @@ main() {
         if [ -n "$embedding" ]; then
             cmd="$cmd --embedding=$embedding"
         fi
+        if [ -n "$profile" ]; then
+            cmd="$cmd --profile=$profile"
+        fi
         if [ "$auto_migrate" = true ]; then
             cmd="$cmd --auto-migrate"
         fi
@@ -176,6 +185,7 @@ main() {
         info "执行命令: $cmd"
         run_ingest --retry --limit="$limit" --config="$config_path" \
             $([ -n "$embedding" ] && echo "--embedding=$embedding") \
+            $([ -n "$profile" ] && echo "--profile=$profile") \
             $([ "$auto_migrate" = true ] && echo "--auto-migrate")
         exit 0
     fi
@@ -199,8 +209,10 @@ main() {
     info "配置文件: $config_path"
     if [ -n "$embedding" ]; then
         info "Embedding 配置: $embedding"
+    elif [ -n "$profile" ]; then
+        info "Search Profile: $profile"
     else
-        info "Embedding 配置: 默认"
+        info "Search Profile: 默认"
     fi
     if [ "$force" = true ]; then
         info "强制模式: 是（跳过重复检查）"
@@ -220,6 +232,9 @@ main() {
     if [ -n "$embedding" ]; then
         args="$args --embedding=$embedding"
     fi
+    if [ -n "$profile" ]; then
+        args="$args --profile=$profile"
+    fi
     if [ "$auto_migrate" = true ]; then
         args="$args --auto-migrate"
     fi
@@ -235,6 +250,7 @@ main() {
     run_ingest --source="$source_type" --limit="$limit" --config="$config_path" \
         $([ -n "$source_path" ] && echo "--path=$source_path") \
         $([ -n "$embedding" ] && echo "--embedding=$embedding") \
+        $([ -n "$profile" ] && echo "--profile=$profile") \
         $([ "$force" = true ] && echo "--force") \
         $([ "$auto_migrate" = true ] && echo "--auto-migrate")
 }

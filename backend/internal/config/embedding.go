@@ -9,7 +9,7 @@ import (
 // This is the unified configuration structure used across the application.
 type EmbeddingConfig struct {
 	Name         string `mapstructure:"name"`          // Unique identifier for this embedding config
-	Provider     string `mapstructure:"provider"`      // Provider type: "jina", "modelscope", "openai-compatible"
+	Provider     string `mapstructure:"provider"`      // Provider type: "jina", "modelscope", "openai-compatible", "siliconflow"
 	Model        string `mapstructure:"model"`         // Model name/ID
 	APIKey       string `mapstructure:"api_key"`       // API key (can be set directly or via env var)
 	APIKeyEnv    string `mapstructure:"api_key_env"`   // Environment variable name for API key
@@ -58,7 +58,7 @@ func (c *EmbeddingConfig) Validate() error {
 
 	// Validate provider is known
 	switch c.Provider {
-	case "jina", "modelscope", "openai-compatible":
+	case "jina", "modelscope", "openai-compatible", "siliconflow":
 		// Valid providers
 	default:
 		return fmt.Errorf("embedding %q: unknown provider %q", c.Name, c.Provider)

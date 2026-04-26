@@ -56,6 +56,7 @@ func main() {
 	autoMigrate := flag.Bool("auto-migrate", false, "Run database auto-migrations before ingest")
 	configPath := flag.String("config", "", "Path to config file")
 	embeddingName := flag.String("embedding", "", "Embedding config name (e.g., 'jina', 'qwen3'). If empty, uses default")
+	profileName := flag.String("profile", "", "Search profile name for multi-vector ingestion (e.g., 'qwen3vl'). Defaults to search.default_profile")
 	flag.Parse()
 
 	// Load configuration
@@ -70,42 +71,6 @@ func main() {
 		cfg.Database.AutoMigrate = false
 	}
 
-	// Determine embedding configuration
-	var embeddingCfg *config.EmbeddingConfig
-	if *embeddingName != "" {
-		embeddingCfg = cfg.GetEmbeddingByName(*embeddingName)
-		if embeddingCfg == nil {
-			appLogger.WithField("embedding", *embeddingName).Fatal("Unknown embedding configuration name")
-		}
-	} else {
-		embeddingCfg = cfg.GetDefaultEmbedding()
-		if embeddingCfg == nil {
-			appLogger.Fatal("No embedding configuration found")
-		}
-	}
-
-	// Resolve environment variables for the selected embedding
-	embeddingCfg.ResolveEnvVars()
-
-	// Validate embedding configuration
-	if err := embeddingCfg.ValidateWithAPIKey(); err != nil {
-		appLogger.WithError(err).Fatal("Invalid embedding configuration")
-	}
-
-	// Get collection name
-	collectionName := embeddingCfg.GetCollection(cfg.Qdrant.Collection)
-
-	appLogger.WithFields(logger.Fields{
-		"source":            *sourceType,
-		"limit":             *limit,
-		"retry":             *retryPending,
-		"force":             *force,
-		"embedding":         embeddingCfg.Name,
-		"embedding_model":   embeddingCfg.Model,
-		"embedding_dim":     embeddingCfg.Dimensions,
-		"qdrant_collection": collectionName,
-	}).Info("Starting ingestion")
-
 	// Initialize database
 	db, err := repository.InitDB(&cfg.Database)
 	if err != nil {
@@ -117,27 +82,87 @@ func main() {
 	vectorRepo := repository.NewMemeVectorRepository(db)
 	descRepo := repository.NewMemeDescriptionRepository(db)
 
-	// Initialize Qdrant repository
-	qdrantRepo, err := repository.NewQdrantRepository(&repository.QdrantConnectionConfig{
-		Host:            cfg.Qdrant.Host,
-		Port:            cfg.Qdrant.Port,
-		Collection:      collectionName,
-		APIKey:          cfg.Qdrant.APIKey,
-		UseTLS:          cfg.Qdrant.UseTLS,
-		VectorDimension: embeddingCfg.Dimensions,
+	embeddingRegistry, err := service.NewEmbeddingRegistry(&service.EmbeddingRegistryConfig{
+		Embeddings:        cfg.Embeddings,
+		QdrantHost:        cfg.Qdrant.Host,
+		QdrantPort:        cfg.Qdrant.Port,
+		QdrantAPIKey:      cfg.Qdrant.APIKey,
+		QdrantUseTLS:      cfg.Qdrant.UseTLS,
+		DefaultCollection: cfg.Qdrant.Collection,
+		Logger:            appLogger,
 	})
 	if err != nil {
-		appLogger.WithError(err).Fatal("Failed to initialize Qdrant repository")
+		appLogger.WithError(err).Fatal("Failed to initialize embedding registry")
 	}
-	defer qdrantRepo.Close()
+	defer embeddingRegistry.Close()
 
 	// Ensure Qdrant collection exists
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := qdrantRepo.EnsureCollection(ctx); err != nil {
-		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collection")
+	if err := embeddingRegistry.EnsureCollections(ctx); err != nil {
+		appLogger.WithError(err).Fatal("Failed to ensure Qdrant collections")
 	}
+
+	var ingestIndexes []service.IngestVectorIndex
+	var qdrantRepo *repository.QdrantRepository
+	var embeddingProvider service.EmbeddingProvider
+	collectionName := ""
+	activeProfile := ""
+	activeEmbedding := ""
+	fallbackVectorType := ""
+
+	if *embeddingName == "" {
+		var profileCfg *config.SearchProfileConfig
+		if *profileName != "" {
+			profileCfg = cfg.GetSearchProfileByName(*profileName)
+			if profileCfg == nil {
+				appLogger.WithField("profile", *profileName).Fatal("Unknown search profile")
+			}
+		} else {
+			profileCfg = cfg.GetDefaultSearchProfile()
+		}
+		if profileCfg != nil {
+			ingestIndexes, err = embeddingRegistry.BuildProfileIngestIndexes(profileCfg)
+			if err != nil {
+				appLogger.WithError(err).Fatal("Failed to build profile ingest indexes")
+			}
+			activeProfile = profileCfg.Name
+		}
+	}
+
+	if len(ingestIndexes) == 0 {
+		name := *embeddingName
+		if name == "" {
+			name = embeddingRegistry.DefaultName()
+		}
+		var ok bool
+		embeddingProvider, qdrantRepo, ok = embeddingRegistry.Get(name)
+		if !ok {
+			appLogger.WithField("embedding", name).Fatal("Unknown embedding configuration name")
+		}
+		if embCfg, ok := embeddingRegistry.GetConfig(name); ok {
+			fallbackVectorType = service.IngestVectorTypeForDocumentMode(embCfg.GetDocumentMode())
+		}
+		activeEmbedding = name
+		collectionName = qdrantRepo.GetCollectionName()
+	} else {
+		embeddingProvider, qdrantRepo = embeddingRegistry.Default()
+		if len(ingestIndexes) > 0 {
+			collectionName = ingestIndexes[0].Collection
+		}
+	}
+
+	appLogger.WithFields(logger.Fields{
+		"source":            *sourceType,
+		"limit":             *limit,
+		"retry":             *retryPending,
+		"force":             *force,
+		"embedding":         activeEmbedding,
+		"profile":           activeProfile,
+		"qdrant_collection": collectionName,
+		"vector_indexes":    len(ingestIndexes),
+	}).Info("Starting ingestion")
 
 	// Initialize S3-compatible storage
 	storageCfg := cfg.GetStorageConfig()
@@ -167,19 +192,6 @@ func main() {
 		BaseURL:  cfg.VLM.BaseURL,
 	})
 
-	// Create embedding provider
-	embeddingProvider, err := service.NewEmbeddingProvider(&service.EmbeddingProviderConfig{
-		Provider:     embeddingCfg.Provider,
-		Model:        embeddingCfg.Model,
-		APIKey:       embeddingCfg.APIKey,
-		BaseURL:      embeddingCfg.BaseURL,
-		DocumentMode: embeddingCfg.GetDocumentMode(),
-		Dimensions:   embeddingCfg.Dimensions,
-	})
-	if err != nil {
-		appLogger.WithError(err).Fatal("Failed to create embedding provider")
-	}
-
 	// Initialize ingest service
 	ingestService := service.NewIngestService(
 		memeRepo,
@@ -191,9 +203,11 @@ func main() {
 		embeddingProvider,
 		appLogger,
 		&service.IngestConfig{
-			Workers:    cfg.Ingest.Workers,
-			BatchSize:  cfg.Ingest.BatchSize,
-			Collection: collectionName,
+			Workers:       cfg.Ingest.Workers,
+			BatchSize:     cfg.Ingest.BatchSize,
+			Collection:    collectionName,
+			VectorType:    fallbackVectorType,
+			VectorIndexes: ingestIndexes,
 		},
 	)
 
@@ -236,6 +250,7 @@ func main() {
 			"failed":     stats.FailedItems,
 			"collection": collectionName,
 			"model":      embeddingProvider.GetModel(),
+			"profile":    activeProfile,
 		}).Info("Ingestion completed")
 	}
 }
