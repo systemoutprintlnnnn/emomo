@@ -356,6 +356,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 	var vlmDescription string
 	var ocrText string
 	var descriptionID string
+	createdDescription := false
 	var width, height int
 	uploaded := false
 	createdNewMeme := false // Track if we created a new meme record for rollback
@@ -379,6 +380,17 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 			} else {
 				logger.CtxDebug(ctx, "Rolled back storage upload: storage_key=%s", storageKey)
 			}
+		}
+	}
+
+	rollbackDescription := func() {
+		if !createdDescription || s.descRepo == nil || descriptionID == "" {
+			return
+		}
+		if delErr := s.descRepo.Delete(ctx, descriptionID); delErr != nil {
+			logger.CtxError(ctx, "Failed to rollback meme description: description_id=%s, error=%v", descriptionID, delErr)
+		} else {
+			logger.CtxDebug(ctx, "Rolled back meme description: description_id=%s", descriptionID)
 		}
 	}
 
@@ -501,6 +513,7 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 				return fmt.Errorf("failed to save VLM description: %w", err)
 			}
 			descriptionID = descRecord.ID
+			createdDescription = true
 			logger.CtxDebug(ctx, "Created new VLM description: md5=%s, vlm_model=%s, description_id=%s",
 				md5Hash, s.vlm.GetModel(), descriptionID)
 		}
@@ -548,6 +561,9 @@ func (s *IngestService) processItem(ctx context.Context, sourceType string, item
 		BM25Text:      bm25Text,
 		Payload:       payload,
 	}); err != nil {
+		rollbackDescription()
+		rollbackMeme()
+		rollbackStorage()
 		return err
 	}
 
