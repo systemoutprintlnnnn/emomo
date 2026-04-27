@@ -45,17 +45,6 @@
   color: var(--text-primary);
 }
 
-.logoBeta {
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-lavender);
-  color: white;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 /* Right section */
 .right {
   display: flex;
@@ -83,30 +72,6 @@
 .statLabel {
   font-size: var(--text-sm);
   color: var(--text-tertiary);
-}
-
-/* GitHub button */
-.githubBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--text-primary);
-  transition: all 0.2s ease;
-  box-shadow: var(--shadow-sm);
-}
-
-.githubBtn:hover {
-  background: var(--text-primary);
-  color: var(--bg-card);
-}
-
-.githubBtn svg {
-  width: 22px;
-  height: 22px;
 }
 
 /* Responsive */
